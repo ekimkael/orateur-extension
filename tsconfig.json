@@ -3,5 +3,8 @@
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "jsx": "react-jsx"
-  }
+  },
+  // ponytail: les tests tournent sous `node --test`, pas dans l'extension.
+  // Les exclure évite d'ajouter @types/node pour 3 assertions.
+  "exclude": ["**/*.test.ts"]
 }
