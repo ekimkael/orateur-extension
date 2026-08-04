@@ -1,130 +1,134 @@
-# Lecture de texte sélectionné
+# Selected-text reading
 
-Sélectionner du texte sur n'importe quelle page et le faire lire par Orateur,
-soit par le menu contextuel, soit par une bulle flottante.
+Select text on any page and have Orateur read it, either via the context
+menu or a floating bubble.
 
-## Ce que la feature fait — et ne fait pas
+## What the feature does — and doesn't do
 
-L'extension **ne contient aucun lecteur**. Elle n'a ni TTS, ni player, ni store :
-son unique rôle est d'extraire du contenu et de le transmettre à l'application
-web, qui possède déjà tout cela.
+The extension **contains no reader**. No TTS, no player, no store: its
+only job is to extract content and hand it off to the web app, which
+already has all of that.
 
 ```
-Sélection → extraction texte → validation → fragment d'URL → /articles/new
+Selection → text extraction → validation → URL fragment → /articles/new
 ```
 
-La lecture de sélection réutilise donc exactement le chemin de la sauvegarde
-d'article : `buildImportUrl()` encode le payload dans le fragment, `/articles/new`
-le lit via `readExtensionImport()` et préremplit le formulaire d'import. Rien
-n'est dupliqué.
+Reading a selection therefore reuses exactly the same path as saving an
+article: `buildImportUrl()` encodes the payload in the fragment,
+`/articles/new` reads it via `readExtensionImport()` and pre-fills the
+import form. Nothing is duplicated.
 
-## Fichiers
+## Files
 
-| Fichier | Rôle |
+| File | Role |
 | --- | --- |
-| `lib/selection-text.ts` | Extraction DOM → texte brut, normalisation, validation, troncature. Pur, testé. |
-| `lib/bubble-position.ts` | Placement de la bulle dans le viewport. Pur, testé. |
-| `lib/handoff.ts` | `textToParagraphHtml()` en plus de l'existant : texte → paragraphes échappés. |
-| `entrypoints/selection.content.ts` | Détection de sélection, bulle flottante, réponse au background. |
-| `entrypoints/background.ts` | Entrée de menu contextuel, réception des actions, ouverture du lecteur. |
+| `lib/selection-text.ts` | DOM extraction → plain text, normalization, validation, truncation. Pure, tested. |
+| `lib/bubble-position.ts` | Bubble placement within the viewport. Pure, tested. |
+| `lib/handoff.ts` | Adds `textToParagraphHtml()` to the existing code: text → escaped paragraphs. |
+| `entrypoints/selection.content.ts` | Selection detection, floating bubble, response to the background. |
+| `entrypoints/background.ts` | Context-menu entry, action handling, opening the reader. |
 
-## Les deux flux
+## The two flows
 
-**Menu contextuel** — l'entrée « Lire avec Orateur » est déclarée en
-`contexts: ["selection"]`, donc le navigateur ne l'affiche que sur une sélection.
-Au clic, le background interroge le content script du frame concerné
-(`info.frameId`) pour obtenir un texte propre, et retombe sur
-`info.selectionText` si le script n'est pas là.
+**Context menu** — the "Read with Orateur" entry is declared with
+`contexts: ["selection"]`, so the browser only shows it on a selection.
+On click, the background script queries the content script of the
+relevant frame (`info.frameId`) for clean text, and falls back to
+`info.selectionText` if the script isn't there.
 
-**Bulle flottante** — le content script écoute `mouseup`, `mousedown` et `keyup`
-sur le document. Au relâchement, il lit la sélection dans le tour suivant (elle
-n'est pas arrêtée avant), et affiche la bulle. Le clic envoie
-`{ type: "orateur:selection-action", action: "read", text, title, lang }` au
-background.
+**Floating bubble** — the content script listens for `mouseup`,
+`mousedown` and `keyup` on the document. On release, it reads the
+selection on the next tick (it isn't settled yet), and shows the bubble.
+Clicking it sends
+`{ type: "orateur:selection-action", action: "read", text, title, lang }`
+to the background.
 
-## Décisions
+## Decisions
 
-**Le texte voyage échappé, en paragraphes HTML.** Côté web,
-`createStoredArticleFromImport` interprète `content` comme du HTML dès qu'il y
-repère du balisage : envoyer le texte brut ferait avaler un `<div>` sélectionné
-sur une page de documentation. `textToParagraphHtml()` échappe `&`, `<` et `>`
-puis emballe chaque bloc dans un `<p>` — le trajet est réversible et aucun
-fragment de la page ne peut revenir comme du balisage. La sélection est traitée
-en donnée non fiable de bout en bout ; rien n'est jamais construit par
-`innerHTML`.
+**Text travels escaped, as HTML paragraphs.** On the web side,
+`createStoredArticleFromImport` treats `content` as HTML as soon as it
+spots markup: sending raw text would let a selected `<div>` from a docs
+page slip through. `textToParagraphHtml()` escapes `&`, `<` and `>` and
+wraps each block in a `<p>` — the trip is reversible and no fragment of
+the page can come back as markup. The selection is treated as untrusted
+data end to end; nothing is ever built with `innerHTML`.
 
-**La bulle coûte l'accès à toutes les pages.** Le reste de l'extension tient sur
-`activeTab` seul, sans avertissement à l'installation. La bulle doit être là
-*avant* le geste de l'utilisateur, donc son content script déclare
-`matches: ["<all_urls>"]` — ce qui déclenche l'avertissement « lire et modifier
-vos données sur tous les sites ». Le menu contextuel, lui, ne coûte rien.
-Retirer la bulle rendrait la permission inutile ; l'inverse n'est pas vrai.
+**The bubble costs access to all pages.** The rest of the extension runs
+on `activeTab` alone, with no install-time warning. The bubble has to be
+present *before* the user's gesture, so its content script declares
+`matches: ["<all_urls>"]` — which triggers the "read and change your data
+on all websites" warning. The context menu, on the other hand, costs
+nothing. Removing the bubble would make the permission unnecessary; the
+reverse isn't true.
 
-**Une lecture déjà en cours n'est pas gérée ici.** Chaque action ouvre un onglet
-vers `/articles/new`, comme la sauvegarde d'article. C'est Orateur qui arbitre —
-l'extension n'a pas d'état de lecture à consulter et ne doit pas s'en inventer un.
+**An in-progress read isn't handled here.** Every action opens a tab to
+`/articles/new`, just like saving an article. Orateur is the one that
+arbitrates — the extension has no reading state to consult and shouldn't
+invent one.
 
-**Trois écouteurs permanents, pas un de plus.** Pas de `MutationObserver`, pas de
-`selectionchange` (qui se déclenche à chaque déplacement du caret), pas de
-recalcul périodique. Les écouteurs volatils — `scroll`, `blur`,
-`visibilitychange` — ne sont branchés que pendant que la bulle est visible et
-retirés d'un seul `AbortController.abort()`.
+**Three permanent listeners, not one more.** No `MutationObserver`, no
+`selectionchange` (which fires on every caret move), no periodic
+recompute. The volatile listeners — `scroll`, `blur`,
+`visibilitychange` — are only wired up while the bubble is visible and
+are removed with a single `AbortController.abort()`.
 
-**Coordonnées viewport + `position: fixed`.** `getBoundingClientRect()` a déjà
-appliqué le scroll, le zoom navigateur et le ratio de pixels. Le placement n'a
-donc rien à en savoir, ce qui rend `placeBubble()` purement arithmétique et
-testable.
+**Viewport coordinates + `position: fixed`.** `getBoundingClientRect()`
+already accounts for scroll, browser zoom and pixel ratio. Placement
+doesn't need to know about any of that, which makes `placeBubble()`
+purely arithmetic and testable.
 
-## Cycle de vie de la bulle
+## Bubble lifecycle
 
-Elle disparaît sur : clic ailleurs (`mousedown` hors de l'hôte), nouvelle
-sélection, sélection vide, `Escape`, scroll, perte de focus de la fenêtre,
-changement d'onglet, et invalidation du contexte d'extension.
+It disappears on: click elsewhere (`mousedown` outside the host), new
+selection, empty selection, `Escape`, scroll, window blur, tab change,
+and extension-context invalidation.
 
-Elle ne bloque pas la sélection : le `mousedown` du bouton appelle
-`preventDefault()` pour que le caret ne se déplace pas, et l'hôte est en
-`position: fixed`, hors du flux de la page.
+It doesn't block selection: the button's `mousedown` calls
+`preventDefault()` so the caret doesn't move, and the host is
+`position: fixed`, out of the page flow.
 
-## Accessibilité
+## Accessibility
 
-Le bouton est un `<button>` natif dans un shadow root — il porte donc déjà
-`role="button"`, l'activation par Entrée/Espace et la navigation au clavier, sans
-ARIA redondant. Un `aria-label` complet remplace le libellé court. Le focus n'est
-jamais volé : le prendre effacerait la sélection. `prefers-reduced-motion`
-supprime l'animation d'apparition.
+The button is a native `<button>` inside a shadow root — so it already
+has `role="button"`, Enter/Space activation, and keyboard navigation,
+with no redundant ARIA. A full `aria-label` replaces the short label.
+Focus is never stolen: taking it would clear the selection.
+`prefers-reduced-motion` removes the appear animation.
 
-## Limites connues
+## Known limitations
 
-| Situation | Comportement |
+| Situation | Behavior |
 | --- | --- |
-| iframe same-origin **et** cross-origin | Fonctionne : `allFrames: true` donne à chaque frame sa propre instance, aucune traversée de frontière. |
-| Shadow DOM ouvert | Fonctionne, la sélection traverse. |
-| Shadow DOM fermé | La sélection n'est pas exposée par le navigateur ; la bulle ne s'affiche pas. |
-| Visionneuse PDF | Aucun content script n'y tourne. Le menu contextuel retombe sur `info.selectionText`. |
-| Google Docs | Texte peint dans un canvas, rien de sélectionnable au sens du DOM. Sans effet. |
-| `<input>` / `<textarea>` | Supportés via `selectionStart`/`selectionEnd` ; la bulle s'ancre sur le champ. |
-| `contenteditable` (Notion, CMS) | Supporté par le chemin normal. |
-| Pages internes (`about:`, boutiques d'extensions) | Aucun content script possible, par conception du navigateur. |
-| SPA (React, Vue, Angular) | Aucune dépendance au DOM initial : les écouteurs sont sur `document`, la navigation client ne casse rien. |
-| Sélection > 20 000 caractères | Tronquée à une frontière de mot, avec un badge d'avertissement. Jamais refusée. |
+| Same-origin **and** cross-origin iframes | Works: `allFrames: true` gives each frame its own instance, no crossing boundaries. |
+| Open shadow DOM | Works, selection passes through. |
+| Closed shadow DOM | Selection isn't exposed by the browser; the bubble doesn't show. |
+| PDF viewer | No content script runs there. The context menu falls back to `info.selectionText`. |
+| Google Docs | Text is painted on a canvas, nothing selectable in the DOM sense. No effect. |
+| `<input>` / `<textarea>` | Supported via `selectionStart`/`selectionEnd`; the bubble anchors to the field. |
+| `contenteditable` (Notion, CMS) | Supported through the normal path. |
+| Internal pages (`about:`, extension stores) | No content script possible, by browser design. |
+| SPAs (React, Vue, Angular) | No dependency on the initial DOM: listeners are on `document`, client-side navigation breaks nothing. |
+| Selection > 20,000 characters | Truncated at a word boundary, with a warning badge. Never rejected. |
 
-## Ajouter une action
+## Adding an action
 
-« Traduire », « Résumer », « Sauvegarder » :
+"Translate", "Summarize", "Save":
 
-1. Ajouter une entrée à `ACTIONS` dans `entrypoints/selection.content.ts`.
-2. Ajouter un cas dans le `if (message.action === …)` du background.
+1. Add an entry to `ACTIONS` in `entrypoints/selection.content.ts`.
+2. Add a case to the background's `if (message.action === …)`.
 
-La bulle et le menu contextuel ne portent aucune logique métier : ils
-transmettent un identifiant d'action et du texte.
+The bubble and context menu carry no business logic: they pass along an
+action id and text.
 
 ## Tests
 
-`npm test` couvre l'extraction (paragraphes, styles inline, listes, tableaux,
-liens, éléments inertes, `<br>`, Unicode/emoji), la validation (vide, blancs
-seuls, minimum, troncature sans casser de paire de substituts), les plages
-multiples de Firefox, l'échappement HTML et le placement de la bulle (basculement
-haut/bas, recadrage gauche/droite, viewport plus petit que la bulle).
+`npm test` covers extraction (paragraphs, inline styles, lists, tables,
+links, inert elements, `<br>`, Unicode/emoji), validation (empty,
+whitespace-only, minimum length, truncation without breaking a surrogate
+pair), Firefox's multiple ranges, HTML escaping, and bubble placement
+(top/bottom flip, left/right clamping, viewport smaller than the
+bubble).
 
-Le reste — apparition réelle de la bulle, ouverture du lecteur — relève du
-manuel : `npm run dev`, puis les scénarios du tableau des limites ci-dessus.
+The rest — the bubble actually appearing, the reader opening — is
+manual: `npm run dev`, then the scenarios in the limitations table
+above.
