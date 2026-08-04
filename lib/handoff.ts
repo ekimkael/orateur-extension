@@ -35,8 +35,36 @@ export function buildHandoffUrl(pageUrl: string, title?: string) {
 export interface HandoffPayload {
   content: string
   title?: string | null
-  url: string
+  /** Absente pour une sélection sur une page non transférable (file://, PDF). */
+  url?: string
   lang?: string | null
+}
+
+/**
+ * Convertit du texte brut en paragraphes HTML, entités échappées.
+ *
+ * Côté web, `createStoredArticleFromImport` interprète `content` comme du HTML
+ * dès qu'il y repère du balisage : une sélection contenant `<div>` serait
+ * avalée telle quelle. L'échappement rend le trajet réversible et garantit
+ * qu'aucun fragment de la page sélectionnée ne revient comme du balisage — la
+ * sélection est une donnée non fiable, jamais du HTML.
+ *
+ * Seuls `&`, `<` et `>` sont échappés : c'est tout ce qui compte dans un nœud
+ * texte, les guillemets n'y ouvrent pas d'attribut.
+ */
+export function textToParagraphHtml(text: string) {
+  return text
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map(
+      (block) =>
+        `<p>${block
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")}</p>`
+    )
+    .join("")
 }
 
 /**

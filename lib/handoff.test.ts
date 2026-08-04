@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { buildHandoffUrl, buildImportUrl, isSavable } from "./handoff.ts"
+import {
+  buildHandoffUrl,
+  buildImportUrl,
+  isSavable,
+  textToParagraphHtml,
+} from "./handoff.ts"
 
 test("isSavable n'accepte que http/https", () => {
   assert.equal(isSavable("https://example.com/article"), true)
@@ -43,6 +48,24 @@ test("buildImportUrl met le payload dans le fragment, pas dans la query", () => 
     JSON.parse(decodeURIComponent(built.hash.slice("#orateur=".length))),
     payload
   )
+})
+
+test("textToParagraphHtml transforme les blocs en paragraphes", () => {
+  assert.equal(
+    textToParagraphHtml("Premier paragraphe.\n\nDeuxième paragraphe."),
+    "<p>Premier paragraphe.</p><p>Deuxième paragraphe.</p>"
+  )
+})
+
+test("textToParagraphHtml échappe tout ce qui ressemble à du balisage", () => {
+  assert.equal(
+    textToParagraphHtml('Utiliser <div> & <img src=x onerror="alert(1)">'),
+    "<p>Utiliser &lt;div&gt; &amp; &lt;img src=x onerror=\"alert(1)\"&gt;</p>"
+  )
+})
+
+test("textToParagraphHtml ignore les blocs vides", () => {
+  assert.equal(textToParagraphHtml("\n\n  \n\nTexte\n\n \n\n"), "<p>Texte</p>")
 })
 
 test("buildImportUrl échappe les caractères qui couperaient le fragment", () => {
