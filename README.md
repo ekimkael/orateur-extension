@@ -1,7 +1,7 @@
 # Orateur — extension navigateur
 
 Envoie l'article de la page courante, ou n'importe quel texte sélectionné,
-vers [Orateur](https://orateur.app) pour l'écouter.
+vers Orateur pour l'écouter.
 
 ## Fonctionnalités
 
