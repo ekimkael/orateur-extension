@@ -2,7 +2,9 @@
 //
 // Copié de web/app/lib/supertonic/model-cache.ts sans modification.
 
-import { ONNX_FILES } from "./types"
+// Extension explicite : ce fichier est aussi chargé par `node --test` (via
+// tts-host.test.ts), dont le résolveur ESM ne devine pas l'extension.
+import { ONNX_FILES } from "./types.ts"
 
 const CACHE_DIR = "supertonic-v3"
 
