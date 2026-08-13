@@ -246,6 +246,7 @@ button {
   cursor: pointer;
   white-space: nowrap;
   animation: appear 120ms ease-out;
+  transition: opacity 100ms ease-out, transform 100ms ease-out;
 }
 button:hover { background: #1f2937 }
 button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px }
@@ -253,8 +254,18 @@ button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px }
   from { opacity: 0; transform: scale(0.92) }
   to { opacity: 1; transform: none }
 }
+:host([data-state="hiding"]) button {
+  opacity: 0;
+  transform: scale(0.92);
+}
 @media (prefers-reduced-motion: reduce) {
-  button { animation: none }
+  button {
+    animation: none;
+    transition: opacity 60ms ease-out;
+  }
+  :host([data-state="hiding"]) button {
+    transform: none;
+  }
 }`
 
 /**
@@ -291,10 +302,28 @@ function createBubble(onAction: (action: SelectionAction) => void) {
     buttons.push(button)
   }
 
+  let hideTimeout: ReturnType<typeof setTimeout> | undefined
+
+  // Detaches the host once the exit transition (or its fallback timer) fires.
+  // Referenced by name (not an inline closure) so `show()` can always detach
+  // it via `removeEventListener`, even mid fade-out.
+  function finishHide() {
+    clearTimeout(hideTimeout)
+    host.removeEventListener("transitionend", finishHide)
+    host.remove()
+    delete host.dataset.state
+  }
+
   return {
     host,
 
     show(rect: DOMRect) {
+      // Cancel any exit in progress — a reselection mid fade-out must not
+      // have the host removed out from under it.
+      clearTimeout(hideTimeout)
+      host.removeEventListener("transitionend", finishHide)
+      delete host.dataset.state
+
       // `body` est absent d'un document XML ou SVG.
       if (!host.isConnected) (document.body ?? document.documentElement).append(host)
 
@@ -315,7 +344,13 @@ function createBubble(onAction: (action: SelectionAction) => void) {
     },
 
     hide() {
-      host.remove()
+      if (!host.isConnected || host.dataset.state === "hiding") return
+      host.dataset.state = "hiding"
+      host.addEventListener("transitionend", finishHide, { once: true })
+      // Fallback in case transitionend never fires (e.g. the host is
+      // disconnected some other way mid-transition) — 100ms transition +
+      // 50ms safety margin.
+      hideTimeout = setTimeout(finishHide, 150)
     },
   }
 }
