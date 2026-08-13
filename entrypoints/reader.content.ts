@@ -8,7 +8,14 @@
  * pendant la lecture.
  */
 
-import { loadPrefs, savePrefs, onPrefsChanged, SPEEDS } from "../lib/reader-prefs"
+import {
+  loadPrefs,
+  savePrefs,
+  onPrefsChanged,
+  SPEED,
+  type ReaderEngine,
+  type ReaderPreferences,
+} from "../lib/reader-prefs"
 
 export interface ReadPagePayload {
   text: string
@@ -55,14 +62,45 @@ export default defineContentScript({
   async main(ctx) {
     let reading = false
     let paused = false
+    /** Position de lecture : le bloc en cours, et où la voix en est dedans. */
+    let blocks: string[] = []
+    let blockIndex = 0
+    let charIndex = 0
+    let lang: string | undefined
+    /**
+     * Numéro de la file en cours.
+     *
+     * Relancer la lecture passe par `cancel()`, qui fait remonter un `end` sur
+     * l'utterance coupée — indistinguable d'une fin naturelle. Chaque file
+     * garde le numéro qu'elle avait à sa création : celle qui n'est plus la
+     * courante sait que son `end` est un contrecoup et ne replie pas la
+     * pastille.
+     */
+    let generation = 0
+    /** Un réglage a changé pendant la pause : à appliquer à la reprise. */
+    let stale = false
     const token = Math.random().toString(36).slice(2)
-    const prefs = await loadPrefs()
+    // Réassigné, pas figé : une lecture doit partir sur les réglages du moment,
+    // y compris ceux changés depuis un autre onglet.
+    let prefs = await loadPrefs()
 
     const pill = createPill(onPrimary, onSecondary, prefs)
 
     browser.runtime.onMessage.addListener(onMessage)
     browser.storage.onChanged.addListener(onTokenChanged)
-    const unsubscribePrefs = onPrefsChanged((newPrefs) => pill.updatePrefs(newPrefs))
+    const unsubscribePrefs = onPrefsChanged((newPrefs) => {
+      const affectsVoice =
+        newPrefs.speed !== prefs.speed || newPrefs.voiceURI !== prefs.voiceURI
+      prefs = newPrefs
+      pill.updatePrefs(newPrefs)
+      if (!affectsVoice || !reading) return
+      // La synthèse ne réaccorde pas un utterance déjà lancé : le seul moyen
+      // d'entendre la nouvelle vitesse est de refaire la file à partir du mot
+      // en cours. En pause, on attend la reprise plutôt que de repartir tout
+      // seul — `cancel()` déferait la pause.
+      if (paused) stale = true
+      else speak()
+    })
     // La synthèse survit au déchargement de la page : sans ça la lecture
     // continue après un rechargement, hors de portée de la nouvelle pastille.
     ctx.addEventListener(window, "pagehide", () => reading && cancelSpeech())
@@ -93,7 +131,12 @@ export default defineContentScript({
         // le sien à jour qu'après coup, on relirait l'état d'avant le clic.
         paused = !paused
         if (paused) speechSynthesis.pause()
-        else speechSynthesis.resume()
+        // La file en attente porte encore l'ancienne vitesse : la refaire plutôt
+        // que la reprendre, sinon le réglage change au bloc suivant seulement.
+        else if (stale) {
+          stale = false
+          speak()
+        } else speechSynthesis.resume()
         pill.setState(paused ? "paused" : "playing")
         return
       }
@@ -116,18 +159,72 @@ export default defineContentScript({
     }
 
     function start(payload: ReadPagePayload) {
-      cancelSpeech()
-      const queue = toUtterances(payload)
-      if (!queue.length) return fold()
+      // Un bloc par paragraphe, pour éviter la limite de longueur de Chrome.
+      blocks = payload.text
+        .split(/\n{2,}/)
+        .map((block) => block.trim())
+        .filter(Boolean)
+      if (!blocks.length) return fold()
 
+      blockIndex = 0
+      charIndex = 0
+      lang = payload.lang
       reading = true
       paused = false
+      stale = false
       // Prendre la parole : les pastilles des autres onglets s'en déduisent.
       void browser.storage.local.set({ [READER_TOKEN]: token })
       // La pastille a pu être masquée : une lecture lancée depuis le menu
       // contextuel doit quand même offrir de quoi l'arrêter.
       pill.attach()
       pill.setState("playing", payload.title ?? "")
+      speak()
+    }
+
+    /**
+     * Met en file ce qu'il reste à lire, aux réglages du moment.
+     *
+     * Appelée au démarrage comme à chaque changement de vitesse ou de voix :
+     * dans les deux cas on repart de `blockIndex`/`charIndex`, donc du mot où
+     * la voix en était.
+     */
+    function speak() {
+      const mine = ++generation
+      cancelSpeech()
+
+      // Résolue une fois pour toute la file : `getVoices()` reconstruit sa
+      // liste à chaque appel. Introuvable (voix désinstallée, autre machine)
+      // vaut défaut.
+      const voice = prefs.voiceURI
+        ? speechSynthesis.getVoices().find((v) => v.voiceURI === prefs.voiceURI)
+        : undefined
+
+      const queue = blocks.slice(blockIndex).map((block, offset) => {
+        // Seul le premier bloc reprend en cours de route ; les suivants sont
+        // entiers, et leurs positions repartent donc de zéro.
+        const from = offset === 0 ? charIndex : 0
+        const at = blockIndex + offset
+        const utterance = new SpeechSynthesisUtterance(block.slice(from))
+        if (lang) utterance.lang = lang
+        utterance.rate = prefs.speed
+        if (voice) utterance.voice = voice
+
+        utterance.addEventListener("start", () => {
+          blockIndex = at
+          charIndex = from
+        })
+        // `charIndex` est compté depuis le début de l'utterance, donc depuis le
+        // reste du bloc : le rebaser sur le bloc entier, sinon une deuxième
+        // reprise repartirait trop tôt.
+        //
+        // ponytail: les voix distantes n'émettent pas toujours `boundary`. Sans
+        // lui la position reste au dernier départ, et changer la vitesse fait
+        // reprendre le bloc courant depuis là — jamais plus loin que ça.
+        utterance.addEventListener("boundary", (event) => {
+          charIndex = from + event.charIndex
+        })
+        return utterance
+      })
 
       // Se replier sans annuler : la file est déjà vide en fin naturelle, et si
       // l'événement vient d'un autre onglet qui nous a coupés, annuler ici
@@ -135,7 +232,9 @@ export default defineContentScript({
       //
       // ponytail: la fin n'est détectée que sur le dernier bloc — si celui-ci
       // erre au lieu de finir, la pastille reste dépliée jusqu'au clic sur ⏹.
-      queue.at(-1)?.addEventListener("end", fold)
+      queue.at(-1)?.addEventListener("end", () => {
+        if (mine === generation) fold()
+      })
       for (const utterance of queue) speechSynthesis.speak(utterance)
     }
 
@@ -149,6 +248,10 @@ export default defineContentScript({
     function fold() {
       reading = false
       paused = false
+      stale = false
+      // La file coupée ne nous appartient plus : un `end` en retard ne doit pas
+      // replier une lecture relancée entre-temps.
+      generation++
       pill.setState("idle")
     }
   },
@@ -165,31 +268,33 @@ function cancelSpeech() {
   speechSynthesis.cancel()
 }
 
-/** Un utterance par bloc, pour éviter la limite de longueur de Chrome. */
-function toUtterances(payload: ReadPagePayload) {
-  return payload.text
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .map((block) => {
-      const utterance = new SpeechSynthesisUtterance(block)
-      if (payload.lang) utterance.lang = payload.lang
-      return utterance
-    })
-}
-
 const HOST_STYLE =
   "all:initial!important;position:fixed!important;bottom:16px!important;right:16px!important;z-index:2147483647!important"
 
 const PILL_CSS = `
 .pill-row {
+  /*
+   * Palette posée ici et pas sur :host — le HOST_STYLE inline porte un
+   * all:initial!important qui écraserait tout ce qu'on y déclarerait.
+   * Le popover en hérite : une seule matière pour les deux.
+   */
+  --bg: #111827;
+  --fg: #fff;
+  --muted: #9ca3af;
+  --line: rgb(255 255 255 / 0.14);
+  --accent: #60a5fa;
+  /* Fait rendre le menu déroulant natif du select et le curseur en sombre.
+     Deux propriétés au lieu d'un select réimplémenté. */
+  color-scheme: dark;
+  accent-color: var(--accent);
+
   display: inline-flex;
   align-items: center;
   padding: 6px;
   border-radius: 999px;
   font: 500 13px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #fff;
-  background: #111827;
+  color: var(--fg);
+  background: var(--bg);
   box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
   position: relative;
 }
@@ -211,6 +316,27 @@ button {
 button:hover:not(:disabled) { background: rgb(255 255 255 / 0.12) }
 button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px }
 button:disabled { opacity: 0.55; cursor: default }
+/* Le pressé doit s'entendre tout de suite : le retour est sur l'appui, pas au
+   relâchement. */
+button:active:not(:disabled) { transform: scale(0.97) }
+button { transition: transform 100ms cubic-bezier(0.23, 1, 0.32, 1) }
+/*
+ * Icône en masque plutôt qu'en emoji : ⚙️ est rendu en couleur et à une chasse
+ * différente sur chaque OS. Le masque suit currentColor, donc l'état désactivé
+ * et le focus restent cohérents avec les autres boutons, et rien n'entre dans le
+ * DOM — pas de SVG à injecter sur une page en Trusted Types.
+ */
+button[data-icon]::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
+button[data-icon="sliders"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M4 7h5M15 7h5M4 12h9M19 12h1M4 17h3M13 17h7'/%3E%3Ccircle cx='12' cy='7' r='2.5'/%3E%3Ccircle cx='16' cy='12' r='2.5'/%3E%3Ccircle cx='10' cy='17' r='2.5'/%3E%3C/svg%3E");
+}
 /*
  * Au repos la pastille se replie sur ses deux boutons : le titre garde son
  * texte mais tombe à une largeur nulle. Une largeur n'a pas d'équivalent en
@@ -240,60 +366,81 @@ span {
   position: absolute;
   bottom: 100%;
   right: 0;
-  background: #1f2937;
-  border-radius: 8px;
-  border: 1px solid rgb(75 85 99);
-  box-shadow: 0 4px 20px rgb(0 0 0 / 0.4);
+  /* Même fond que la pastille : le popover en est le prolongement, pas une
+     surface étrangère posée dessus. Le liseré clair fait l'arête. */
+  background: var(--bg);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.45);
   padding: 12px;
-  min-width: 200px;
+  min-width: 210px;
+  color: var(--fg);
   font-size: 12px;
   opacity: 0;
   pointer-events: none;
   transform: scale(0.95) translateY(4px);
-  transition: opacity 150ms ease-out, transform 150ms ease-out;
+  /* Un popover s'ouvre depuis ce qui l'a ouvert : sans ça il grandit depuis son
+     centre et le lien avec le bouton se perd. */
+  transform-origin: bottom right;
+  transition:
+    opacity 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
   z-index: 10000;
   margin-bottom: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-popover { transform: none; transition: opacity 120ms ease-out }
+  .settings-popover[data-open] { transform: none }
+  button:active:not(:disabled) { transform: none }
 }
 .settings-popover[data-open] {
   opacity: 1;
   pointer-events: auto;
   transform: scale(1) translateY(0);
 }
-.settings-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-.settings-row:last-child { margin-bottom: 0 }
+.settings-row { display: flex; flex-direction: column; gap: 6px }
+.settings-row + .settings-row { margin-top: 12px }
 .settings-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  color: rgb(156 163 175);
+  color: var(--muted);
   font-weight: 600;
-}
-.settings-options {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.settings-option {
-  padding: 6px 8px;
-  border: 1px solid rgb(75 85 99);
-  border-radius: 4px;
-  background: transparent;
-  color: #fff;
   cursor: pointer;
+}
+/* La valeur vit dans l'intitulé, à droite : elle appartient au réglage, pas à
+   une ligne de plus. Chasse fixe pour que 1,0× et 1,2× ne la fassent pas
+   sauter d'un pixel à chaque cran. */
+.settings-value {
   font-size: 12px;
-  text-align: left;
-  transition: all 100ms ease-out;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
 }
-.settings-option:hover { background: rgb(55 65 81) }
-.settings-option[data-selected] {
-  background: rgb(59 130 246);
-  border-color: rgb(59 130 246);
+.settings-control {
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  cursor: pointer;
 }
+select.settings-control {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgb(255 255 255 / 0.06);
+  /* Un select natif tronque tout seul ; sans ça un nom de voix à rallonge
+     élargit le popover jusqu'à le sortir de l'écran. */
+  max-width: 100%;
+}
+select.settings-control:hover { background: rgb(255 255 255 / 0.12) }
+input.settings-control { margin: 2px 0 }
+.settings-control:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 `
 
 /** Libellé et intitulé accessible de chaque bouton, état par état. */
@@ -315,7 +462,11 @@ const ARIA: Record<PillState, { primary: string; secondary: string }> = {
  * Pastille flottante, dans un shadow root fermé — même isolation que la bulle
  * de sélection, pour les mêmes raisons.
  */
-function createPill(onPrimary: () => void, onSecondary: () => void, initialPrefs: any) {
+function createPill(
+  onPrimary: () => void,
+  onSecondary: () => void,
+  initialPrefs: ReaderPreferences
+) {
   const host = document.createElement("orateur-reader-pill")
   host.style.cssText = HOST_STYLE
 
@@ -330,76 +481,139 @@ function createPill(onPrimary: () => void, onSecondary: () => void, initialPrefs
   const label = document.createElement("span")
   const secondary = button(onSecondary)
   const settings = button(() => togglePopover())
-  row.append(primary, label, secondary, settings)
+  // Posé une fois : l'icône et son intitulé ne dépendent pas de l'état de
+  // lecture, contrairement à ceux de ▶ et ⏹.
+  settings.dataset.icon = "sliders"
+  settings.setAttribute("aria-label", "Réglages de lecture")
+  settings.setAttribute("aria-expanded", "false")
+  // Replié : ▶ ⚙ ✕. Le titre s'ouvre entre ▶ et ⚙ pendant la lecture, donc les
+  // deux boutons de bord ne bougent pas quand la pastille se déplie.
+  row.append(primary, label, settings, secondary)
   root.append(row)
 
-  // Create settings popover
+  // Construit une fois, jamais réécrit : `innerHTML` est refusé par les pages
+  // en `require-trusted-types-for 'script'` (Google, GitHub…), et un re-rendu
+  // à chaque clic ferait perdre le focus clavier.
   const popover = document.createElement("div")
   popover.className = "settings-popover"
+  popover.setAttribute("role", "group")
+  popover.setAttribute("aria-label", "Réglages de lecture")
   row.append(popover)
 
   let currentPrefs = initialPrefs
   let isPopoverOpen = false
 
-  // Close popover on outside click
-  root.addEventListener("click", (e) => {
-    if (isPopoverOpen && !popover.contains(e.target as Node) && e.target !== settings) {
-      isPopoverOpen = false
-      popover.removeAttribute("data-open")
-    }
+  const engine = document.createElement("select")
+  settingsRow("Moteur", engine)
+  for (const [value, text, unavailable] of ENGINES) {
+    const choice = document.createElement("option")
+    choice.value = value
+    choice.textContent = text
+    // Proposé mais non sélectionnable : le choix reste visible comme cap, sans
+    // permettre de le prendre et de se retrouver avec une lecture muette.
+    choice.disabled = unavailable
+    engine.append(choice)
+  }
+  engine.addEventListener("change", () =>
+    savePrefs({ engine: engine.value as ReaderEngine })
+  )
+
+  const speed = document.createElement("input")
+  const speedValue = settingsRow("Vitesse", speed)
+  speed.type = "range"
+  speed.min = String(SPEED.min)
+  speed.max = String(SPEED.max)
+  speed.step = String(SPEED.step)
+  // `input` pour le retour, `change` pour l'écriture : le chiffre suit le
+  // pouce tout au long du geste, mais on n'écrit dans le storage qu'au
+  // relâchement — sinon c'est une écriture par pixel parcouru.
+  speed.addEventListener("input", () => {
+    speedValue.textContent = formatSpeed(speed.valueAsNumber)
   })
+  speed.addEventListener("change", () => savePrefs({ speed: speed.valueAsNumber }))
 
-  function renderPopover() {
-    popover.innerHTML = `
-      <div class="settings-row">
-        <div class="settings-label">Engine</div>
-        <div class="settings-options">
-          <button class="settings-option" data-engine="system" ${currentPrefs.engine === "system" ? "data-selected" : ""}>
-            System Voice
-          </button>
-          <button class="settings-option" data-engine="supertonic" ${currentPrefs.engine === "supertonic" ? "data-selected" : ""}>
-            Supertonic
-          </button>
-        </div>
-      </div>
-      <div class="settings-row">
-        <div class="settings-label">Speed</div>
-        <div class="settings-options">
-          ${SPEEDS.map((s) => `<button class="settings-option" data-speed="${s}" ${currentPrefs.speed === s ? "data-selected" : ""}>${s}×</button>`).join("")}
-        </div>
-      </div>
-      <div class="settings-row">
-        <div class="settings-label">Voice</div>
-        <div class="settings-options">
-          <button class="settings-option" data-voice="default" ${currentPrefs.voiceURI === null ? "data-selected" : ""}>
-            Default
-          </button>
-        </div>
-      </div>
-    `
+  const voice = document.createElement("select")
+  settingsRow("Voix", voice)
+  // La valeur vide porte « laisser le navigateur choisir » : un select n'a pas
+  // de null, et c'est aussi ce sur quoi il retombe si la voix enregistrée a
+  // disparu de la machine.
+  voice.addEventListener("change", () => savePrefs({ voiceURI: voice.value || null }))
+  renderVoices()
+  // Chrome charge ses voix après coup : sans cet événement la liste reste
+  // réduite à « Par défaut » pendant les premières secondes de la page.
+  speechSynthesis.addEventListener("voiceschanged", renderVoices)
 
-    // Add event listeners
-    popover.querySelectorAll("[data-engine]").forEach((el) => {
-      el.addEventListener("click", () => {
-        savePrefs({ engine: el.getAttribute("data-engine") as any })
-      })
-    })
-    popover.querySelectorAll("[data-speed]").forEach((el) => {
-      el.addEventListener("click", () => {
-        savePrefs({ speed: parseFloat(el.getAttribute("data-speed")!) as any })
-      })
-    })
-    popover.querySelectorAll("[data-voice]").forEach((el) => {
-      el.addEventListener("click", () => {
-        savePrefs({ voiceURI: null })
-      })
-    })
+  // Le shadow root ne voit pas les clics du reste de la page — l'écouteur doit
+  // être sur le document. En capture, pour survivre à un `stopPropagation`.
+  const onDocumentClick = (event: Event) => {
+    if (isPopoverOpen && !event.composedPath().includes(row)) closePopover()
+  }
+  const onDocumentKeydown = (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || !isPopoverOpen) return
+    closePopover()
+    settings.focus()
+  }
+  document.addEventListener("click", onDocumentClick, true)
+  document.addEventListener("keydown", onDocumentKeydown, true)
+
+  /**
+   * Pose un réglage dans le popover : intitulé à gauche, valeur lue à droite,
+   * contrôle dessous. Le `<label>` rend l'intitulé cliquable, donc la cible de
+   * pointage du réglage fait toute la largeur.
+   */
+  function settingsRow(title: string, control: HTMLElement) {
+    const id = `orateur-${title.toLowerCase()}`
+    control.id = id
+    control.className = "settings-control"
+
+    const container = document.createElement("div")
+    container.className = "settings-row"
+    const heading = document.createElement("label")
+    heading.className = "settings-label"
+    heading.htmlFor = id
+    const name = document.createElement("span")
+    name.textContent = title
+    const value = document.createElement("span")
+    value.className = "settings-value"
+    heading.append(name, value)
+    container.append(heading, control)
+    popover.append(container)
+    return value
+  }
+
+  /** Reflète les préférences en cours sur les contrôles déjà en place. */
+  function syncControls() {
+    engine.value = currentPrefs.engine
+    speed.value = String(currentPrefs.speed)
+    speedValue.textContent = formatSpeed(currentPrefs.speed)
+    // Une voix absente de la liste — désinstallée, ou enregistrée sur une autre
+    // machine — laisse le select retomber sur l'option vide, qui est justement
+    // le défaut. Rien à rattraper.
+    voice.value = currentPrefs.voiceURI ?? ""
+  }
+
+  function renderVoices() {
+    const choices = [voiceChoice("", "Par défaut")]
+    // Aucun tri ni filtre par langue : deviner la bonne, c'est risquer de
+    // masquer celle que l'utilisateur veut. Le select natif défile seul.
+    for (const available of speechSynthesis.getVoices()) {
+      choices.push(voiceChoice(available.voiceURI, `${available.name} (${available.lang})`))
+    }
+    voice.replaceChildren(...choices)
+    syncControls()
+  }
+
+  function closePopover() {
+    isPopoverOpen = false
+    popover.removeAttribute("data-open")
+    settings.setAttribute("aria-expanded", "false")
   }
 
   function togglePopover() {
     isPopoverOpen = !isPopoverOpen
     popover.toggleAttribute("data-open", isPopoverOpen)
-    if (isPopoverOpen) renderPopover()
+    settings.setAttribute("aria-expanded", String(isPopoverOpen))
+    if (isPopoverOpen) syncControls()
   }
 
   function attach() {
@@ -415,8 +629,6 @@ function createPill(onPrimary: () => void, onSecondary: () => void, initialPrefs
     primary.setAttribute("aria-label", ARIA[state].primary)
     secondary.textContent = LABELS[state].secondary
     secondary.setAttribute("aria-label", ARIA[state].secondary)
-    settings.textContent = "⚙️"
-    settings.setAttribute("aria-label", "Settings")
     // Rien à annuler tant que l'extraction tourne : quelques centaines de
     // millisecondes, plus simple à neutraliser qu'à interrompre.
     primary.disabled = secondary.disabled = state === "loading"
@@ -429,12 +641,35 @@ function createPill(onPrimary: () => void, onSecondary: () => void, initialPrefs
   return {
     attach,
     setState,
-    remove: () => host.remove(),
-    updatePrefs: (prefs: any) => {
+    remove: () => {
+      document.removeEventListener("click", onDocumentClick, true)
+      document.removeEventListener("keydown", onDocumentKeydown, true)
+      speechSynthesis.removeEventListener("voiceschanged", renderVoices)
+      host.remove()
+    },
+    updatePrefs: (prefs: ReaderPreferences) => {
       currentPrefs = prefs
-      if (isPopoverOpen) renderPopover()
+      syncControls()
     },
   }
+}
+
+/** Moteurs proposés, et ceux qui ne sont pas encore là. */
+const ENGINES: Array<[ReaderEngine, string, boolean]> = [
+  ["system", "Voix système", false],
+  ["supertonic", "Supertonic — bientôt", true],
+]
+
+function voiceChoice(value: string, text: string) {
+  const choice = document.createElement("option")
+  choice.value = value
+  choice.textContent = text
+  return choice
+}
+
+/** « 1,2× » — virgule décimale, et toujours une décimale pour ne pas sauter. */
+function formatSpeed(speed: number) {
+  return `${speed.toFixed(1).replace(".", ",")}×`
 }
 
 function button(onClick: () => void) {
