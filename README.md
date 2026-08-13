@@ -12,6 +12,11 @@ listen to it.
   outside of an article.
 - **Floating bubble**: appears when hovering over a selection, to start
   reading without going through the menu.
+- **"Read this page" context menu**: reads the extracted article out loud
+  directly on the page, using the browser's built-in text-to-speech — no
+  tab opened, nothing sent to Orateur. On Firefox, Alt-clicking the toolbar
+  icon does the same (Chrome doesn't expose modifier keys on the icon
+  click).
 
 Works on Chrome (MV3) and Firefox (MV2), via [WXT](https://wxt.dev).
 

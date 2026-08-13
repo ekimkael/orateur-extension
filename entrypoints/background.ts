@@ -1,4 +1,5 @@
 import type { ExtractResult } from "./extract.content"
+import { START_READING, type StartReadingMessage } from "./reader.content"
 import {
   GET_SELECTION,
   SELECTION_ACTION,
@@ -18,7 +19,9 @@ import {
 
 const MENU_ID = "save-to-orateur"
 const SELECTION_MENU_ID = "read-selection-with-orateur"
+const READ_PAGE_MENU_ID = "read-page-with-orateur"
 const EXTRACT_SCRIPT = "/content-scripts/extract.js"
+const READER_SCRIPT = "/content-scripts/reader.js"
 
 const SELECTION_ERRORS: Record<SelectionError, string> = {
   empty: "Aucun texte sélectionné.",
@@ -26,6 +29,7 @@ const SELECTION_ERRORS: Record<SelectionError, string> = {
 }
 
 const SELECTION_TRUNCATED = "Sélection très longue : seul le début sera lu."
+const PAGE_NOT_INJECTABLE = "Cette page ne peut pas être lue directement."
 
 export default defineBackground(() => {
   // Le service worker MV3 redémarre à volonté ; créer le menu ici plutôt que
@@ -43,11 +47,22 @@ export default defineBackground(() => {
       // menu du navigateur, et pas besoin d'y vérifier quoi que ce soit.
       contexts: ["selection"],
     })
+    browser.contextMenus.create({
+      id: READ_PAGE_MENU_ID,
+      title: "Lire cette page",
+      // Pas de contexte "link" : on lit le DOM de l'onglet courant, pas la
+      // cible d'un lien.
+      contexts: ["page"],
+    })
   })
 
   browser.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === SELECTION_MENU_ID) {
       void readSelectionFromMenu(info, tab)
+      return
+    }
+    if (info.menuItemId === READ_PAGE_MENU_ID) {
+      void readPageInPlace(tab)
       return
     }
     if (info.menuItemId !== MENU_ID) return
@@ -72,7 +87,13 @@ export default defineBackground(() => {
   // l'API : Firefox MV2 n'expose que browserAction. Pas de polyfill dans le
   // bundle, donc l'alias est à faire à la main.
   const action = browser.action ?? browser.browserAction
-  action.onClicked.addListener((tab) => void save(tab))
+  action.onClicked.addListener((tab, info?: { modifiers?: string[] }) => {
+    // Le second paramètre (modificateurs clavier) n'existe que sur Firefox ;
+    // Chrome n'appelle le listener qu'avec `tab`. `info` y vaut donc toujours
+    // `undefined`, et l'alt-clic y reste indisponible.
+    if (info?.modifiers?.includes("Alt")) void readPageInPlace(tab)
+    else void save(tab)
+  })
 })
 
 /**
@@ -164,6 +185,40 @@ async function read(payload: SelectionPayload, url?: string) {
       lang: payload.lang,
     })
   )
+}
+
+/**
+ * Extrait l'article de l'onglet et le lit sur place, via `speechSynthesis`
+ * dans la page — rien n'est envoyé à Orateur.
+ */
+async function readPageInPlace(
+  tab: { id?: number; url?: string } | undefined
+) {
+  if (tab?.id == null) return
+
+  const result = await extractFromTab(tab.id)
+  if (result?.ok === false) return notify(result.error)
+  if (!result?.ok) return notify(PAGE_NOT_INJECTABLE)
+
+  await injectReader(tab.id)
+  await browser.tabs.sendMessage(tab.id, {
+    type: START_READING,
+    text: result.article.textContent,
+    title: result.article.title ?? undefined,
+    lang: result.article.lang ?? undefined,
+  } satisfies StartReadingMessage)
+}
+
+/** Injecte le lecteur dans l'onglet, sans attendre de valeur de retour. */
+async function injectReader(tabId: number) {
+  if (browser.scripting) {
+    await browser.scripting.executeScript({
+      target: { tabId },
+      files: [READER_SCRIPT],
+    })
+    return
+  }
+  await browser.tabs.executeScript(tabId, { file: READER_SCRIPT })
 }
 
 async function handoff(url: string, title?: string | null) {
