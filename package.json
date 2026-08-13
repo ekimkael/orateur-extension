@@ -12,7 +12,7 @@
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "compile": "tsc --noEmit",
-    "test": "node --test lib/*.test.ts",
+    "test": "node --test \"lib/**/*.test.ts\"",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
