@@ -16,6 +16,8 @@ import {
   type ReaderEngine,
   type ReaderPreferences,
 } from "../lib/reader-prefs"
+import { expandText } from "../lib/pronunciation/index.ts"
+import { buildReadingIntro } from "../lib/reading-intro"
 
 export interface ReadPagePayload {
   text: string
@@ -160,10 +162,23 @@ export default defineContentScript({
 
     function start(payload: ReadPagePayload) {
       // Un bloc par paragraphe, pour éviter la limite de longueur de Chrome.
-      blocks = payload.text
+      // Le découpage passe avant `expandText`, qui écrase les blancs — les
+      // frontières de paragraphes n'y survivraient pas.
+      const raw = payload.text
         .split(/\n{2,}/)
         .map((block) => block.trim())
         .filter(Boolean)
+
+      // Le titre n'est pas dans le texte extrait — Readability retire le h1 qui
+      // le répète. L'annoncer en tête du premier bloc plutôt qu'en bloc à part :
+      // il suit alors la même reprise que le reste, comme sur mobile.
+      const intro = buildReadingIntro(payload.lang ?? "", payload.title ?? "")
+      if (intro && raw.length) raw[0] = `${intro} ${raw[0]}`
+
+      // Texte à dire, jamais à afficher : sigles épelés, symboles verbalisés,
+      // anglicismes réécrits pour les voix système. Ce sont les seules
+      // disponibles ici, donc la couche phonétique s'applique toujours.
+      blocks = raw.map((block) => expandText(block, { language: payload.lang })).filter(Boolean)
       if (!blocks.length) return fold()
 
       blockIndex = 0
