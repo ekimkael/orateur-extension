@@ -1,7 +1,43 @@
+import { copyFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { defineConfig } from 'wxt';
+import type { Plugin } from 'vite';
+
+/**
+ * Sert le runtime WASM d'onnxruntime-web depuis l'origine de l'extension.
+ *
+ * Trois fichiers, et pas seulement le `.wasm` : ORT réclame aussi le `.mjs` de
+ * glue (qui est le worker faisant tourner l'inférence), demandé par un nom
+ * codé en dur que le bundler ne peut pas voir. Et `ort.bundle.min.mjs` est
+ * copié pour être importé comme module autonome : son `import.meta.url` résout
+ * alors dans `/ort/`, d'où ORT lance ses workers proxy et pthread.
+ *
+ * Recopié depuis `web/vite.config.ts` — trois dépôts séparés, pas de workspace
+ * pour partager ça.
+ */
+function copyOrtAssets(): Plugin {
+  const files = [
+    'ort-wasm-simd-threaded.jsep.wasm',
+    'ort-wasm-simd-threaded.jsep.mjs',
+    'ort.bundle.min.mjs',
+  ];
+  return {
+    name: 'orateur-copy-ort-assets',
+    buildStart() {
+      const here = dirname(fileURLToPath(import.meta.url));
+      const from = join(here, 'node_modules', 'onnxruntime-web', 'dist');
+      const to = join(here, 'public', 'ort');
+      mkdirSync(to, { recursive: true });
+      for (const file of files) copyFileSync(join(from, file), join(to, file));
+    },
+  };
+}
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
+  vite: () => ({ plugins: [copyOrtAssets()] }),
   manifest: ({ browser, manifestVersion }) => ({
     name: 'Orateur',
     description:
@@ -31,9 +67,42 @@ export default defineConfig({
       // a une pastille par onglet : `storage` sert de canal entre elles pour
       // que celle qui perd la parole se replie. Permission silencieuse.
       'storage',
-      ...(manifestVersion === 3 ? ['scripting'] : ['<all_urls>']),
+      // Supertonic met ~400 Mo de modèles ONNX dans l'OPFS de l'extension :
+      // sans ça le quota par origine peut les faire évincer. Silencieuse.
+      'unlimitedStorage',
+      ...(manifestVersion === 3
+        ? [
+            'scripting',
+            // Le moteur a besoin d'une page : un service worker n'a ni DOM, ni
+            // <audio>. Firefox MV2 a déjà une page de fond, d'où la condition.
+            'offscreen',
+          ]
+        : ['<all_urls>']),
     ],
-    ...(manifestVersion === 3 && { host_permissions: ['<all_urls>'] }),
+    ...(manifestVersion === 3 && {
+      host_permissions: ['<all_urls>'],
+      // L'isolation cross-origin débloque le WASM multi-thread, qui divise le
+      // temps d'inférence par le nombre de threads. Ces deux clés valent pour
+      // toutes les pages de l'extension, document offscreen compris — mais pas
+      // pour le service worker, où l'isolation n'est pas implémentée.
+      cross_origin_opener_policy: { value: 'same-origin' },
+      cross_origin_embedder_policy: { value: 'require-corp' },
+      // Une CSP personnalisée REMPLACE celle par défaut : elle doit être
+      // complète. `wasm-unsafe-eval` autorise l'instanciation WASM ; à noter
+      // que `unsafe-eval` reste interdit, donc pas de `new Function` — d'où
+      // l'import dynamique direct d'ORT plutôt que le contournement du web app.
+      content_security_policy: {
+        extension_pages:
+          "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; object-src 'self'",
+      },
+    }),
+    // Pas de CSP déclarée en MV2 : Firefox n'exige `wasm-unsafe-eval` qu'en
+    // MV3, la CSP par défaut MV2 laisse passer le WASM (vérifié par le spike
+    // de phase 0). Et en déclarer une casserait `wxt dev` : WXT écrit toujours
+    // `content_security_policy.extension_pages`, un objet, là où MV2 attend une
+    // chaîne. La persistance de la page de fond, elle, se déclare dans
+    // `defineBackground` — WXT génère la clé `background` et écraserait ce
+    // qu'on mettrait ici.
     // WXT ne retire pas cette clé du build Chrome, d'où la condition.
     ...(browser === 'firefox' && {
       browser_specific_settings: {
