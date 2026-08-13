@@ -8,6 +8,8 @@
  * pendant la lecture.
  */
 
+import { loadPrefs, savePrefs, onPrefsChanged, SPEEDS } from "../lib/reader-prefs"
+
 export interface ReadPagePayload {
   text: string
   title?: string
@@ -50,21 +52,24 @@ export default defineContentScript({
   matches: ["<all_urls>"],
   // Pas d'`allFrames` (défaut : frame principale) : une pastille par page, là
   // où la bulle de sélection en veut une par iframe.
-  main(ctx) {
+  async main(ctx) {
     let reading = false
     let paused = false
     const token = Math.random().toString(36).slice(2)
+    const prefs = await loadPrefs()
 
-    const pill = createPill(onPrimary, onSecondary)
+    const pill = createPill(onPrimary, onSecondary, prefs)
 
     browser.runtime.onMessage.addListener(onMessage)
     browser.storage.onChanged.addListener(onTokenChanged)
+    const unsubscribePrefs = onPrefsChanged((newPrefs) => pill.updatePrefs(newPrefs))
     // La synthèse survit au déchargement de la page : sans ça la lecture
     // continue après un rechargement, hors de portée de la nouvelle pastille.
     ctx.addEventListener(window, "pagehide", () => reading && cancelSpeech())
     ctx.onInvalidated(() => {
       browser.runtime.onMessage.removeListener(onMessage)
       browser.storage.onChanged.removeListener(onTokenChanged)
+      unsubscribePrefs()
       cancelSpeech()
       pill.remove()
     })
@@ -177,7 +182,7 @@ const HOST_STYLE =
   "all:initial!important;position:fixed!important;bottom:16px!important;right:16px!important;z-index:2147483647!important"
 
 const PILL_CSS = `
-div {
+.pill-row {
   display: inline-flex;
   align-items: center;
   padding: 6px;
@@ -186,6 +191,7 @@ div {
   color: #fff;
   background: #111827;
   box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
+  position: relative;
 }
 button {
   display: inline-flex;
@@ -230,6 +236,64 @@ span {
 @media (prefers-reduced-motion: reduce) {
   span { transition: opacity 120ms ease-out }
 }
+.settings-popover {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  background: #1f2937;
+  border-radius: 8px;
+  border: 1px solid rgb(75 85 99);
+  box-shadow: 0 4px 20px rgb(0 0 0 / 0.4);
+  padding: 12px;
+  min-width: 200px;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.95) translateY(4px);
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+  z-index: 10000;
+  margin-bottom: 8px;
+}
+.settings-popover[data-open] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1) translateY(0);
+}
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.settings-row:last-child { margin-bottom: 0 }
+.settings-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: rgb(156 163 175);
+  font-weight: 600;
+}
+.settings-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-option {
+  padding: 6px 8px;
+  border: 1px solid rgb(75 85 99);
+  border-radius: 4px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  transition: all 100ms ease-out;
+}
+.settings-option:hover { background: rgb(55 65 81) }
+.settings-option[data-selected] {
+  background: rgb(59 130 246);
+  border-color: rgb(59 130 246);
+}
 `
 
 /** Libellé et intitulé accessible de chaque bouton, état par état. */
@@ -251,7 +315,7 @@ const ARIA: Record<PillState, { primary: string; secondary: string }> = {
  * Pastille flottante, dans un shadow root fermé — même isolation que la bulle
  * de sélection, pour les mêmes raisons.
  */
-function createPill(onPrimary: () => void, onSecondary: () => void) {
+function createPill(onPrimary: () => void, onSecondary: () => void, initialPrefs: any) {
   const host = document.createElement("orateur-reader-pill")
   host.style.cssText = HOST_STYLE
 
@@ -261,11 +325,82 @@ function createPill(onPrimary: () => void, onSecondary: () => void) {
   root.append(style)
 
   const row = document.createElement("div")
+  row.className = "pill-row"
   const primary = button(onPrimary)
   const label = document.createElement("span")
   const secondary = button(onSecondary)
-  row.append(primary, label, secondary)
+  const settings = button(() => togglePopover())
+  row.append(primary, label, secondary, settings)
   root.append(row)
+
+  // Create settings popover
+  const popover = document.createElement("div")
+  popover.className = "settings-popover"
+  row.append(popover)
+
+  let currentPrefs = initialPrefs
+  let isPopoverOpen = false
+
+  // Close popover on outside click
+  root.addEventListener("click", (e) => {
+    if (isPopoverOpen && !popover.contains(e.target as Node) && e.target !== settings) {
+      isPopoverOpen = false
+      popover.removeAttribute("data-open")
+    }
+  })
+
+  function renderPopover() {
+    popover.innerHTML = `
+      <div class="settings-row">
+        <div class="settings-label">Engine</div>
+        <div class="settings-options">
+          <button class="settings-option" data-engine="system" ${currentPrefs.engine === "system" ? "data-selected" : ""}>
+            System Voice
+          </button>
+          <button class="settings-option" data-engine="supertonic" ${currentPrefs.engine === "supertonic" ? "data-selected" : ""}>
+            Supertonic
+          </button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label">Speed</div>
+        <div class="settings-options">
+          ${SPEEDS.map((s) => `<button class="settings-option" data-speed="${s}" ${currentPrefs.speed === s ? "data-selected" : ""}>${s}×</button>`).join("")}
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label">Voice</div>
+        <div class="settings-options">
+          <button class="settings-option" data-voice="default" ${currentPrefs.voiceURI === null ? "data-selected" : ""}>
+            Default
+          </button>
+        </div>
+      </div>
+    `
+
+    // Add event listeners
+    popover.querySelectorAll("[data-engine]").forEach((el) => {
+      el.addEventListener("click", () => {
+        savePrefs({ engine: el.getAttribute("data-engine") as any })
+      })
+    })
+    popover.querySelectorAll("[data-speed]").forEach((el) => {
+      el.addEventListener("click", () => {
+        savePrefs({ speed: parseFloat(el.getAttribute("data-speed")!) as any })
+      })
+    })
+    popover.querySelectorAll("[data-voice]").forEach((el) => {
+      el.addEventListener("click", () => {
+        savePrefs({ voiceURI: null })
+      })
+    })
+  }
+
+  function togglePopover() {
+    isPopoverOpen = !isPopoverOpen
+    popover.toggleAttribute("data-open", isPopoverOpen)
+    if (isPopoverOpen) renderPopover()
+  }
 
   function attach() {
     // `body` est absent d'un document XML ou SVG.
@@ -280,6 +415,8 @@ function createPill(onPrimary: () => void, onSecondary: () => void) {
     primary.setAttribute("aria-label", ARIA[state].primary)
     secondary.textContent = LABELS[state].secondary
     secondary.setAttribute("aria-label", ARIA[state].secondary)
+    settings.textContent = "⚙️"
+    settings.setAttribute("aria-label", "Settings")
     // Rien à annuler tant que l'extraction tourne : quelques centaines de
     // millisecondes, plus simple à neutraliser qu'à interrompre.
     primary.disabled = secondary.disabled = state === "loading"
@@ -289,7 +426,15 @@ function createPill(onPrimary: () => void, onSecondary: () => void) {
     host.toggleAttribute("data-expanded", state === "playing" || state === "paused")
   }
 
-  return { attach, setState, remove: () => host.remove() }
+  return {
+    attach,
+    setState,
+    remove: () => host.remove(),
+    updatePrefs: (prefs: any) => {
+      currentPrefs = prefs
+      if (isPopoverOpen) renderPopover()
+    },
+  }
 }
 
 function button(onClick: () => void) {
