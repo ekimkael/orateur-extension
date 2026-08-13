@@ -17,6 +17,10 @@ web-ext.config.ts
 # Bancs d'essai jetables (bubble-harness.tmp.html…)
 *.tmp.*
 
+# Outillage local : config d'agent et notes de travail
+.claude
+plans
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
