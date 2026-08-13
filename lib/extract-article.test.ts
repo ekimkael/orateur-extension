@@ -48,7 +48,8 @@ const CLASSIC = `<!doctype html>
 test("extrait et renseigne les propriétés d'un article classique", () => {
   const article = extractArticle(docFrom(CLASSIC))
 
-  assert.match(article.title ?? "", /La lecture augmentée/)
+  // Sans le nom du site : le titre est prononcé au début de la lecture.
+  assert.equal(article.title, "La lecture augmentée")
   assert.equal(article.byline, "Camille Durand")
   assert.equal(article.siteName, "Mon Journal")
   assert.match(article.publishedTime ?? "", /^2026-03-14/)
@@ -57,6 +58,107 @@ test("extrait et renseigne les propriétés d'un article classique", () => {
   assert.equal(article.url, "https://exemple.fr/articles/mon-article")
   assert.ok(article.readingTimeMinutes >= 1)
   assert.equal(article.length, article.textContent.length)
+})
+
+test("ne détache du titre que le dernier segment", () => {
+  // Le h1 sert de repli à Readability sous 15 caractères : les titres d'essai
+  // restent plus longs, sinon c'est lui qu'on mesurerait.
+  const titled = (title: string) =>
+    extractArticle(docFrom(CLASSIC.replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`)))
+      .title
+
+  assert.equal(titled("Écouter autrement — Mon Journal"), "Écouter autrement")
+  assert.equal(titled("Premier - Deuxième - Mon Journal"), "Premier - Deuxième")
+  assert.equal(titled("Un titre sans aucun suffixe"), "Un titre sans aucun suffixe")
+})
+
+/** Insère du contenu juste avant la fin de l'article de référence. */
+function withinArticle(html: string) {
+  return CLASSIC.replace("</article>", `${html}</article>`)
+}
+
+test("annonce le code au lieu de le prononcer", () => {
+  const { content, textContent } = extractArticle(
+    docFrom(withinArticle("<pre><code>const lecture = 1;</code></pre>"))
+  )
+
+  // Toujours affiché par l'app web, jamais énoncé.
+  assert.match(content, /<pre/)
+  assert.doesNotMatch(textContent, /const lecture/)
+  assert.match(textContent, /Extrait de code\./)
+})
+
+test("annonce le code dans la langue de l'article", () => {
+  const { textContent } = extractArticle(
+    docFrom(withinArticle("<pre>const x = 1;</pre>").replace('lang="fr"', 'lang="en-US"'))
+  )
+
+  assert.match(textContent, /Code snippet\./)
+})
+
+test("fusionne les annonces de blocs de code consécutifs", () => {
+  const consecutive = extractArticle(
+    docFrom(withinArticle("<pre>const a = 1;</pre><pre>=> 1</pre><pre>const b = 2;</pre>"))
+  )
+  const separated = extractArticle(
+    docFrom(withinArticle("<pre>const a = 1;</pre><p>Puis on recommence autrement.</p><pre>const b = 2;</pre>"))
+  )
+
+  assert.equal(consecutive.textContent.match(/Extrait de code\./g)?.length, 1)
+  assert.equal(separated.textContent.match(/Extrait de code\./g)?.length, 2)
+})
+
+test("ne lit pas la mention de durée posée par le CMS", () => {
+  const { textContent } = extractArticle(
+    docFrom(withinArticle("<p>5 min de lecture</p><p>Temps de lecture : 3 minutes</p>"))
+  )
+
+  assert.doesNotMatch(textContent, /min de lecture|Temps de lecture/i)
+})
+
+test("rogne les titres et étiquettes orphelins de fin d'article", () => {
+  const { textContent } = extractArticle(
+    docFrom(withinArticle("<p>Partager</p><h2>À lire aussi</h2>"))
+  )
+
+  assert.doesNotMatch(textContent, /À lire aussi|Partager/)
+  // Le rognage s'arrête à la première prose : la fin de l'article reste.
+  assert.match(textContent, /Légende de la photo/)
+})
+
+test("garde un titre que Readability jugerait chrome de page à sa seule classe", () => {
+  // Reproduit stackoverflow.blog : ses sous-titres portent `class="header"`,
+  // que la regex `unlikelyCandidates` de Readability confond avec un bandeau.
+  const { content, textContent } = extractArticle(
+    docFrom(withinArticle('<h2 class="header">Pourquoi ça marche</h2><p>Explication détaillée du pourquoi, assez longue pour compter comme un paragraphe éditorial et non comme du bruit de mise en page.</p>'))
+  )
+
+  assert.match(content, /Pourquoi ça marche/)
+  assert.match(textContent, /Pourquoi ça marche/)
+})
+
+test("removeNoise garde la main sur un vrai parasite porté par un titre", () => {
+  // Contrepartie assumée : desarmHeadings s'exécute après removeNoise, donc un
+  // titre que NOISE_PATTERN reconnaît (ici « related ») reste écarté malgré le
+  // désarmement destiné à Readability.
+  const { textContent } = extractArticle(
+    docFrom(withinArticle('<h2 class="related-title">Articles associés</h2>'))
+  )
+
+  assert.doesNotMatch(textContent, /Articles associés/)
+})
+
+test("ponctue ce qui ne l'est pas, sans doubler ce qui l'est", () => {
+  const { textContent } = extractArticle(
+    docFrom(withinArticle("<h2>Et pour finir ?</h2><p>Une vraie conclusion, ponctuée.</p>"))
+  )
+
+  // Un titre nu prend le point qui lui donne sa chute…
+  assert.match(textContent, /Une section intermédiaire\./)
+  assert.match(textContent, /Premier point de la liste\./)
+  // …un titre déjà ponctué garde le sien.
+  assert.match(textContent, /Et pour finir \?/)
+  assert.doesNotMatch(textContent, /\?\.|\.\./)
 })
 
 test("préserve titres, listes et citations dans le texte TTS", () => {

@@ -1,4 +1,7 @@
 import { isProbablyReaderable, Readability } from "@mozilla/readability"
+// Extension explicite : `node --test` résout les modules sans elle, contrairement
+// à Vite. Même raison que l'import de `pronunciation/index.ts` dans le lecteur.
+import { withStop } from "./reading-intro.ts"
 
 /** Aligné sur mobile/lib/article-import.ts pour que les durées concordent. */
 const WORDS_PER_MINUTE = 200
@@ -42,8 +45,63 @@ const NOISE_PATTERN =
  */
 const MAX_NOISE_LENGTH = 400
 
+/**
+ * Retire `class`/`id` des titres avant que Readability ne les évalue.
+ *
+ * Sa regex interne `unlikelyCandidates` contient `header` — pensée pour un
+ * bandeau de page, elle attrape aussi un `<h2 class="header">` qui n'est qu'un
+ * sous-titre stylé, et fait disparaître le nœud entier avant même la sélection
+ * du contenu principal. Observé sur stackoverflow.blog : les quatre titres
+ * d'un article y disparaissaient, affichage *et* lecture. `removeNoise` a déjà
+ * eu sa chance de juger les titres sur nos propres motifs (« related »,
+ * « widget »…) ; ce qui en réchappe passe pour du contenu.
+ *
+ * Contrepartie assumée : un vrai parasite absent de NOISE_PATTERN — fil de
+ * navigation, pagination, bandeau RGPD — mais porté par un titre passera aussi.
+ * Aucun cas observé pour l'instant.
+ */
+function desarmHeadings(scope: Document | Element) {
+  for (const heading of scope.querySelectorAll("h1,h2,h3,h4,h5,h6")) {
+    heading.removeAttribute("class")
+    heading.removeAttribute("id")
+  }
+}
+
 /** Blocs dont le texte est prononcé, dans l'ordre du document. */
 const TEXT_BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,pre"
+
+/**
+ * Ce qui est dit à la place d'un bloc de code.
+ *
+ * Lire un extrait à voix haute, c'est énoncer sa ponctuation, son indentation
+ * et ses identifiants : le web n'en dit rien (`sequence-builder.ts`,
+ * `case "code": return []`) et mobile ne le collecte pas. Le silence complet
+ * laisse un tutoriel amputé sans le dire, d'où l'annonce.
+ *
+ * Aucune position annoncée : la pastille ne défile ni ne surligne, « ci-dessous »
+ * supposerait que l'auditeur regarde le bon endroit de la page.
+ *
+ * Même convention que `reading-intro` : code sur deux lettres, français par
+ * défaut — le français est la valeur de repli, pas une entrée de la table.
+ */
+const CODE_NOTICE = "Extrait de code."
+const CODE_NOTICE_BY_LANGUAGE: Record<string, string> = {
+  en: "Code snippet.",
+  es: "Fragmento de código.",
+  de: "Codeausschnitt.",
+  it: "Frammento di codice.",
+  pt: "Excerto de código.",
+}
+
+/**
+ * Mention de durée posée en tête d'article par la plupart des CMS. Bornée en
+ * longueur pour ne pas emporter une phrase qui parlerait de lecture.
+ *
+ * Porté de mobile (`extract-blocks.ts`), élargi au français : « 5 min de
+ * lecture » y est plus courant que « 5 min read ».
+ */
+const READING_TIME = /\d+\s*min(?:ute)?s?\s*(?:de lecture|read)|temps de lecture/i
+const MAX_READING_TIME_LENGTH = 120
 
 /**
  * Métadonnées produites par Readability, réutilisées telles quelles : titre,
@@ -80,6 +138,7 @@ export function extractArticle(
   const clone = doc.cloneNode(true) as Document
   remove(clone, INERT_SELECTORS)
   removeNoise(clone)
+  desarmHeadings(clone)
 
   // Filtre rapide (une seule passe, sans scoring) sur les pages non éditoriales.
   if (!isProbablyReaderable(clone)) throw new Error(NOT_AN_ARTICLE)
@@ -97,17 +156,20 @@ export function extractArticle(
   const root = parsed?.content
   if (!root) throw new Error(NOT_AN_ARTICLE)
 
+  const lang = parsed.lang || doc.documentElement.lang || null
+
   clean(root)
-  const textContent = toSpeakableText(root)
+  const textContent = toSpeakableText(root, lang ?? "")
   if (!textContent) throw new Error(NOT_AN_ARTICLE)
 
   return {
     ...parsed,
+    title: parsed.title ? stripSiteSuffix(parsed.title) : parsed.title,
     content: root.innerHTML,
     textContent,
     length: textContent.length,
     siteName: parsed.siteName || hostnameOf(url) || null,
-    lang: parsed.lang || doc.documentElement.lang || null,
+    lang,
     url,
     readingTimeMinutes: Math.max(
       1,
@@ -161,16 +223,55 @@ function clean(root: Element) {
  * `textContent` seul collerait la fin d'un titre au début du paragraphe suivant.
  * Les espaces internes sont normalisés pour éviter les coupures artificielles.
  */
-function toSpeakableText(root: Element) {
-  const text = Array.from(root.querySelectorAll(TEXT_BLOCKS))
+function toSpeakableText(root: Element, lang: string) {
+  const notice = CODE_NOTICE_BY_LANGUAGE[lang.slice(0, 2)] ?? CODE_NOTICE
+  const blocks = Array.from(root.querySelectorAll(TEXT_BLOCKS))
     // Un <p> dans un <blockquote>, un <li> dans un <li> : déjà couvert par le
     // parent, qui est lui-même dans la sélection.
     .filter((el) => !el.parentElement?.closest("li,blockquote,pre"))
-    .map((el) => normalize(el.textContent ?? ""))
-    .filter(Boolean)
+    .map((el) => {
+      const text = normalize(el.textContent ?? "")
+      // Le code est annoncé, pas prononcé. Un <pre> vide n'annonce rien : le
+      // filtre suivant emporte la chaîne vide.
+      return { el, text: el.tagName === "PRE" ? text && notice : text }
+    })
+    .filter(
+      ({ text }) =>
+        text && !(text.length <= MAX_READING_TIME_LENGTH && READING_TIME.test(text))
+    )
+    // Code, sortie, code : le motif est la norme dans un tutoriel, et sans cette
+    // fusion la voix répète l'annonce trois fois de suite. Deux blocs séparés
+    // par un paragraphe restent annoncés deux fois.
+    .filter(({ el }, index, all) => el.tagName !== "PRE" || all[index - 1]?.el.tagName !== "PRE")
+
+  // Ponctuation en dernier : titres, items de liste et légendes ne finissent
+  // jamais par un point dans le HTML, et la voix enchaîne alors sur le bloc
+  // suivant comme si la phrase continuait. Après le rognage, lui, qui reconnaît
+  // les étiquettes de fin d'article *à* leur absence de ponctuation.
+  const text = pruneTrailingResidue(blocks)
+    .map(({ text }) => withStop(text))
     .join("\n\n")
 
   return text || normalize(root.textContent ?? "")
+}
+
+/**
+ * Rogne ce que les encarts retirés laissent en fin d'article : titres orphelins
+ * (« À lire aussi », « Sur le même sujet ») et étiquettes courtes sans
+ * ponctuation finale.
+ *
+ * Une vraie phrase de conclusion est ponctuée : le rognage s'arrête au premier
+ * bloc qui ressemble à de la prose. Porté de mobile
+ * (`pruneTrailingWidgetResidue`), aux mêmes seuils.
+ */
+function pruneTrailingResidue(blocks: Array<{ el: Element; text: string }>) {
+  const isResidue = ({ el, text }: { el: Element; text: string }) =>
+    /^H[1-6]$/.test(el.tagName) ||
+    (el.tagName === "P" && text.length <= 60 && !/[.!?…"»›)\]]$/.test(text))
+
+  // Le dernier bloc de prose, plus un : tout ce qui suit est du résidu. Aucun
+  // bloc de prose vaut -1, donc un article entièrement rogné.
+  return blocks.slice(0, blocks.map(isResidue).lastIndexOf(false) + 1)
 }
 
 function normalize(text: string) {
@@ -179,6 +280,23 @@ function normalize(text: string) {
 
 function countWords(text: string) {
   return text.split(/\s+/).filter(Boolean).length
+}
+
+/**
+ * Retire le nom du site accolé au titre : « Le titre | Mon Journal ».
+ *
+ * Readability découpe déjà sur ce séparateur, mais restitue le titre entier dès
+ * que le reste tombe à quatre mots ou moins — le suffixe se dirait alors à voix
+ * haute. Même découpe que mobile (`mobile/lib/article-import.ts`), pour que les
+ * deux imports nomment un article pareil.
+ *
+ * Seul le dernier segment tombe : « A - B - C » garde « A - B », un titre sans
+ * séparateur reste intact, et un titre qui n'était *que* le nom du site (« | Mon
+ * Journal ») n'est pas vidé.
+ */
+function stripSiteSuffix(title: string) {
+  const parts = title.split(/\s+[|–—·-]\s+/)
+  return (parts.length > 1 ? parts.slice(0, -1).join(" - ") : title).trim() || title
 }
 
 function hostnameOf(url: string) {
