@@ -15,6 +15,7 @@ import type { SupportedLang } from "./supertonic-lang"
 export const TTS_SPEAK = "orateur:tts:speak"
 export const TTS_CONTROL = "orateur:tts:control"
 export const TTS_EVENT = "orateur:tts:event"
+/** L'hôte demande sa propre fermeture après un délai d'inactivité — voir offscreen/main.ts. */
 export const TTS_CLOSE = "orateur:tts:close"
 /**
  * Un document offscreen n'a pas `browser.storage` (vérifié en phase 0) : le
@@ -87,4 +88,8 @@ export interface TtsTabRemovedMessage {
 export interface TtsSetSpeedMessage {
   type: typeof TTS_SET_SPEED
   speed: number
+}
+
+export interface TtsCloseMessage {
+  type: typeof TTS_CLOSE
 }

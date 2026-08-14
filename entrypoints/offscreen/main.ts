@@ -7,6 +7,7 @@
  */
 import { createTtsHost } from "../../lib/tts-host"
 import {
+  TTS_CLOSE,
   TTS_CONTROL,
   TTS_EVENT,
   TTS_SET_SPEED,
@@ -24,7 +25,29 @@ import {
 let currentTabId: number | null = null
 let currentToken: string | null = null
 
+/**
+ * ponytail: hôte gardé au chaud 3 min après le dernier événement — trop
+ * court rechargerait les ~400 Mo de sessions à chaque article, trop long
+ * les garde résidents pour rien une fois la lecture terminée. Monter la
+ * constante si le rechargement se fait sentir en usage réel.
+ */
+const IDLE_CLOSE_MS = 3 * 60_000
+let idleTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Reporté à chaque événement d'état, playing/paused compris : tant que
+ *  quelque chose se passe, l'hôte reste. Le silence, lui, se mesure. */
+function scheduleIdleClose() {
+  if (idleTimer) clearTimeout(idleTimer)
+  idleTimer = setTimeout(() => {
+    // Défensif : `stop()` a déjà tout révoqué à la fin normale d'une
+    // lecture, mais un hôte resté en pause n'a jamais purgé ses créneaux.
+    host.control("stop")
+    void browser.runtime.sendMessage({ type: TTS_CLOSE }).catch(() => {})
+  }, IDLE_CLOSE_MS)
+}
+
 const host = createTtsHost((state) => {
+  scheduleIdleClose()
   if (currentTabId == null) return
   const event: TtsEventMessage = { type: TTS_EVENT, tabId: currentTabId, state }
   void browser.runtime.sendMessage(event).catch(() => {})
@@ -33,6 +56,11 @@ const host = createTtsHost((state) => {
     currentToken = null
   }
 })
+
+// Un document sans lecture ne doit pas non plus rester ouvert indéfiniment
+// — l'arrivée du premier TTS_SPEAK relance le compte comme n'importe quel
+// autre événement.
+scheduleIdleClose()
 
 type IncomingMessage =
   | Partial<TtsSpeakMessage>

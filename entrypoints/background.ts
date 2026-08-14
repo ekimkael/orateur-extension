@@ -24,6 +24,7 @@ import {
   type SelectionError,
 } from "../lib/selection-text"
 import {
+  TTS_CLOSE,
   TTS_CONTROL,
   TTS_EVENT,
   TTS_SET_SPEED,
@@ -222,6 +223,16 @@ export default defineBackground({
     browser.runtime.onMessage.addListener((message: Partial<TtsEventMessage>) => {
       if (message?.type !== TTS_EVENT || message.tabId == null) return
       void browser.tabs.sendMessage(message.tabId, message).catch(() => {})
+    })
+
+    // Démontage : l'hôte demande sa propre fermeture après une inactivité
+    // prolongée (voir offscreen/main.ts). Rien d'équivalent sur Firefox — la
+    // page de fond persistante n'a pas de pendant à `closeDocument()`, et
+    // n'a pas besoin d'en avoir : c'est déjà elle qui reste en mémoire pour
+    // que `persistent: true` garde les sessions ONNX chaudes entre lectures.
+    browser.runtime.onMessage.addListener((message: { type?: string }) => {
+      if (message?.type !== TTS_CLOSE) return
+      void (globalThis as any).chrome?.offscreen?.closeDocument().catch(() => {})
     })
   }
 
