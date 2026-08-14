@@ -81,6 +81,13 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   let generation = 0
   let abort: AbortController | null = null
   let active: 0 | 1 = 0
+  /**
+   * Vrai entre "pause" et "resume". Distinct de `slots[active].audio.paused` :
+   * un bloc peut devenir prêt (fill() résolu) pendant l'attente d'un autre,
+   * encore en synthèse — `playSlot()` doit alors rester silencieux au lieu de
+   * repartir tout seul.
+   */
+  let paused = false
 
   function makeSlot(index: 0 | 1): Slot {
     const audio = new Audio()
@@ -91,6 +98,15 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       // lecture arrêtée entre-temps — rien à avancer sur son compte.
       if (index !== active) return
       void advance(generation)
+    })
+    audio.addEventListener("error", () => {
+      // Même filtre que `ended`, plus `!slot.url` : `stop()` et `fill()` vident
+      // `src` via `removeAttribute` en repurposant un créneau, ce qui peut
+      // lever son propre `error` — mais `url` est déjà remis à `null` avant,
+      // synchrone, donc toujours vu par cette poignée avant l'événement
+      // (mis en file par le navigateur, jamais immédiat).
+      if (index !== active || !slot.url) return
+      onState({ phase: "error", message: "Erreur de lecture audio." })
     })
     return slot
   }
@@ -145,6 +161,17 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     if (s.blockIndex === index && s.url) return Promise.resolve()
     if (s.blockIndex === index && s.pending) return s.pending
 
+    // Le créneau change de bloc : son URL ne doit plus jamais paraître prête
+    // tant que la nouvelle synthèse n'a pas abouti. Sinon, un `advance()` qui
+    // tombe pendant cette synthèse voit encore `blockIndex` à jour et `url`
+    // non vide (celle de l'ANCIEN bloc) — les deux gardes ci-dessus le
+    // croient prêt, et `playSlot()` joue l'audio périmé du créneau.
+    if (s.url) {
+      URL.revokeObjectURL(s.url)
+      s.url = null
+      s.audio.removeAttribute("src")
+    }
+
     const text = blocks[index]
     const p = (async () => {
       if (text === undefined) return
@@ -153,7 +180,6 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       const pcm = await engine.synthesize(text, lang, style, TOTAL_STEP, 1.0, abort?.signal)
       if (gen !== generation) return
       const wav = writeWavFile(pcm, engine.sampleRate)
-      if (s.url) URL.revokeObjectURL(s.url)
       s.url = URL.createObjectURL(new Blob([wav], { type: "audio/wav" }))
       s.audio.src = s.url
       s.audio.playbackRate = speed
@@ -171,8 +197,18 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     if (gen !== generation) return
     active = slot
     blockIndex = slots[slot].blockIndex
+    if (paused) {
+      // Le bloc vient de finir sa synthèse pendant qu'on l'attendait en
+      // pause : rester silencieux plutôt que repartir tout seul — c'est
+      // `control("resume")` qui prendra le relais.
+      onState({ phase: "paused" })
+      return
+    }
     onState({ phase: "playing", block: blockIndex, total: blocks.length })
-    void slots[slot].audio.play()
+    slots[slot].audio.play().catch((e: unknown) => {
+      if (gen !== generation) return
+      onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
+    })
   }
 
   async function advance(gen: number) {
@@ -210,6 +246,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     speed = request.speed
     currentLang = request.lang
     currentStyle = null
+    paused = false
 
     // Une nouvelle lecture ne doit jamais hériter de l'audio d'une lecture
     // précédente : les indices de bloc ne sont uniques qu'À L'INTÉRIEUR d'une
@@ -248,19 +285,29 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
 
   function control(action: TtsControlAction) {
     if (action === "pause") {
+      paused = true
       slots[active].audio.pause()
       onState({ phase: "paused" })
       return
     }
     if (action === "resume") {
+      paused = false
       // Le créneau actif a pu déjà finir pendant que la transition suivante
       // était en vol (RTF > 1, voir l'en-tête du fichier) : `play()` sur un
       // <audio> déjà `ended` le repartirait de zéro plutôt que de le
       // reprendre, rejouant le bloc qui vient de finir et déclenchant un
       // second `ended` — donc un second `advance()` pour la même transition.
-      // Rien à reprendre ici : `advance()` mènera lui-même au bloc suivant.
+      // Rien à reprendre ici : `advance()` mènera lui-même au bloc suivant —
+      // ou, si le bloc a fini de synthétiser pendant la pause, `playSlot()`
+      // l'a déjà chargé sans le jouer (voir son test sur `paused`) : ni fini
+      // ni en cours, `ended` y est faux, donc on tombe bien après ce retour
+      // et `play()` plus bas le démarre.
       if (slots[active].audio.ended) return
-      void slots[active].audio.play()
+      const gen = generation
+      slots[active].audio.play().catch((e: unknown) => {
+        if (gen !== generation) return
+        onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
+      })
       onState({ phase: "playing", block: blockIndex, total: blocks.length })
       return
     }
@@ -269,6 +316,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     // une synthèse, pas seulement pendant la lecture.
     generation++
     abort?.abort()
+    paused = false
     for (const s of slots) {
       s.audio.pause()
       s.audio.removeAttribute("src")

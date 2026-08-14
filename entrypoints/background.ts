@@ -69,9 +69,11 @@ const PAGE_NOT_INJECTABLE = "Cette page ne peut pas être lue directement."
  * déjà tout ce qu'il faut — c'est elle l'hôte, directement, sans relais.
  */
 
-async function ensureOffscreen() {
+/** Faux si le document n'a pas pu être créé — l'appelant doit alors renoncer plutôt que relayer dans le vide. */
+async function ensureOffscreen(): Promise<boolean> {
   const api = (globalThis as any).chrome?.offscreen
-  if (!api || (await api.hasDocument())) return
+  if (!api) return false
+  if (await api.hasDocument()) return true
   // Deux créations concurrentes : la seconde jette, et c'est le résultat
   // voulu — pas de cache de promesse, il mourrait avec le service worker.
   await api
@@ -80,9 +82,8 @@ async function ensureOffscreen() {
       reasons: ["WORKERS"],
       justification: "Synthèse et lecture Supertonic hors d'un onglet.",
     })
-    .catch(async (e: unknown) => {
-      if (!(await api.hasDocument())) console.error("[orateur] offscreen KO", e)
-    })
+    .catch((e: unknown) => console.error("[orateur] offscreen KO", e))
+  return api.hasDocument()
 }
 
 /** L'hôte Firefox — une seule instance, gardée en mémoire par la page de fond persistante. */
@@ -124,7 +125,19 @@ async function handleTtsFromPill(
     return
   }
 
-  await ensureOffscreen()
+  if (!(await ensureOffscreen())) {
+    // Sans document offscreen, aucun TTS_EVENT ne viendra jamais — sans ce
+    // relais direct, la pastille resterait sur "…" indéfiniment.
+    if (message.type === TTS_SPEAK && tabId != null) {
+      const event: TtsEventMessage = {
+        type: TTS_EVENT,
+        tabId,
+        state: { phase: "error", message: "Impossible de démarrer le moteur Supertonic." },
+      }
+      void browser.tabs.sendMessage(tabId, event).catch(() => {})
+    }
+    return
+  }
   await browser.runtime.sendMessage({ ...message, tabId }).catch(() => {})
 }
 

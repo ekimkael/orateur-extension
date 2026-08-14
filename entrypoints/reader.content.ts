@@ -199,7 +199,7 @@ export default defineContentScript({
       if (message?.type !== TTS_EVENT || !message.state) return
       const state = message.state
       if (state.phase === "loading") {
-        pill.setState("loading", state.label ?? supertonicTitle)
+        pill.setState("loading", state.label ?? supertonicTitle, true)
       } else if (state.phase === "playing") {
         paused = false
         pill.setState("playing", supertonicTitle)
@@ -299,7 +299,7 @@ export default defineContentScript({
       supertonicTitle = payload.title ?? ""
       void browser.storage.local.set({ [READER_TOKEN]: token })
       pill.attach()
-      pill.setState("loading", supertonicTitle)
+      pill.setState("loading", supertonicTitle, true)
       void browser.runtime.sendMessage({
         type: TTS_SPEAK,
         text,
@@ -843,14 +843,18 @@ function createPill(
   attach()
   setState("idle")
 
-  function setState(state: PillState, title?: string) {
+  function setState(state: PillState, title?: string, interruptible = false) {
     primary.textContent = LABELS[state].primary
     primary.setAttribute("aria-label", ARIA[state].primary)
     secondary.textContent = LABELS[state].secondary
     secondary.setAttribute("aria-label", ARIA[state].secondary)
     // Rien à annuler tant que l'extraction tourne : quelques centaines de
-    // millisecondes, plus simple à neutraliser qu'à interrompre.
-    primary.disabled = secondary.disabled = state === "loading"
+    // millisecondes, plus simple à neutraliser qu'à interrompre. Supertonic
+    // réutilise ce même état "loading" pour des attentes de plusieurs
+    // secondes (téléchargement, synthèse entre blocs) — `interruptible` en
+    // sort les deux appelants concernés, sinon ⏸/⏹ resteraient morts
+    // précisément quand l'utilisateur veut s'en servir.
+    primary.disabled = secondary.disabled = state === "loading" && !interruptible
     // Le titre n'est réécrit que quand on en fournit un : une pause ne doit
     // pas le perdre — donc pas replier la pastille — juste changer l'icône.
     if (title !== undefined) label.textContent = title
