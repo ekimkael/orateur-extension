@@ -1,7 +1,10 @@
 import type { ExtractResult } from "./extract.content"
 import {
+  NOTIFY,
   READ_PAGE,
+  READER_TOKEN,
   START_READING,
+  type NotifyMessage,
   type StartReadingMessage,
 } from "./reader.content"
 import {
@@ -20,6 +23,24 @@ import {
   validateSelectionText,
   type SelectionError,
 } from "../lib/selection-text"
+import {
+  TTS_CONTROL,
+  TTS_EVENT,
+  TTS_SET_SPEED,
+  TTS_SPEAK,
+  TTS_TAB_REMOVED,
+  TTS_TOKEN_CHANGED,
+  type TtsControlMessage,
+  type TtsEventMessage,
+  type TtsSetSpeedMessage,
+  type TtsSpeakMessage,
+} from "../lib/tts-messages"
+// Importé sans condition, mais retiré du bundle Chrome par l'élimination de
+// code mort de Vite : tout usage est gardé par `import.meta.env.FIREFOX`, une
+// constante de build. Côté MV3, l'hôte vit dans le document offscreen
+// (entrypoints/offscreen/main.ts) — jamais ici, où il alourdirait le service
+// worker pour rien.
+import { createTtsHost } from "../lib/tts-host"
 
 const MENU_ID = "save-to-orateur"
 const SELECTION_MENU_ID = "read-selection-with-orateur"
@@ -34,7 +55,84 @@ const SELECTION_ERRORS: Record<SelectionError, string> = {
 const SELECTION_TRUNCATED = "Sélection très longue : seul le début sera lu."
 const PAGE_NOT_INJECTABLE = "Cette page ne peut pas être lue directement."
 
-export default defineBackground(() => {
+/**
+ * Relais Supertonic entre les pastilles et l'hôte.
+ *
+ * Chrome MV3 : l'hôte vit dans un document offscreen — seul contexte capable
+ * de DOM et `<audio>` hors d'un onglet, mais sans `tabs` ni `storage`
+ * (vérifié en phase 0). Le service worker fait le pont dans les deux sens,
+ * et reste lui-même sans état : `chrome.offscreen.hasDocument()` est sa
+ * seule mémoire, pour survivre à son propre redémarrage en pleine lecture.
+ *
+ * Firefox MV2 : pas de document offscreen. La page de fond persistante a
+ * déjà tout ce qu'il faut — c'est elle l'hôte, directement, sans relais.
+ */
+
+async function ensureOffscreen() {
+  const api = (globalThis as any).chrome?.offscreen
+  if (!api || (await api.hasDocument())) return
+  // Deux créations concurrentes : la seconde jette, et c'est le résultat
+  // voulu — pas de cache de promesse, il mourrait avec le service worker.
+  await api
+    .createDocument({
+      url: "offscreen.html",
+      reasons: ["WORKERS"],
+      justification: "Synthèse et lecture Supertonic hors d'un onglet.",
+    })
+    .catch(async (e: unknown) => {
+      if (!(await api.hasDocument())) console.error("[orateur] offscreen KO", e)
+    })
+}
+
+/** L'hôte Firefox — une seule instance, gardée en mémoire par la page de fond persistante. */
+let firefoxHost: ReturnType<typeof createTtsHost> | null = null
+let firefoxTabId: number | null = null
+let firefoxToken: string | null = null
+
+function ensureFirefoxHost() {
+  if (firefoxHost) return firefoxHost
+  firefoxHost = createTtsHost((state) => {
+    if (firefoxTabId == null) return
+    const event: TtsEventMessage = { type: TTS_EVENT, tabId: firefoxTabId, state }
+    void browser.tabs.sendMessage(firefoxTabId, event).catch(() => {})
+    if (state.phase === "ended" || state.phase === "error") {
+      firefoxTabId = null
+      firefoxToken = null
+    }
+  })
+  return firefoxHost
+}
+
+/** TTS_SPEAK / TTS_CONTROL / TTS_SET_SPEED envoyés par une pastille — toujours reçus ici avec `sender.tab`. */
+async function handleTtsFromPill(
+  message: Partial<TtsSpeakMessage> | Partial<TtsControlMessage> | Partial<TtsSetSpeedMessage>,
+  tabId: number | undefined
+) {
+  if (import.meta.env.FIREFOX) {
+    const host = ensureFirefoxHost()
+    if (message.type === TTS_SPEAK) {
+      if (tabId == null || !message.text || !message.lang || !message.voice) return
+      firefoxTabId = tabId
+      firefoxToken = message.token ?? null
+      host.speak({ text: message.text, lang: message.lang, voice: message.voice, speed: message.speed ?? 1 })
+    } else if (message.type === TTS_CONTROL && message.action) {
+      host.control(message.action)
+    } else if (message.type === TTS_SET_SPEED && message.speed != null) {
+      host.setSpeed(message.speed)
+    }
+    return
+  }
+
+  await ensureOffscreen()
+  await browser.runtime.sendMessage({ ...message, tabId }).catch(() => {})
+}
+
+export default defineBackground({
+  // Firefox seulement (voir le commentaire sur `defineBackground` juste
+  // au-dessus) : les sessions ONNX de l'hôte doivent survivre entre deux
+  // lectures, pas être rechargées à chaque réveil de la page de fond.
+  persistent: true,
+  main() {
   // Le service worker MV3 redémarre à volonté ; créer le menu ici plutôt que
   // dans main() évite l'erreur "duplicate id" à chaque réveil.
   browser.runtime.onInstalled.addListener(() => {
@@ -97,6 +195,65 @@ export default defineBackground(() => {
     }
   )
 
+  // Incident signalé par une pastille (ex. langue non prise en charge par
+  // Supertonic) : même badge que les autres avertissements de l'extension.
+  browser.runtime.onMessage.addListener((message: Partial<NotifyMessage>) => {
+    if (message?.type !== NOTIFY || !message.message) return
+    void notify(message.message)
+  })
+
+  // TTS_SPEAK / TTS_CONTROL depuis une pastille : toujours reçus ici en
+  // premier, `sender.tab` fiable (contrairement au document offscreen, qui
+  // reçoit la même diffusion en double — voir offscreen/main.ts).
+  browser.runtime.onMessage.addListener(
+    (
+      message: Partial<TtsSpeakMessage> | Partial<TtsControlMessage> | Partial<TtsSetSpeedMessage>,
+      sender
+    ) => {
+      if (message?.type !== TTS_SPEAK && message?.type !== TTS_CONTROL && message?.type !== TTS_SET_SPEED) return
+      void handleTtsFromPill(message, sender.tab?.id)
+    }
+  )
+
+  // TTS_EVENT : dans l'autre sens, du document offscreen vers l'onglet
+  // propriétaire. N'existe que côté Chrome — la page de fond Firefox parle
+  // déjà directement à l'onglet dans `ensureFirefoxHost`.
+  if (!import.meta.env.FIREFOX) {
+    browser.runtime.onMessage.addListener((message: Partial<TtsEventMessage>) => {
+      if (message?.type !== TTS_EVENT || message.tabId == null) return
+      void browser.tabs.sendMessage(message.tabId, message).catch(() => {})
+    })
+  }
+
+  // L'audio orphelin : un autre onglet prend la parole (READER_TOKEN change)
+  // pendant qu'un onglet différent lit avec Supertonic. Sans ce relais,
+  // l'hôte — qui n'a pas `storage` côté Chrome — ne l'apprendrait jamais.
+  browser.storage.onChanged.addListener((changes) => {
+    if (!(READER_TOKEN in changes)) return
+    const token = changes[READER_TOKEN].newValue as string | undefined
+    if (import.meta.env.FIREFOX) {
+      if (token === firefoxToken) return
+      firefoxHost?.control("stop")
+      firefoxTabId = null
+      firefoxToken = null
+      return
+    }
+    void browser.runtime.sendMessage({ type: TTS_TOKEN_CHANGED, token }).catch(() => {})
+  })
+
+  // Filet complémentaire : l'onglet qui lisait a pu être fermé sans qu'aucun
+  // autre n'ait pris la parole — READER_TOKEN ne bouge pas dans ce cas.
+  browser.tabs.onRemoved.addListener((tabId) => {
+    if (import.meta.env.FIREFOX) {
+      if (tabId !== firefoxTabId) return
+      firefoxHost?.control("stop")
+      firefoxTabId = null
+      firefoxToken = null
+      return
+    }
+    void browser.runtime.sendMessage({ type: TTS_TAB_REMOVED, tabId }).catch(() => {})
+  })
+
   // WXT traduit `action` en `browser_action` dans le manifest MV2, mais pas
   // l'API : Firefox MV2 n'expose que browserAction. Pas de polyfill dans le
   // bundle, donc l'alias est à faire à la main.
@@ -108,6 +265,7 @@ export default defineBackground(() => {
     if (info?.modifiers?.includes("Alt")) void readPageInPlace(tab)
     else void save(tab)
   })
+  },
 })
 
 /**

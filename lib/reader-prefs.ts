@@ -1,10 +1,14 @@
+import type { SupertonicVoice } from "./supertonic/types.ts"
+
 export type ReaderEngine = "system" | "supertonic"
 
 /**
  * Bornes du curseur de vitesse.
  *
  * `speechSynthesis` refuse un `rate` hors [0.1, 10] en levant : la borne est
- * bien plus serrée ici, une lecture au-delà n'étant plus intelligible.
+ * bien plus serrée ici, une lecture au-delà n'étant plus intelligible. Même
+ * plage pour Supertonic (`audio.playbackRate`) : un seul curseur pour les
+ * deux moteurs.
  */
 export const SPEED = { min: 0.8, max: 1.5, step: 0.1 } as const
 
@@ -12,6 +16,13 @@ export interface ReaderPreferences {
   engine: ReaderEngine
   speed: number
   voiceURI: string | null
+  /**
+   * Séparée de `voiceURI` plutôt que de le réutiliser : changer de moteur ne
+   * doit pas faire oublier le choix de voix de l'autre. `F1` par défaut —
+   * une voix concrète plutôt qu'un vide, Supertonic n'a pas de « laisser le
+   * navigateur choisir ».
+   */
+  supertonicVoice: SupertonicVoice
 }
 
 const PREFS_KEY = "orateur:reader-prefs"
@@ -19,6 +30,7 @@ const DEFAULT_PREFS: ReaderPreferences = {
   engine: "system",
   speed: 1,
   voiceURI: null,
+  supertonicVoice: "F1",
 }
 
 export async function loadPrefs(): Promise<ReaderPreferences> {

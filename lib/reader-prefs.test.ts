@@ -20,7 +20,12 @@ const KEY = "orateur:reader-prefs"
 
 test("part sur les défauts quand rien n'est stocké", async () => {
   fakeStorage()
-  assert.deepEqual(await loadPrefs(), { engine: "system", speed: 1, voiceURI: null })
+  assert.deepEqual(await loadPrefs(), {
+    engine: "system",
+    speed: 1,
+    voiceURI: null,
+    supertonicVoice: "F1",
+  })
 })
 
 test("complète une préférence partielle avec les défauts", async () => {
@@ -37,7 +42,12 @@ test("savePrefs n'écrase que la clé fournie", async () => {
 
   await savePrefs({ speed: 0.8 })
 
-  assert.deepEqual(data[KEY], { engine: "system", speed: 0.8, voiceURI: "urn:voix" })
+  assert.deepEqual(data[KEY], {
+    engine: "system",
+    speed: 0.8,
+    voiceURI: "urn:voix",
+    supertonicVoice: "F1",
+  })
 })
 
 test("ramène une vitesse hors bornes dans la plage", async () => {
@@ -46,6 +56,13 @@ test("ramène une vitesse hors bornes dans la plage", async () => {
 
   fakeStorage({ [KEY]: { speed: 0.1 } })
   assert.equal((await loadPrefs()).speed, SPEED.min)
+})
+
+test("supertonicVoice a son propre défaut, indépendant de voiceURI", async () => {
+  fakeStorage({ [KEY]: { voiceURI: "urn:voix-systeme" } })
+  const prefs = await loadPrefs()
+  assert.equal(prefs.voiceURI, "urn:voix-systeme")
+  assert.equal(prefs.supertonicVoice, "F1")
 })
 
 test("ignore une vitesse qui n'est pas un nombre", async () => {
@@ -62,5 +79,10 @@ test("deux écritures successives ne se perdent pas", async () => {
   await savePrefs({ speed: 1.2 })
   await savePrefs({ voiceURI: "urn:voix" })
 
-  assert.deepEqual(data[KEY], { engine: "system", speed: 1.2, voiceURI: "urn:voix" })
+  assert.deepEqual(data[KEY], {
+    engine: "system",
+    speed: 1.2,
+    voiceURI: "urn:voix",
+    supertonicVoice: "F1",
+  })
 })
