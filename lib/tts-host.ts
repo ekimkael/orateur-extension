@@ -253,6 +253,13 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       return
     }
     if (action === "resume") {
+      // Le créneau actif a pu déjà finir pendant que la transition suivante
+      // était en vol (RTF > 1, voir l'en-tête du fichier) : `play()` sur un
+      // <audio> déjà `ended` le repartirait de zéro plutôt que de le
+      // reprendre, rejouant le bloc qui vient de finir et déclenchant un
+      // second `ended` — donc un second `advance()` pour la même transition.
+      // Rien à reprendre ici : `advance()` mènera lui-même au bloc suivant.
+      if (slots[active].audio.ended) return
       void slots[active].audio.play()
       onState({ phase: "playing", block: blockIndex, total: blocks.length })
       return
