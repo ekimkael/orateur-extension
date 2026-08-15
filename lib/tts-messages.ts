@@ -62,7 +62,7 @@ export interface TtsControlMessage {
 
 /** Reflète 1:1 les états de la pastille — voir PillState dans reader.content.ts. */
 export type TtsState =
-  | { phase: "loading"; label?: string }
+  | { phase: "loading"; label?: string; progress?: number }
   | { phase: "playing"; block: number; total: number }
   | { phase: "paused" }
   | { phase: "ended" }

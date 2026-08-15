@@ -199,7 +199,17 @@ export default defineContentScript({
       if (message?.type !== TTS_EVENT || !message.state) return
       const state = message.state
       if (state.phase === "loading") {
-        pill.setState("loading", state.label ?? supertonicTitle, true)
+        // Le toast ne sort que pour une attente étiquetée : téléchargement du
+        // modèle, chargement du moteur ou de la voix, et — pendant la lecture
+        // — le hoquet où le bloc suivant n'a pas fini de se synthétiser (RTF
+        // > 1, voir tts-host.ts). Les transitions déjà prêtes, elles, sont
+        // instantanées et n'émettent jamais cet état.
+        pill.setState(
+          "loading",
+          state.label ?? supertonicTitle,
+          true,
+          state.label ? { label: state.label, percent: state.progress } : undefined
+        )
       } else if (state.phase === "playing") {
         paused = false
         pill.setState("playing", supertonicTitle)
@@ -495,6 +505,13 @@ button:disabled { opacity: 0.55; cursor: default }
 button:active:not(:disabled) { transform: scale(0.97) }
 button { transition: transform 100ms cubic-bezier(0.23, 1, 0.32, 1) }
 /*
+ * "…" a très peu d'encre au-dessus de sa ligne de base contrairement aux
+ * autres glyphes du bouton (▶ ✕ ⏸ ⏹) : centré comme eux par le flex du
+ * bouton, il paraît quand même planté en bas. Mesuré à measureText() dans la
+ * police système à 15px : ~4px d'écart entre son encre et celle des autres.
+ */
+.loading-glyph { display: inline-block; transform: translateY(-4px) }
+/*
  * Icône en masque plutôt qu'en emoji : ⚙️ est rendu en couleur et à une chasse
  * différente sur chaque OS. Le masque suit currentColor, donc l'état désactivé
  * et le focus restent cohérents avec les autres boutons, et rien n'entre dans le
@@ -571,6 +588,91 @@ span {
   opacity: 1;
   pointer-events: auto;
   transform: scale(1) translateY(0);
+}
+/*
+ * Pastille jumelle, pas un popover : même hauteur de ligne que .pill-row,
+ * mêmes bouts entièrement arrondis. Dockée à gauche — c'est là qu'il reste de
+ * la place, la pastille principale étant déjà plaquée contre le bord droit de
+ * l'écran — et sort vers la gauche depuis ce point d'ancrage.
+ */
+.loading-toast {
+  position: absolute;
+  top: 50%;
+  right: 100%;
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
+  padding: 6px 14px 6px 10px;
+  max-width: 220px;
+  color: var(--fg);
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%) scale(0.95) translateX(12px);
+  transform-origin: center right;
+  transition:
+    opacity 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  z-index: 10000;
+}
+.loading-toast[data-open] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(-50%) scale(1) translateX(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-toast { transform: translateY(-50%); transition: opacity 120ms ease-out }
+  .loading-toast[data-open] { transform: translateY(-50%) }
+}
+.loading-toast-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Anneau tournant : attente sans pourcentage connu (moteur, voix). */
+.loading-toast-spinner {
+  display: none;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 999px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  animation: loading-spin 700ms linear infinite;
+}
+.loading-toast[data-mode="indeterminate"] .loading-toast-spinner { display: block }
+@media (prefers-reduced-motion: reduce) {
+  .loading-toast-spinner { animation-duration: 1400ms }
+}
+@keyframes loading-spin {
+  to { transform: rotate(360deg) }
+}
+/* Barre déterminée : pourcentage connu (téléchargement du modèle). */
+.loading-toast-bar {
+  display: none;
+  width: 48px;
+  height: 4px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.loading-toast[data-mode="determinate"] .loading-toast-bar { display: block }
+.loading-toast-bar-fill {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(0);
+  transform-origin: left;
+  background: var(--accent);
+  transition: transform 150ms linear;
 }
 .settings-row { display: flex; flex-direction: column; gap: 6px }
 .settings-row + .settings-row { margin-top: 12px }
@@ -662,6 +764,14 @@ function createPill(
   const row = document.createElement("div")
   row.className = "pill-row"
   const primary = button(onPrimary)
+  // "…" a très peu d'encre au-dessus de sa ligne de base (contrairement à
+  // ▶ ✕ ⏸ ⏹, qui s'équilibrent entre eux) : centré par le flex du bouton
+  // comme les autres, il paraît quand même planté en bas. Un nudge isolé sur
+  // cet élément plutôt que sur `primary` — son propre `transform` sert déjà
+  // au retour d'appui (:active), les deux se marcheraient dessus sinon.
+  const loadingGlyph = document.createElement("div")
+  loadingGlyph.className = "loading-glyph"
+  loadingGlyph.textContent = "…"
   const label = document.createElement("span")
   const secondary = button(onSecondary)
   const settings = button(() => togglePopover())
@@ -683,6 +793,31 @@ function createPill(
   popover.setAttribute("role", "group")
   popover.setAttribute("aria-label", "Réglages de lecture")
   row.append(popover)
+
+  /**
+   * Toast d'attente : téléchargement du modèle, chargement du moteur ou de
+   * la voix Supertonic. Séparé de `label` (qui porte le titre de l'article)
+   * pour ne jamais l'écraser — sans ça la pastille perdrait le titre affiché
+   * pendant l'attente et devrait le retrouver au retour à "playing".
+   */
+  const toast = document.createElement("div")
+  toast.className = "loading-toast"
+  toast.setAttribute("role", "status")
+  toast.setAttribute("aria-live", "polite")
+  // `div`, pas `span` : la règle `span { max-width: 0; opacity: 0 }` plus bas
+  // (le label replié de la pastille) écraserait silencieusement ces deux-là.
+  const toastSpinner = document.createElement("div")
+  toastSpinner.className = "loading-toast-spinner"
+  toastSpinner.setAttribute("aria-hidden", "true")
+  const toastLabel = document.createElement("div")
+  toastLabel.className = "loading-toast-label"
+  const toastBar = document.createElement("div")
+  toastBar.className = "loading-toast-bar"
+  const toastFill = document.createElement("div")
+  toastFill.className = "loading-toast-bar-fill"
+  toastBar.append(toastFill)
+  toast.append(toastSpinner, toastLabel, toastBar)
+  row.append(toast)
 
   let currentPrefs = initialPrefs
   let isPopoverOpen = false
@@ -843,8 +978,14 @@ function createPill(
   attach()
   setState("idle")
 
-  function setState(state: PillState, title?: string, interruptible = false) {
-    primary.textContent = LABELS[state].primary
+  function setState(
+    state: PillState,
+    title?: string,
+    interruptible = false,
+    toastInfo?: { label: string; percent?: number }
+  ) {
+    if (state === "loading") primary.replaceChildren(loadingGlyph)
+    else primary.textContent = LABELS[state].primary
     primary.setAttribute("aria-label", ARIA[state].primary)
     secondary.textContent = LABELS[state].secondary
     secondary.setAttribute("aria-label", ARIA[state].secondary)
@@ -859,6 +1000,13 @@ function createPill(
     // pas le perdre — donc pas replier la pastille — juste changer l'icône.
     if (title !== undefined) label.textContent = title
     host.toggleAttribute("data-expanded", state === "playing" || state === "paused")
+
+    toast.toggleAttribute("data-open", toastInfo !== undefined)
+    if (toastInfo) {
+      toastLabel.textContent = toastInfo.label
+      toast.dataset.mode = toastInfo.percent === undefined ? "indeterminate" : "determinate"
+      if (toastInfo.percent !== undefined) toastFill.style.transform = `scaleX(${toastInfo.percent / 100})`
+    }
   }
 
   return {

@@ -122,7 +122,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
             const percent = Math.round(
               ((p.fileIndex + (p.bytesTotal ? p.bytesLoaded / p.bytesTotal : 0)) / p.totalFiles) * 100
             )
-            onState({ phase: "loading", label: `Téléchargement… ${percent}%` })
+            onState({ phase: "loading", label: "Téléchargement du modèle…", progress: percent })
           })
           onState({ phase: "loading", label: "Chargement du moteur…" })
           const engine = await loadTextToSpeechEngine(getFile)
@@ -223,8 +223,11 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       const otherSlot = ((1 - active) as 0 | 1)
       const style = currentStyle!
 
+      // N'arrive que si la synthèse n'a pas eu le temps d'avance sur la
+      // lecture (RTF > 1, voir l'en-tête du fichier) : le bloc suivant n'est
+      // pas encore prêt, il faut l'attendre en silence sinon.
       const alreadyReady = slots[otherSlot].blockIndex === next && slots[otherSlot].url
-      if (!alreadyReady) onState({ phase: "loading" })
+      if (!alreadyReady) onState({ phase: "loading", label: "Préparation du paragraphe suivant…" })
       await fill(gen, otherSlot, next, style, currentLang)
       if (gen !== generation) return
       playSlot(gen, otherSlot)
@@ -268,7 +271,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
           onState({ phase: "ended" })
           return
         }
-        onState({ phase: "loading" })
+        onState({ phase: "loading", label: "Chargement de la voix…" })
         const style = await ensureStyle(request.voice)
         if (gen !== generation) return
         currentStyle = style
