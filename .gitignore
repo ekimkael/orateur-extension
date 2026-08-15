@@ -17,6 +17,9 @@ web-ext.config.ts
 # Bancs d'essai jetables (bubble-harness.tmp.html…)
 *.tmp.*
 
+# Runtime onnxruntime-web recopié dans public/ au build par copyOrtAssets
+/public/ort/
+
 # Outillage local : config d'agent et notes de travail
 .claude
 plans

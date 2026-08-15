@@ -18,6 +18,21 @@ import {
 } from "../lib/reader-prefs"
 import { expandText } from "../lib/pronunciation/index.ts"
 import { buildReadingIntro } from "../lib/reading-intro"
+import { toSupertonicLang, type SupportedLang } from "../lib/supertonic-lang.ts"
+import {
+  TTS_CONTROL,
+  TTS_EVENT,
+  TTS_SET_SPEED,
+  TTS_SPEAK,
+  type TtsControlMessage,
+  type TtsEventMessage,
+  type TtsSetSpeedMessage,
+  type TtsSpeakMessage,
+} from "../lib/tts-messages"
+// Type uniquement — importer la valeur (la liste des 10 voix, ses libellés)
+// depuis lib/supertonic/* ferait entrer le moteur dans ce bundle. La petite
+// liste ci-dessous, plus bas dans ce fichier, est donc dupliquée à dessein.
+import type { SupertonicVoice } from "../lib/supertonic/types.ts"
 
 export interface ReadPagePayload {
   text: string
@@ -40,6 +55,17 @@ export const START_READING = "orateur:start-reading"
 export const READ_PAGE = "orateur:read-page"
 
 /**
+ * Signale un incident au background, seul contexte à pouvoir toucher le
+ * badge de l'icône (`browser.action` n'existe pas dans un content script).
+ */
+export const NOTIFY = "orateur:notify"
+
+export interface NotifyMessage {
+  type: typeof NOTIFY
+  message: string
+}
+
+/**
  * Clé de storage portant le jeton de l'onglet qui lit.
  *
  * `speechSynthesis` est partagé par tout le navigateur alors qu'il y a une
@@ -49,8 +75,12 @@ export const READ_PAGE = "orateur:read-page"
  *
  * Storage plutôt qu'un aiguillage par le background : rien à garder en mémoire
  * dans un service worker MV3 qui s'endort, et aucun onglet à recenser.
+ *
+ * Exportée : l'hôte Supertonic s'y abonne aussi, pour la même raison — sans
+ * ça, un autre onglet qui prend la parole avec le moteur système laisserait
+ * l'audio Supertonic tourner, sans plus aucune pastille pour l'arrêter.
  */
-const READER_TOKEN = "orateur:reading-tab"
+export const READER_TOKEN = "orateur:reading-tab"
 
 type PillState = "idle" | "loading" | "playing" | "paused"
 
@@ -81,6 +111,18 @@ export default defineContentScript({
     let generation = 0
     /** Un réglage a changé pendant la pause : à appliquer à la reprise. */
     let stale = false
+    /**
+     * La lecture en cours utilise Supertonic plutôt que le moteur système.
+     *
+     * `blocks`/`blockIndex`/`charIndex`/`generation`/`stale` ne servent qu'au
+     * chemin système : l'hôte Supertonic garde sa propre position, jamais
+     * exposée ici — juste des événements `TTS_EVENT` à répercuter sur la
+     * pastille.
+     */
+    let usingSupertonic = false
+    /** Réinjecté à chaque `playing` : un état de chargement y écrit la
+     *  progression du téléchargement par-dessus, il faut de quoi le restaurer. */
+    let supertonicTitle = ""
     const token = Math.random().toString(36).slice(2)
     // Réassigné, pas figé : une lecture doit partir sur les réglages du moment,
     // y compris ceux changés depuis un autre onglet.
@@ -89,13 +131,34 @@ export default defineContentScript({
     const pill = createPill(onPrimary, onSecondary, prefs)
 
     browser.runtime.onMessage.addListener(onMessage)
+    browser.runtime.onMessage.addListener(onTtsEvent)
     browser.storage.onChanged.addListener(onTokenChanged)
     const unsubscribePrefs = onPrefsChanged((newPrefs) => {
-      const affectsVoice =
-        newPrefs.speed !== prefs.speed || newPrefs.voiceURI !== prefs.voiceURI
+      const speedChanged = newPrefs.speed !== prefs.speed
+      const voiceChanged = newPrefs.voiceURI !== prefs.voiceURI
       prefs = newPrefs
       pill.updatePrefs(newPrefs)
-      if (!affectsVoice || !reading) return
+      if (!reading) return
+
+      if (usingSupertonic) {
+        // La vitesse s'applique tout de suite (audio.playbackRate, jamais de
+        // resynthèse) : aucune raison d'attendre la reprise, contrairement au
+        // chemin système.
+        //
+        // ponytail: un changement de voix Supertonic en cours de lecture
+        // n'est pas repris à la volée — l'hôte ne garde pas de position dans
+        // le texte pour relancer avec une autre voix. Arrêter puis relire
+        // pour l'entendre.
+        if (speedChanged) {
+          void browser.runtime.sendMessage({
+            type: TTS_SET_SPEED,
+            speed: newPrefs.speed,
+          } satisfies TtsSetSpeedMessage)
+        }
+        return
+      }
+
+      if (!speedChanged && !voiceChanged) return
       // La synthèse ne réaccorde pas un utterance déjà lancé : le seul moyen
       // d'entendre la nouvelle vitesse est de refaire la file à partir du mot
       // en cours. En pause, on attend la reprise plutôt que de repartir tout
@@ -105,9 +168,21 @@ export default defineContentScript({
     })
     // La synthèse survit au déchargement de la page : sans ça la lecture
     // continue après un rechargement, hors de portée de la nouvelle pastille.
-    ctx.addEventListener(window, "pagehide", () => reading && cancelSpeech())
+    // Pour Supertonic, `tabs.onRemoved` ne couvre que la fermeture de
+    // l'onglet — un rechargement le laisse ouvert, donc sans ce signal
+    // l'audio continuerait indéfiniment, sans plus aucune pastille pour
+    // l'arrêter : le même risque que l'onglet fermé, côté rechargement.
+    ctx.addEventListener(window, "pagehide", () => {
+      if (!reading) return
+      if (usingSupertonic) {
+        void browser.runtime.sendMessage({ type: TTS_CONTROL, action: "stop" } satisfies TtsControlMessage)
+      } else {
+        cancelSpeech()
+      }
+    })
     ctx.onInvalidated(() => {
       browser.runtime.onMessage.removeListener(onMessage)
+      browser.runtime.onMessage.removeListener(onTtsEvent)
       browser.storage.onChanged.removeListener(onTokenChanged)
       unsubscribePrefs()
       cancelSpeech()
@@ -117,6 +192,39 @@ export default defineContentScript({
     function onMessage(message: Partial<StartReadingMessage>) {
       if (message?.type !== START_READING || !message.text) return
       start(message as ReadPagePayload)
+    }
+
+    /** Événements de l'hôte Supertonic : pilotent directement la pastille. */
+    function onTtsEvent(message: Partial<TtsEventMessage>) {
+      if (message?.type !== TTS_EVENT || !message.state) return
+      const state = message.state
+      if (state.phase === "loading") {
+        // Le toast ne sort que pour une attente étiquetée : téléchargement du
+        // modèle, chargement du moteur ou de la voix, et — pendant la lecture
+        // — le hoquet où l'unité suivante n'a pas fini de se synthétiser (RTF
+        // > 1, voir tts-host.ts). Les transitions déjà prêtes, elles, sont
+        // instantanées et n'émettent jamais cet état.
+        pill.setState(
+          "loading",
+          state.label ?? supertonicTitle,
+          true,
+          state.label ? { label: state.label, percent: state.progress } : undefined
+        )
+      } else if (state.phase === "playing") {
+        paused = false
+        pill.setState("playing", supertonicTitle)
+      } else if (state.phase === "paused") {
+        paused = true
+        pill.setState("paused")
+      } else if (state.phase === "ended") {
+        fold()
+      } else if (state.phase === "error") {
+        void browser.runtime.sendMessage({
+          type: NOTIFY,
+          message: state.message,
+        } satisfies NotifyMessage)
+        fold()
+      }
     }
 
     /** Un autre onglet a pris la parole : se replier, sans toucher au moteur. */
@@ -132,6 +240,16 @@ export default defineContentScript({
         // Notre propre drapeau, jamais `speechSynthesis.paused` : Chrome ne met
         // le sien à jour qu'après coup, on relirait l'état d'avant le clic.
         paused = !paused
+        if (usingSupertonic) {
+          // Retour immédiat, comme le chemin système : le TTS_EVENT qui suit
+          // ne fait que confirmer le même état, sans le faire attendre.
+          pill.setState(paused ? "paused" : "playing")
+          void browser.runtime.sendMessage({
+            type: TTS_CONTROL,
+            action: paused ? "pause" : "resume",
+          } satisfies TtsControlMessage)
+          return
+        }
         if (paused) speechSynthesis.pause()
         // La file en attente porte encore l'ancienne vitesse : la refaire plutôt
         // que la reprendre, sinon le réglage change au bloc suivant seulement.
@@ -160,7 +278,50 @@ export default defineContentScript({
       else pill.remove()
     }
 
+    /** Choisit le moteur, puis démarre — le reste ne se recroise plus. */
     function start(payload: ReadPagePayload) {
+      if (prefs.engine === "supertonic") {
+        const supertonicLang = toSupertonicLang(payload.lang ?? "")
+        if (supertonicLang) {
+          startSupertonic(payload, supertonicLang)
+          return
+        }
+        // Langue hors du modèle : un repli silencieux serait déroutant — dire
+        // pourquoi la voix système est utilisée à sa place.
+        void browser.runtime.sendMessage({
+          type: NOTIFY,
+          message: "Langue non prise en charge par Supertonic : lecture avec la voix système.",
+        } satisfies NotifyMessage)
+      }
+      startSystem(payload)
+    }
+
+    function startSupertonic(payload: ReadPagePayload, lang: SupportedLang) {
+      // Même annonce de titre qu'en système (buildReadingIntro), composée ici
+      // plutôt que par l'hôte : lib/tts-host.ts ne connaît ni onglets ni titres,
+      // seulement du texte à synthétiser.
+      const intro = buildReadingIntro(payload.lang ?? "", payload.title ?? "")
+      const text = intro ? `${intro} ${payload.text}` : payload.text
+
+      usingSupertonic = true
+      reading = true
+      paused = false
+      supertonicTitle = payload.title ?? ""
+      void browser.storage.local.set({ [READER_TOKEN]: token })
+      pill.attach()
+      pill.setState("loading", supertonicTitle, true)
+      void browser.runtime.sendMessage({
+        type: TTS_SPEAK,
+        text,
+        title: payload.title,
+        lang,
+        voice: prefs.supertonicVoice,
+        speed: prefs.speed,
+        token,
+      } satisfies Partial<TtsSpeakMessage>)
+    }
+
+    function startSystem(payload: ReadPagePayload) {
       // Un bloc par paragraphe, pour éviter la limite de longueur de Chrome.
       // Le découpage passe avant `expandText`, qui écrase les blancs — les
       // frontières de paragraphes n'y survivraient pas.
@@ -255,8 +416,15 @@ export default defineContentScript({
 
     /** ⏹ : couper le moteur, puis se replier. */
     function stop() {
+      if (usingSupertonic) {
+        void browser.runtime.sendMessage({
+          type: TTS_CONTROL,
+          action: "stop",
+        } satisfies TtsControlMessage)
+      } else {
+        cancelSpeech()
+      }
       fold()
-      cancelSpeech()
     }
 
     /** Revenir au repos sans toucher au moteur de synthèse. */
@@ -264,6 +432,7 @@ export default defineContentScript({
       reading = false
       paused = false
       stale = false
+      usingSupertonic = false
       // La file coupée ne nous appartient plus : un `end` en retard ne doit pas
       // replier une lecture relancée entre-temps.
       generation++
@@ -335,6 +504,13 @@ button:disabled { opacity: 0.55; cursor: default }
    relâchement. */
 button:active:not(:disabled) { transform: scale(0.97) }
 button { transition: transform 100ms cubic-bezier(0.23, 1, 0.32, 1) }
+/*
+ * "…" a très peu d'encre au-dessus de sa ligne de base contrairement aux
+ * autres glyphes du bouton (▶ ✕ ⏸ ⏹) : centré comme eux par le flex du
+ * bouton, il paraît quand même planté en bas. Mesuré à measureText() dans la
+ * police système à 15px : ~4px d'écart entre son encre et celle des autres.
+ */
+.loading-glyph { display: inline-block; transform: translateY(-4px) }
 /*
  * Icône en masque plutôt qu'en emoji : ⚙️ est rendu en couleur et à une chasse
  * différente sur chaque OS. Le masque suit currentColor, donc l'état désactivé
@@ -413,6 +589,91 @@ span {
   pointer-events: auto;
   transform: scale(1) translateY(0);
 }
+/*
+ * Pastille jumelle, pas un popover : même hauteur de ligne que .pill-row,
+ * mêmes bouts entièrement arrondis. Dockée à gauche — c'est là qu'il reste de
+ * la place, la pastille principale étant déjà plaquée contre le bord droit de
+ * l'écran — et sort vers la gauche depuis ce point d'ancrage.
+ */
+.loading-toast {
+  position: absolute;
+  top: 50%;
+  right: 100%;
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
+  padding: 6px 14px 6px 10px;
+  max-width: 220px;
+  color: var(--fg);
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%) scale(0.95) translateX(12px);
+  transform-origin: center right;
+  transition:
+    opacity 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  z-index: 10000;
+}
+.loading-toast[data-open] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(-50%) scale(1) translateX(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-toast { transform: translateY(-50%); transition: opacity 120ms ease-out }
+  .loading-toast[data-open] { transform: translateY(-50%) }
+}
+.loading-toast-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Anneau tournant : attente sans pourcentage connu (moteur, voix). */
+.loading-toast-spinner {
+  display: none;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 999px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  animation: loading-spin 700ms linear infinite;
+}
+.loading-toast[data-mode="indeterminate"] .loading-toast-spinner { display: block }
+@media (prefers-reduced-motion: reduce) {
+  .loading-toast-spinner { animation-duration: 1400ms }
+}
+@keyframes loading-spin {
+  to { transform: rotate(360deg) }
+}
+/* Barre déterminée : pourcentage connu (téléchargement du modèle). */
+.loading-toast-bar {
+  display: none;
+  width: 48px;
+  height: 4px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.loading-toast[data-mode="determinate"] .loading-toast-bar { display: block }
+.loading-toast-bar-fill {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(0);
+  transform-origin: left;
+  background: var(--accent);
+  transition: transform 150ms linear;
+}
 .settings-row { display: flex; flex-direction: column; gap: 6px }
 .settings-row + .settings-row { margin-top: 12px }
 .settings-label {
@@ -456,6 +717,16 @@ select.settings-control {
 select.settings-control:hover { background: rgb(255 255 255 / 0.12) }
 input.settings-control { margin: 2px 0 }
 .settings-control:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+/* Le coût du premier ▶ Supertonic, collé à la ligne Moteur — c'est ce qui le
+   rend acceptable plutôt que subi. Masqué par défaut : afficher un [hidden]
+   coûte moins qu'un état de plus dans syncControls(). */
+.settings-note {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.settings-note strong { color: var(--fg); font-weight: 600 }
 `
 
 /** Libellé et intitulé accessible de chaque bouton, état par état. */
@@ -493,6 +764,14 @@ function createPill(
   const row = document.createElement("div")
   row.className = "pill-row"
   const primary = button(onPrimary)
+  // "…" a très peu d'encre au-dessus de sa ligne de base (contrairement à
+  // ▶ ✕ ⏸ ⏹, qui s'équilibrent entre eux) : centré par le flex du bouton
+  // comme les autres, il paraît quand même planté en bas. Un nudge isolé sur
+  // cet élément plutôt que sur `primary` — son propre `transform` sert déjà
+  // au retour d'appui (:active), les deux se marcheraient dessus sinon.
+  const loadingGlyph = document.createElement("div")
+  loadingGlyph.className = "loading-glyph"
+  loadingGlyph.textContent = "…"
   const label = document.createElement("span")
   const secondary = button(onSecondary)
   const settings = button(() => togglePopover())
@@ -515,23 +794,67 @@ function createPill(
   popover.setAttribute("aria-label", "Réglages de lecture")
   row.append(popover)
 
+  /**
+   * Toast d'attente : téléchargement du modèle, chargement du moteur ou de
+   * la voix Supertonic. Séparé de `label` (qui porte le titre de l'article)
+   * pour ne jamais l'écraser — sans ça la pastille perdrait le titre affiché
+   * pendant l'attente et devrait le retrouver au retour à "playing".
+   */
+  const toast = document.createElement("div")
+  toast.className = "loading-toast"
+  toast.setAttribute("role", "status")
+  toast.setAttribute("aria-live", "polite")
+  // `div`, pas `span` : la règle `span { max-width: 0; opacity: 0 }` plus bas
+  // (le label replié de la pastille) écraserait silencieusement ces deux-là.
+  const toastSpinner = document.createElement("div")
+  toastSpinner.className = "loading-toast-spinner"
+  toastSpinner.setAttribute("aria-hidden", "true")
+  const toastLabel = document.createElement("div")
+  toastLabel.className = "loading-toast-label"
+  const toastBar = document.createElement("div")
+  toastBar.className = "loading-toast-bar"
+  const toastFill = document.createElement("div")
+  toastFill.className = "loading-toast-bar-fill"
+  toastBar.append(toastFill)
+  toast.append(toastSpinner, toastLabel, toastBar)
+  row.append(toast)
+
   let currentPrefs = initialPrefs
   let isPopoverOpen = false
 
   const engine = document.createElement("select")
   settingsRow("Moteur", engine)
-  for (const [value, text, unavailable] of ENGINES) {
+  for (const [value, text] of ENGINES) {
     const choice = document.createElement("option")
     choice.value = value
     choice.textContent = text
-    // Proposé mais non sélectionnable : le choix reste visible comme cap, sans
-    // permettre de le prendre et de se retrouver avec une lecture muette.
-    choice.disabled = unavailable
     engine.append(choice)
   }
-  engine.addEventListener("change", () =>
+  engine.addEventListener("change", () => {
     savePrefs({ engine: engine.value as ReaderEngine })
-  )
+    // currentPrefs n'a pas encore le nouveau moteur — l'écriture passe par un
+    // aller-retour storage — mais le select Voix doit changer de liste tout
+    // de suite, pas attendre onPrefsChanged.
+    currentPrefs = { ...currentPrefs, engine: engine.value as ReaderEngine }
+    renderVoices()
+  })
+
+  // Le coût du premier ▶ : Supertonic ne télécharge rien tant qu'on ne lit
+  // pas, mais le dire à l'avance rend ce coût acceptable plutôt que subi.
+  //
+  // ponytail: texte statique, pas d'état « déjà téléchargé » — la pastille
+  // n'a aucun moyen d'interroger l'OPFS de l'extension pour le savoir sans un
+  // aller-retour de plus. La progression réelle, elle, passe par le libellé
+  // de la pastille (setState("loading", "Téléchargement… 42%")) une fois la
+  // lecture lancée.
+  const supertonicNote = document.createElement("div")
+  supertonicNote.className = "settings-note"
+  const noteLead = document.createElement("strong")
+  noteLead.textContent = "Voix naturelles, générées sur votre appareil."
+  const noteRest = document.createElement("div")
+  noteRest.textContent = "398 Mo à télécharger à la première lecture, une seule fois."
+  supertonicNote.append(noteLead, noteRest)
+  popover.append(supertonicNote)
 
   const speed = document.createElement("input")
   const speedValue = settingsRow("Vitesse", speed)
@@ -549,10 +872,16 @@ function createPill(
 
   const voice = document.createElement("select")
   settingsRow("Voix", voice)
-  // La valeur vide porte « laisser le navigateur choisir » : un select n'a pas
-  // de null, et c'est aussi ce sur quoi il retombe si la voix enregistrée a
-  // disparu de la machine.
-  voice.addEventListener("change", () => savePrefs({ voiceURI: voice.value || null }))
+  voice.addEventListener("change", () => {
+    if (currentPrefs.engine === "supertonic") {
+      savePrefs({ supertonicVoice: voice.value as SupertonicVoice })
+    } else {
+      // La valeur vide porte « laisser le navigateur choisir » : un select
+      // n'a pas de null, et c'est aussi ce sur quoi il retombe si la voix
+      // enregistrée a disparu de la machine.
+      savePrefs({ voiceURI: voice.value || null })
+    }
+  })
   renderVoices()
   // Chrome charge ses voix après coup : sans cet événement la liste reste
   // réduite à « Par défaut » pendant les premières secondes de la page.
@@ -601,13 +930,23 @@ function createPill(
     engine.value = currentPrefs.engine
     speed.value = String(currentPrefs.speed)
     speedValue.textContent = formatSpeed(currentPrefs.speed)
-    // Une voix absente de la liste — désinstallée, ou enregistrée sur une autre
-    // machine — laisse le select retomber sur l'option vide, qui est justement
-    // le défaut. Rien à rattraper.
-    voice.value = currentPrefs.voiceURI ?? ""
+    if (currentPrefs.engine === "supertonic") {
+      voice.value = currentPrefs.supertonicVoice
+    } else {
+      // Une voix absente de la liste — désinstallée, ou enregistrée sur une
+      // autre machine — laisse le select retomber sur l'option vide, qui est
+      // justement le défaut. Rien à rattraper.
+      voice.value = currentPrefs.voiceURI ?? ""
+    }
+    supertonicNote.hidden = currentPrefs.engine !== "supertonic"
   }
 
   function renderVoices() {
+    if (currentPrefs.engine === "supertonic") {
+      voice.replaceChildren(...SUPERTONIC_VOICE_OPTIONS.map(([id, label]) => voiceChoice(id, label)))
+      syncControls()
+      return
+    }
     const choices = [voiceChoice("", "Par défaut")]
     // Aucun tri ni filtre par langue : deviner la bonne, c'est risquer de
     // masquer celle que l'utilisateur veut. Le select natif défile seul.
@@ -639,18 +978,35 @@ function createPill(
   attach()
   setState("idle")
 
-  function setState(state: PillState, title?: string) {
-    primary.textContent = LABELS[state].primary
+  function setState(
+    state: PillState,
+    title?: string,
+    interruptible = false,
+    toastInfo?: { label: string; percent?: number }
+  ) {
+    if (state === "loading") primary.replaceChildren(loadingGlyph)
+    else primary.textContent = LABELS[state].primary
     primary.setAttribute("aria-label", ARIA[state].primary)
     secondary.textContent = LABELS[state].secondary
     secondary.setAttribute("aria-label", ARIA[state].secondary)
     // Rien à annuler tant que l'extraction tourne : quelques centaines de
-    // millisecondes, plus simple à neutraliser qu'à interrompre.
-    primary.disabled = secondary.disabled = state === "loading"
+    // millisecondes, plus simple à neutraliser qu'à interrompre. Supertonic
+    // réutilise ce même état "loading" pour des attentes de plusieurs
+    // secondes (téléchargement, synthèse entre blocs) — `interruptible` en
+    // sort les deux appelants concernés, sinon ⏸/⏹ resteraient morts
+    // précisément quand l'utilisateur veut s'en servir.
+    primary.disabled = secondary.disabled = state === "loading" && !interruptible
     // Le titre n'est réécrit que quand on en fournit un : une pause ne doit
     // pas le perdre — donc pas replier la pastille — juste changer l'icône.
     if (title !== undefined) label.textContent = title
     host.toggleAttribute("data-expanded", state === "playing" || state === "paused")
+
+    toast.toggleAttribute("data-open", toastInfo !== undefined)
+    if (toastInfo) {
+      toastLabel.textContent = toastInfo.label
+      toast.dataset.mode = toastInfo.percent === undefined ? "indeterminate" : "determinate"
+      if (toastInfo.percent !== undefined) toastFill.style.transform = `scaleX(${toastInfo.percent / 100})`
+    }
   }
 
   return {
@@ -669,10 +1025,19 @@ function createPill(
   }
 }
 
-/** Moteurs proposés, et ceux qui ne sont pas encore là. */
-const ENGINES: Array<[ReaderEngine, string, boolean]> = [
-  ["system", "Voix système", false],
-  ["supertonic", "Supertonic — bientôt", true],
+const ENGINES: Array<[ReaderEngine, string]> = [
+  ["system", "Voix système"],
+  ["supertonic", "Supertonic"],
+]
+
+/**
+ * Les 10 voix Supertonic et leurs libellés français, dupliqués depuis
+ * lib/supertonic/types.ts plutôt qu'importés : la valeur (pas juste son
+ * type) ferait entrer le moteur dans ce bundle chargé sur toutes les pages.
+ */
+const SUPERTONIC_VOICE_OPTIONS: Array<[SupertonicVoice, string]> = [
+  ["F1", "Femme 1"], ["F2", "Femme 2"], ["F3", "Femme 3"], ["F4", "Femme 4"], ["F5", "Femme 5"],
+  ["M1", "Homme 1"], ["M2", "Homme 2"], ["M3", "Homme 3"], ["M4", "Homme 4"], ["M5", "Homme 5"],
 ]
 
 function voiceChoice(value: string, text: string) {
