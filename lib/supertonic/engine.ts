@@ -143,7 +143,7 @@ export class UnicodeProcessor {
 
     text = this.expandLeadingZeroNumbers(text, lang)
 
-    if (!/[.!?;:,'")\]}…。」』】〉》›»]$/.test(text)) text += "."
+    if (!/[.!?;:,'")\]}…。、，；」』】〉》›»]$/.test(text)) text += "."
 
     if (!AVAILABLE_LANGS.includes(lang as SupportedLang)) {
       throw new Error(
@@ -484,14 +484,27 @@ export function chunkText(text: string, maxLen = 300): string[] {
     paragraph = paragraph.trim()
     if (!paragraph) continue
 
-    const sentences = paragraph.split(
-      /(?<!Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.|Sr\.|Jr\.|Ph\.D\.|etc\.|e\.g\.|i\.e\.|vs\.|Inc\.|Ltd\.|Co\.|Corp\.|St\.|Ave\.|Blvd\.)(?<!\b[A-Z]\.)(?<=[.!?])\s+/
-    )
+    // Le japonais et le coréen terminent leurs phrases par 。！？ sans espace
+    // derrière : sans l'alternative de largeur nulle, un paragraphe CJK entier
+    // ne formait qu'un seul chunk, quel que soit maxLen.
+    const sentences = paragraph
+      .split(
+        /(?<!Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.|Sr\.|Jr\.|Ph\.D\.|etc\.|e\.g\.|i\.e\.|vs\.|Inc\.|Ltd\.|Co\.|Corp\.|St\.|Ave\.|Blvd\.)(?<!\b[A-Z]\.)(?<=[.!?])\s+|(?<=[。！？])/
+      )
+      // ponytail : virgules CJK en dernier recours pour une phrase encore plus
+      // longue que maxLen ; pas de coupe au caractère, à ajouter si une phrase
+      // sans ponctuation interne devient un problème.
+      .flatMap((s) => (s.length > maxLen ? s.split(/(?<=[、，；])/) : [s]))
+      .map((s) => s.trim())
+      .filter(Boolean)
 
     let currentChunk = ""
     for (const sentence of sentences) {
       if (currentChunk.length + sentence.length + 1 <= maxLen) {
-        currentChunk += (currentChunk ? " " : "") + sentence
+        // Pas d'espace ajouté derrière une ponctuation CJK : le japonais et le
+        // coréen n'en mettent pas entre deux phrases.
+        const sep = currentChunk && !/[。！？、，；]$/.test(currentChunk) ? " " : ""
+        currentChunk += sep + sentence
       } else {
         if (currentChunk) chunks.push(currentChunk.trim())
         currentChunk = sentence
@@ -501,7 +514,7 @@ export function chunkText(text: string, maxLen = 300): string[] {
   }
 
   return chunks.map((chunk) => {
-    if (!/[.!?;:,'")\]}…。」』】〉》›»]$/.test(chunk)) return chunk + "."
+    if (!/[.!?;:,'")\]}…。、，；」』】〉》›»]$/.test(chunk)) return chunk + "."
     return chunk
   })
 }

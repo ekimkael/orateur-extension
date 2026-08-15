@@ -45,6 +45,12 @@ test("splitUnits découpe plus court en japonais et en coréen", () => {
   const text = `${"a".repeat(105)}. ${"b".repeat(105)}.`
   assert.equal(splitUnits(text, "fr").length, 1)
   assert.equal(splitUnits(text, "ja").length, 2)
+
+  // Vrai japonais : 。 sans espace derrière, qui ne coupait rien avant.
+  const ja = "これはとても長い日本語の文章です。".repeat(20)
+  const units = splitUnits(ja, "ja")
+  assert.ok(units.length > 1)
+  for (const unit of units) assert.ok(unit.text.length <= 120)
 })
 
 test("splitUnits couvre toutes les unités de tous les paragraphes", () => {
