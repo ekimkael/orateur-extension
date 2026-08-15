@@ -201,7 +201,7 @@ export default defineContentScript({
       if (state.phase === "loading") {
         // Le toast ne sort que pour une attente étiquetée : téléchargement du
         // modèle, chargement du moteur ou de la voix, et — pendant la lecture
-        // — le hoquet où le bloc suivant n'a pas fini de se synthétiser (RTF
+        // — le hoquet où l'unité suivante n'a pas fini de se synthétiser (RTF
         // > 1, voir tts-host.ts). Les transitions déjà prêtes, elles, sont
         // instantanées et n'émettent jamais cet état.
         pill.setState(
