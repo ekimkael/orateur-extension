@@ -21,6 +21,21 @@ test("chunkText découpe un texte long en plusieurs blocs", () => {
   for (const chunk of chunks) assert.ok(chunk.length <= 110)
 })
 
+test("chunkText découpe un paragraphe japonais sans espaces", () => {
+  // Le japonais ne met pas d'espace après 。 : sans coupe sur la ponctuation
+  // elle-même, tout le paragraphe repartait en un seul chunk.
+  const long = "これはとても長い日本語の文章です。".repeat(20)
+  const chunks = chunkText(long, 120)
+  assert.ok(chunks.length > 1)
+  for (const chunk of chunks) assert.ok(chunk.length <= 120, `chunk trop long: ${chunk.length}`)
+})
+
+test("chunkText coupe sur les virgules CJK quand une phrase dépasse maxLen", () => {
+  const chunks = chunkText(`${"あ".repeat(80)}、${"い".repeat(80)}。`, 120)
+  assert.equal(chunks.length, 2)
+  for (const chunk of chunks) assert.ok(chunk.length <= 120)
+})
+
 test("UnicodeProcessor.preprocessText enveloppe le texte dans des balises de langue", () => {
   const proc = new UnicodeProcessor([])
   assert.equal(proc.preprocessText("Hello.", "en"), "<en>Hello.</en>")
