@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Vérifier l'authentification des stores sans rien soumettre"
+        type: boolean
+        default: true
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # créer la GitHub Release
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # merge-base a besoin de l'historique
+
+      # Les deux ratés classiques d'une release sur tag : le tag posé depuis une
+      # branche de feature, et le tag posé sans avoir bumpé package.json. Les
+      # stores refusent une version déjà soumise, donc mieux vaut échouer ici.
+      - name: Le tag doit être sur main et correspondre à package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run compile
+      - run: npm test
+      - run: npm run zip
+      - run: npm run zip:firefox
+
+      - name: Soumettre aux trois stores
+        run: |
+          npx wxt submit ${{ inputs.dry_run && '--dry-run' || '' }} \
+            --chrome-zip .output/*-chrome.zip \
+            --firefox-zip .output/*-firefox.zip \
+            --firefox-sources-zip .output/*-sources.zip \
+            --edge-zip .output/*-chrome.zip
+        env:
+          # L'API v1.1 (client id / secret / refresh token) est dépréciée dans
+          # publish-browser-extension 6 ; v2 passe par un compte de service.
+          CHROME_API_VERSION: v2
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+          CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL: ${{ secrets.CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL }}
+          CHROME_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.CHROME_SERVICE_ACCOUNT_PRIVATE_KEY }}
+          FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
+          FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
+          FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
+          # Edge réutilise le zip Chrome : le MV3 passe tel quel.
+          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: .output/*.zip

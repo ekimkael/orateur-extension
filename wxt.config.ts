@@ -38,6 +38,14 @@ function copyOrtAssets(): Plugin {
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   vite: () => ({ plugins: [copyOrtAssets()] }),
+  // L'archive des sources exigée par AMO. WXT en retire déjà les fichiers
+  // cachés (`.output`, `.wxt`, `.claude`…), `node_modules` et les tests ;
+  // ces trois-là ne sont ni cachés ni utiles au relecteur — `public/ort/` est
+  // même recopié depuis node_modules par copyOrtAssets() au buildStart, donc
+  // l'envoyer ferait relire 26 Mo de WASM vendored pour rien.
+  zip: {
+    excludeSources: ['public/ort/**', 'scratchpad/**', 'plans/**'],
+  },
   manifest: ({ browser, manifestVersion }) => ({
     name: 'Orateur',
     description:
