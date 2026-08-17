@@ -64,7 +64,9 @@ jobs:
           EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
           EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
 
-      - uses: softprops/action-gh-release@v2
+      # `gh` est préinstallé sur les runners : pas d'action tierce à auditer.
+      - name: Publier la release GitHub
         if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: .output/*.zip
+        run: gh release create "$GITHUB_REF_NAME" .output/*.zip --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
