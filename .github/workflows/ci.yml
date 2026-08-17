@@ -9,8 +9,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -25,10 +25,16 @@ jobs:
       - run: npm run zip
       - run: npm run zip:firefox
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: orateur-${{ github.sha }}
           path: .output/*.zip
-          # 3 zips de ~26 Mo par run : la rétention de 90 jours par défaut
+          # `.output` est un dossier caché sous Linux, et le glob d'upload-artifact
+          # les ignore par défaut : sans ça le job passe au vert en n'ayant rien
+          # téléversé, ce qui est le seul échec que cette CI ne doit pas se
+          # permettre — les artefacts *sont* le livrable de staging.
+          include-hidden-files: true
+          if-no-files-found: error
+          # 3 zips de ~6 Mo par run : la rétention de 90 jours par défaut
           # remplirait le quota du dépôt pour rien.
           retention-days: 7
