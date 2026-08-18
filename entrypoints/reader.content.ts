@@ -365,53 +365,48 @@ export default defineContentScript({
      * la voix en était.
      */
     function speak() {
-      const mine = ++generation
+      generation++
       cancelSpeech()
+      play(blockIndex, charIndex)
+    }
 
-      // Résolue une fois pour toute la file : `getVoices()` reconstruit sa
-      // liste à chaque appel. Introuvable (voix désinstallée, autre machine)
-      // vaut défaut.
+    function play(block: number, from: number) {
+      const text = blocks[block]
+      if (text === undefined) return fold()
+      const mine = generation
       const voice = prefs.voiceURI
         ? speechSynthesis.getVoices().find((v) => v.voiceURI === prefs.voiceURI)
         : undefined
+      const utterance = new SpeechSynthesisUtterance(text.slice(from))
+      if (lang) utterance.lang = lang
+      utterance.rate = prefs.speed
+      if (voice) utterance.voice = voice
 
-      const queue = blocks.slice(blockIndex).map((block, offset) => {
-        // Seul le premier bloc reprend en cours de route ; les suivants sont
-        // entiers, et leurs positions repartent donc de zéro.
-        const from = offset === 0 ? charIndex : 0
-        const at = blockIndex + offset
-        const utterance = new SpeechSynthesisUtterance(block.slice(from))
-        if (lang) utterance.lang = lang
-        utterance.rate = prefs.speed
-        if (voice) utterance.voice = voice
-
-        utterance.addEventListener("start", () => {
-          blockIndex = at
-          charIndex = from
-        })
-        // `charIndex` est compté depuis le début de l'utterance, donc depuis le
-        // reste du bloc : le rebaser sur le bloc entier, sinon une deuxième
-        // reprise repartirait trop tôt.
-        //
-        // ponytail: les voix distantes n'émettent pas toujours `boundary`. Sans
-        // lui la position reste au dernier départ, et changer la vitesse fait
-        // reprendre le bloc courant depuis là — jamais plus loin que ça.
-        utterance.addEventListener("boundary", (event) => {
-          charIndex = from + event.charIndex
-        })
-        return utterance
+      utterance.addEventListener("start", () => {
+        if (mine !== generation) return
+        blockIndex = block
+        charIndex = from
       })
-
-      // Se replier sans annuler : la file est déjà vide en fin naturelle, et si
-      // l'événement vient d'un autre onglet qui nous a coupés, annuler ici
-      // tuerait *sa* lecture.
+      // `charIndex` est compté depuis le début de l'utterance, donc depuis le
+      // reste du bloc : le rebaser sur le bloc entier, sinon une deuxième
+      // reprise repartirait trop tôt.
       //
-      // ponytail: la fin n'est détectée que sur le dernier bloc — si celui-ci
-      // erre au lieu de finir, la pastille reste dépliée jusqu'au clic sur ⏹.
-      queue.at(-1)?.addEventListener("end", () => {
-        if (mine === generation) fold()
+      // ponytail: les voix distantes n'émettent pas toujours `boundary`. Sans
+      // lui la position reste au dernier départ, et changer la vitesse fait
+      // reprendre le bloc courant depuis là — jamais plus loin que ça.
+      utterance.addEventListener("boundary", (event) => {
+        if (mine !== generation) return
+        charIndex = from + event.charIndex
       })
-      for (const utterance of queue) speechSynthesis.speak(utterance)
+      utterance.addEventListener("end", () => {
+        if (mine !== generation) return
+        play(block + 1, 0)
+      })
+      utterance.addEventListener("error", () => {
+        if (mine !== generation) return
+        play(block + 1, 0)
+      })
+      speechSynthesis.speak(utterance)
     }
 
     /** ⏹ : couper le moteur, puis se replier. */
