@@ -3,7 +3,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { defineConfig } from 'wxt';
-import type { Plugin } from 'vite';
 
 /**
  * Sert le runtime WASM d'onnxruntime-web depuis l'origine de l'extension.
@@ -16,28 +15,38 @@ import type { Plugin } from 'vite';
  *
  * Recopié depuis `web/vite.config.ts` — trois dépôts séparés, pas de workspace
  * pour partager ça.
+ *
+ * Appelé au chargement de cette config, et non depuis un `buildStart` Vite :
+ * `wxt prepare` charge la config mais ne lance aucun build, or c'est lui qui
+ * génère le type `PublicPath` en listant le contenu réel de `public/`. Copier
+ * plus tard laissait `/ort/*` hors de ce type, et `browser.runtime.getURL()`
+ * ne typait qu'après un premier build — donc jamais sur un checkout neuf.
  */
-function copyOrtAssets(): Plugin {
+function copyOrtAssets() {
   const files = [
     'ort-wasm-simd-threaded.jsep.wasm',
     'ort-wasm-simd-threaded.jsep.mjs',
     'ort.bundle.min.mjs',
   ];
-  return {
-    name: 'orateur-copy-ort-assets',
-    buildStart() {
-      const here = dirname(fileURLToPath(import.meta.url));
-      const from = join(here, 'node_modules', 'onnxruntime-web', 'dist');
-      const to = join(here, 'public', 'ort');
-      mkdirSync(to, { recursive: true });
-      for (const file of files) copyFileSync(join(from, file), join(to, file));
-    },
-  };
+  const here = dirname(fileURLToPath(import.meta.url));
+  const from = join(here, 'node_modules', 'onnxruntime-web', 'dist');
+  const to = join(here, 'public', 'ort');
+  mkdirSync(to, { recursive: true });
+  for (const file of files) copyFileSync(join(from, file), join(to, file));
 }
+
+copyOrtAssets();
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
-  vite: () => ({ plugins: [copyOrtAssets()] }),
+  // L'archive des sources exigée par AMO. WXT en retire déjà les fichiers
+  // cachés (`.output`, `.wxt`, `.claude`…), `node_modules` et les tests ;
+  // ces trois-là ne sont ni cachés ni utiles au relecteur — `public/ort/` est
+  // de toute façon recopié depuis node_modules au chargement de cette config,
+  // donc l'envoyer ferait relire 26 Mo de WASM vendored pour rien.
+  zip: {
+    excludeSources: ['public/ort/**', 'scratchpad/**', 'plans/**'],
+  },
   manifest: ({ browser, manifestVersion }) => ({
     name: 'Orateur',
     description:

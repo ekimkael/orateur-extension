@@ -2,7 +2,7 @@
   "name": "orateur-extension",
   "description": "Extension navigateur pour écouter des articles et sélections de texte avec Orateur.",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -16,14 +16,9 @@
     "postinstall": "wxt prepare"
   },
   "dependencies": {
-    "@mozilla/readability": "^0.6.0",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "@mozilla/readability": "^0.6.0"
   },
   "devDependencies": {
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@wxt-dev/module-react": "^1.1.5",
     "jsdom": "^29.1.1",
     "onnxruntime-web": "^1.26.0",
     "typescript": "^5.9.3",

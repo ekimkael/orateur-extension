@@ -1,0 +1,7 @@
+# Le dépôt est déjà intégralement en LF ; ce qui divergeait, c'est le working
+# tree Windows, que `core.autocrlf=true` récrit en CRLF au checkout. Un seul
+# fichier texte part tel quel dans le paquet — entrypoints/offscreen/index.html
+# — et suffisait à donner 10 octets d'écart entre le build local et celui de la
+# CI. Épingler LF rend les deux identiques au bit près, ce qui compte pour
+# l'archive des sources qu'AMO recompile de son côté.
+* text=auto eol=lf
