@@ -28,8 +28,10 @@
  * retard indéfiniment : une avance de k unités n'achète que k / (RTF - 1)
  * unités de lecture continue. La lecture attend alors la synthèse au lieu de
  * sauter ou de corrompre une unité : c'est le comportement honnête, pas un
- * bug. Accélérer la synthèse (WebGPU, moins de pas de diffusion) reste à
- * explorer si ça devient gênant en usage réel.
+ * bug. C'est WebGPU qui porte ce cas : `engine.ts` tente cet EP d'abord et ne
+ * retombe sur WASM que là où il manque (Mac Intel, Linux, GPU blocklisté) —
+ * seules ces machines-là gardent le hoquet. `synth()` logue le RTF mesuré :
+ * le lire avant de toucher à `TOTAL_STEP` ou à `LOOKAHEAD`.
  *
  * Ni le titre ni l'introduction ne sont composés ici : c'est la responsabilité
  * de l'appelant (le code de câblage, pas ce module) — `tts-host.ts` ne connaît
@@ -262,10 +264,22 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     const p = (async () => {
       const engine = await ensureEngine()
       if (gen !== generation) return
+      const t0 = performance.now()
       const pcm = await engine.synthesize(
         unit.text, currentLang, currentStyle!, TOTAL_STEP, 1.0, abort?.signal
       )
       if (gen !== generation) return
+      // Le seul chiffre qui dit si la lecture tiendra : au-dessus de 1, l'avance
+      // se vide et `advance()` finit par attendre (voir l'en-tête du fichier).
+      // Seuil, pas `> 0` : sous une demi-seconde d'audio le rapport est dominé
+      // par les frais fixes d'un run et ne dit plus rien de la tenue en lecture.
+      const seconds = pcm.length / engine.sampleRate
+      if (seconds >= 0.5) {
+        const ms = performance.now() - t0
+        console.debug(
+          `[orateur] unité ${i} : ${Math.round(ms)} ms pour ${seconds.toFixed(1)} s d'audio — RTF ${(ms / 1000 / seconds).toFixed(2)}`
+        )
+      }
       const wav = writeWavFile(unit.endsParagraph ? padSilence(pcm, engine.sampleRate) : pcm, engine.sampleRate)
       const url = URL.createObjectURL(new Blob([wav], { type: "audio/wav" }))
       // La génération a pu tourner pendant la création du blob : sans ce

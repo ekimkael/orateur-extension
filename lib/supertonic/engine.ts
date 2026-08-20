@@ -426,6 +426,11 @@ export async function loadTextToSpeechEngine(
 
   // Cross-origin isolation unlocks multi-threaded WebAssembly: ORT spawns
   // emscripten pthread workers from a real same-origin URL (import.meta.url).
+  //
+  // Chrome MV3 l'obtient par les clés COOP/COEP du manifeste (wxt.config.ts).
+  // Firefox ne l'obtiendra pas : ces clés sont Chromium-only et ses pages
+  // d'extension ne sont pas isolées (bug Mozilla 1673477, toujours ouvert).
+  // D'où UN seul thread là-bas — c'est WebGPU, plus bas, qui porte ce cas.
   if (self.crossOriginIsolated) {
     const cores = navigator.hardwareConcurrency || 4
     ORT.env.wasm.numThreads = Math.max(2, Math.min(4, Math.floor(cores / 2)))
@@ -441,10 +446,6 @@ export async function loadTextToSpeechEngine(
   // valid worker entry, instead of a tree-shaken vendor chunk.
   ORT.env.wasm.proxy = true
 
-  const sessionOptions: ort.InferenceSession.SessionOptions = {
-    executionProviders: ["wasm"],
-  }
-
   const cfgBuffer = await getFile("tts.json")
   const cfgs: TtsCfgs = JSON.parse(new TextDecoder().decode(cfgBuffer))
 
@@ -459,13 +460,37 @@ export async function loadTextToSpeechEngine(
     { name: "vocoder.onnx", label: "Vocoder" },
   ]
 
+  /**
+   * WebGPU d'abord, WASM en repli.
+   *
+   * Le repli interne d'ORT ne suffit pas : `webgpu` et `wasm` résolvent le même
+   * backend, l'ordre du tableau ne décide donc pas seul de ce qui tourne. La
+   * PREMIÈRE session sert de sonde — `create()` lève si `navigator.gpu` manque
+   * (Mac Intel, Linux) ou si l'adaptateur est blocklisté (vieux pilotes
+   * Windows) — et son verdict vaut pour les trois suivantes.
+   *
+   * ponytail : une tentative réelle plutôt qu'une sonde `navigator.gpu` ici.
+   * Avec `proxy = true`, c'est le worker qui initialise WebGPU, pas ce
+   * thread-ci : le tester d'ici répondrait à la mauvaise question. Le coût est
+   * une création de session sur le plus petit des quatre modèles.
+   */
+  let ep: "webgpu" | "wasm" = "webgpu"
   const sessions: ort.InferenceSession[] = []
   for (let i = 0; i < onnxFiles.length; i++) {
     onProgress?.({ name: onnxFiles[i]!.label, index: i, total: onnxFiles.length })
     const buf = await getFile(onnxFiles[i]!.name)
-    const session = await ORT.InferenceSession.create(buf, sessionOptions)
-    sessions.push(session)
+    try {
+      sessions.push(await ORT.InferenceSession.create(buf, { executionProviders: [ep] }))
+    } catch (e) {
+      // Seule la première session est une sonde : une fois l'EP retenu, un
+      // échec plus loin est une vraie erreur, pas un verdict de plateforme.
+      if (i > 0 || ep === "wasm") throw e
+      console.info("[orateur] WebGPU indisponible, repli WASM :", e)
+      ep = "wasm"
+      sessions.push(await ORT.InferenceSession.create(buf, { executionProviders: [ep] }))
+    }
   }
+  console.info(`[orateur] moteur ONNX sur ${ep} (numThreads=${ORT.env.wasm.numThreads})`)
 
   return new TextToSpeech(cfgs, textProcessor, sessions[0]!, sessions[1]!, sessions[2]!, sessions[3]!)
 }
