@@ -41,13 +41,18 @@ jobs:
       - run: npm run zip
       - run: npm run zip:firefox
 
-      - name: Soumettre aux trois stores
+      - name: Soumettre aux stores dont les secrets sont configurés
         run: |
-          npx wxt submit ${{ inputs.dry_run && '--dry-run' || '' }} \
-            --chrome-zip .output/*-chrome.zip \
-            --firefox-zip .output/*-firefox.zip \
-            --firefox-sources-zip .output/*-sources.zip \
-            --edge-zip .output/*-chrome.zip
+          args=()
+          [[ -n "$CHROME_EXTENSION_ID" ]] && args+=(--chrome-zip .output/*-chrome.zip)
+          [[ -n "$FIREFOX_EXTENSION_ID" ]] && args+=(--firefox-zip .output/*-firefox.zip --firefox-sources-zip .output/*-sources.zip)
+          # Edge réutilise le zip Chrome : le MV3 passe tel quel.
+          [[ -n "$EDGE_PRODUCT_ID" ]] && args+=(--edge-zip .output/*-chrome.zip)
+          if [[ ${#args[@]} -eq 0 ]]; then
+            echo "Aucun secret de store configuré, rien à soumettre." >&2
+            exit 1
+          fi
+          npx wxt submit ${{ inputs.dry_run && '--dry-run' || '' }} "${args[@]}"
         env:
           # L'API v1.1 (client id / secret / refresh token) est dépréciée dans
           # publish-browser-extension 6 ; v2 passe par un compte de service.
@@ -59,7 +64,6 @@ jobs:
           FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
           FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
           FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
-          # Edge réutilise le zip Chrome : le MV3 passe tel quel.
           EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
           EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
           EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
