@@ -39,6 +39,11 @@ copyOrtAssets();
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
+  // `web-ext` ne cherche que `/Applications/Firefox.app` par défaut : sans
+  // Firefox stable installé (seule une édition Developer/Nightly présente),
+  // `npm run dev:firefox` échoue avec un `ENOENT` opaque. `FIREFOX_BIN` laisse
+  // chacun pointer sur son propre binaire sans committer un chemin personnel.
+  webExt: process.env.FIREFOX_BIN ? { binaries: { firefox: process.env.FIREFOX_BIN } } : undefined,
   // L'archive des sources exigée par AMO. WXT en retire déjà les fichiers
   // cachés (`.output`, `.wxt`, `.claude`…), `node_modules` et les tests ;
   // ces trois-là ne sont ni cachés ni utiles au relecteur — `public/ort/` est
