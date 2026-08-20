@@ -16,6 +16,10 @@ web-ext.config.ts
 
 # Bancs d'essai jetables (bubble-harness.tmp.html…)
 *.tmp.*
+scratchpad
+
+# Secrets des stores, générés par `npx wxt submit init`
+.env.submit
 
 # Runtime onnxruntime-web recopié dans public/ au build par copyOrtAssets
 /public/ort/
@@ -23,6 +27,7 @@ web-ext.config.ts
 # Outillage local : config d'agent et notes de travail
 .claude
 plans
+graphify-out
 
 # Editor directories and files
 .vscode/*
