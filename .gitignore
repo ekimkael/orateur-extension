@@ -27,6 +27,7 @@ scratchpad
 # Outillage local : config d'agent et notes de travail
 .claude
 plans
+graphify-out
 
 # Editor directories and files
 .vscode/*
