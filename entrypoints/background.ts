@@ -36,6 +36,7 @@ import {
   type TtsSetSpeedMessage,
   type TtsSpeakMessage,
 } from "../lib/tts-messages"
+import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessage } from "../lib/telemetry"
 // Importé sans condition, mais retiré du bundle Chrome par l'élimination de
 // code mort de Vite : tout usage est gardé par `import.meta.env.FIREFOX`, une
 // constante de build. Côté MV3, l'hôte vit dans le document offscreen
@@ -48,13 +49,20 @@ const SELECTION_MENU_ID = "read-selection-with-orateur"
 const READ_PAGE_MENU_ID = "read-page-with-orateur"
 const EXTRACT_SCRIPT = "/content-scripts/extract.js"
 
-const SELECTION_ERRORS: Record<SelectionError, string> = {
-  empty: "Aucun texte sélectionné.",
-  "too-short": "Sélection trop courte pour être lue.",
+// Clés, pas les messages résolus : WXT importe ce module dans un faux
+// `browser` (sans `i18n`) pour en lire la config au build — un `const` résolu
+// à l'import planterait cette étape. `browser.i18n.getMessage` n'est donc
+// appelé que depuis l'intérieur d'une fonction, au premier vrai déclenchement
+// du service worker.
+//
+// Dérivé du type de `getMessage` plutôt qu'une union recopiée à la main :
+// TypeScript prend la dernière surcharge d'une fonction surchargée, qui est
+// justement celle listant toutes les clés de public/_locales/*/messages.json.
+type MessageKey = Parameters<typeof browser.i18n.getMessage>[0]
+const SELECTION_ERROR_KEYS: Record<SelectionError, MessageKey> = {
+  empty: "errorSelectionEmpty",
+  "too-short": "errorSelectionTooShort",
 }
-
-const SELECTION_TRUNCATED = "Sélection très longue : seul le début sera lu."
-const PAGE_NOT_INJECTABLE = "Cette page ne peut pas être lue directement."
 
 /**
  * Relais Supertonic entre les pastilles et l'hôte.
@@ -132,7 +140,7 @@ async function handleTtsFromPill(
       const event: TtsEventMessage = {
         type: TTS_EVENT,
         tabId,
-        state: { phase: "error", message: "Impossible de démarrer le moteur Supertonic." },
+        state: { phase: "error", message: browser.i18n.getMessage("errorSupertonicStartFailed") },
       }
       void browser.tabs.sendMessage(tabId, event).catch(() => {})
     }
@@ -148,27 +156,38 @@ export default defineBackground({
   persistent: true,
   main() {
   // Le service worker MV3 redémarre à volonté ; créer le menu ici plutôt que
-  // dans main() évite l'erreur "duplicate id" à chaque réveil.
-  browser.runtime.onInstalled.addListener(() => {
+  // dans main() évite l'erreur "duplicate id" à chaque réveil. `onInstalled`
+  // se déclenche aussi sur une mise à jour — `details.reason` isole la
+  // première installation, seul moment qui compte pour `installed` et pour
+  // l'écran de consentement télémétrie (jalon 1c) : une mise à jour ne doit
+  // rouvrir ni compter comme un nouvel utilisateur.
+  browser.runtime.onInstalled.addListener((details) => {
     browser.contextMenus.create({
       id: MENU_ID,
-      title: "Sauvegarder dans Orateur",
+      title: browser.i18n.getMessage("menuSaveTitle"),
       contexts: ["page", "link"],
     })
     browser.contextMenus.create({
       id: SELECTION_MENU_ID,
-      title: "Lire avec Orateur",
+      title: browser.i18n.getMessage("menuReadSelectionTitle"),
       // N'apparaît que sur une sélection de texte : pas d'entrée morte dans le
       // menu du navigateur, et pas besoin d'y vérifier quoi que ce soit.
       contexts: ["selection"],
     })
     browser.contextMenus.create({
       id: READ_PAGE_MENU_ID,
-      title: "Lire cette page",
+      title: browser.i18n.getMessage("menuReadPageTitle"),
       // Pas de contexte "link" : on lit le DOM de l'onglet courant, pas la
       // cible d'un lien.
       contexts: ["page"],
     })
+
+    if (details.reason === "install") {
+      track({ name: "installed" })
+      // Le seul endroit qui explique le consentement télémétrie avant de le
+      // demander (voir entrypoints/options/App.tsx) — pas de mur nu.
+      void browser.runtime.openOptionsPage()
+    }
   })
 
   browser.contextMenus.onClicked.addListener((info, tab) => {
@@ -214,6 +233,14 @@ export default defineBackground({
   browser.runtime.onMessage.addListener((message: Partial<NotifyMessage>) => {
     if (message?.type !== NOTIFY || !message.message) return
     void notify(message.message)
+  })
+
+  // Télémétrie (jalon 1c) : seul endroit qui fait vraiment le fetch() vers
+  // PostHog — voir l'en-tête de lib/telemetry.ts sur pourquoi ça ne peut pas
+  // partir d'un content script.
+  browser.runtime.onMessage.addListener((message: Partial<TelemetryTrackMessage>) => {
+    if (message?.type !== TELEMETRY_TRACK || !message.event) return
+    void handleTelemetryTrack(message.event)
   })
 
   // TTS_SPEAK / TTS_CONTROL depuis une pastille : toujours reçus ici en
@@ -309,6 +336,7 @@ async function save(
   const result = tab?.id == null ? null : await extractFromTab(tab.id)
 
   if (result?.ok === false) {
+    track({ name: "extraction_failed", properties: { reason: "not_article" } })
     await notify(result.error)
     return
   }
@@ -319,6 +347,7 @@ async function save(
     return
   }
 
+  // Pas un échec ici : Orateur refetche la page lui-même, ce n'est pas un cul-de-sac.
   await handoff(url, tab?.title)
 }
 
@@ -341,7 +370,7 @@ async function readSelectionFromMenu(
   if (captured) return read(captured, url)
 
   const result = validateSelectionText(info.selectionText ?? "")
-  if (!result.ok) return notify(SELECTION_ERRORS[result.reason])
+  if (!result.ok) return notify(browser.i18n.getMessage(SELECTION_ERROR_KEYS[result.reason]))
 
   await read(
     { text: result.text, truncated: result.truncated, title: tab?.title },
@@ -370,7 +399,7 @@ async function askContentScript(tabId: number, frameId?: number) {
  * advient d'une lecture déjà en cours.
  */
 async function read(payload: SelectionPayload, url?: string) {
-  if (payload.truncated) await notify(SELECTION_TRUNCATED)
+  if (payload.truncated) await notify(browser.i18n.getMessage("noticeSelectionTruncated"))
 
   await open(
     buildImportUrl({
@@ -396,11 +425,13 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined) {
 
   const result = await extractFromTab(tab.id)
   if (result?.ok === false) {
+    track({ name: "extraction_failed", properties: { reason: "not_article" } })
     await notify(result.error)
     return false
   }
   if (!result?.ok) {
-    await notify(PAGE_NOT_INJECTABLE)
+    track({ name: "extraction_failed", properties: { reason: "not_injectable" } })
+    await notify(browser.i18n.getMessage("errorPageNotInjectable"))
     return false
   }
 

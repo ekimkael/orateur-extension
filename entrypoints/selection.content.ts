@@ -8,8 +8,15 @@ import { rangesToText, validateSelectionText } from "../lib/selection-text"
  * « Sauvegarder » s'ajoutent ici et dans le `switch` du background. Ni la bulle
  * ni le menu contextuel ne portent de logique métier — ils transmettent un
  * identifiant et du texte.
+ *
+ * `labelKey`/`ariaLabelKey`, pas le texte résolu : WXT importe ce module sous
+ * un faux `browser` (sans `i18n`) pour en lire la config au build, et une
+ * phrase complète par clé — plutôt que concaténer un verbe et un suffixe fixe
+ * — laisse chaque locale tourner la phrase comme elle veut.
  */
-const ACTIONS = [{ id: "read", label: "Lire", icon: "🎧" }] as const
+const ACTIONS = [
+  { id: "read", labelKey: "selectionRead", ariaLabelKey: "selectionReadAria", icon: "🎧" },
+] as const
 
 export type SelectionAction = (typeof ACTIONS)[number]["id"]
 
@@ -289,11 +296,13 @@ function createBubble(onAction: (action: SelectionAction) => void) {
   for (const action of ACTIONS) {
     const button = document.createElement("button")
     button.type = "button"
-    button.textContent = `${action.icon} ${action.label}`
+    // Résolu ici, pas dans ACTIONS : createBubble ne tourne qu'au vrai runtime
+    // du content script, appelé depuis main() — voir le commentaire sur ACTIONS.
+    button.textContent = `${action.icon} ${browser.i18n.getMessage(action.labelKey)}`
     // Un <button> natif porte déjà `role="button"`, la navigation clavier et
     // l'activation par Entrée/Espace ; l'`aria-label` remplace juste le libellé
     // court, illisible hors contexte au lecteur d'écran.
-    button.setAttribute("aria-label", `${action.label} la sélection avec Orateur`)
+    button.setAttribute("aria-label", browser.i18n.getMessage(action.ariaLabelKey))
     // Le mousedown par défaut déplace le caret et efface la sélection avant que
     // le click ne parte.
     button.addEventListener("mousedown", (event) => event.preventDefault())

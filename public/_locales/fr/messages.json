@@ -1,0 +1,149 @@
+{
+  "extName": {
+    "message": "Orateur"
+  },
+  "extDescription": {
+    "message": "Écoute l'article de la page courante ou n'importe quel texte sélectionné."
+  },
+  "menuSaveTitle": {
+    "message": "Sauvegarder dans Orateur"
+  },
+  "menuReadSelectionTitle": {
+    "message": "Lire avec Orateur"
+  },
+  "menuReadPageTitle": {
+    "message": "Lire cette page"
+  },
+  "errorSelectionEmpty": {
+    "message": "Aucun texte sélectionné."
+  },
+  "errorSelectionTooShort": {
+    "message": "Sélection trop courte pour être lue."
+  },
+  "noticeSelectionTruncated": {
+    "message": "Sélection très longue : seul le début sera lu."
+  },
+  "errorPageNotInjectable": {
+    "message": "Cette page ne peut pas être lue directement."
+  },
+  "errorSupertonicStartFailed": {
+    "message": "Impossible de démarrer le moteur Supertonic."
+  },
+  "ariaReadPage": {
+    "message": "Lire cette page avec Orateur"
+  },
+  "ariaHidePill": {
+    "message": "Masquer Orateur sur cette page"
+  },
+  "ariaExtracting": {
+    "message": "Extraction de l'article…"
+  },
+  "ariaPause": {
+    "message": "Mettre en pause"
+  },
+  "ariaStopReading": {
+    "message": "Arrêter la lecture"
+  },
+  "ariaResume": {
+    "message": "Reprendre la lecture"
+  },
+  "ariaReadingSettings": {
+    "message": "Réglages de lecture"
+  },
+  "settingsEngineLabel": {
+    "message": "Moteur"
+  },
+  "settingsSpeedLabel": {
+    "message": "Vitesse"
+  },
+  "settingsVoiceLabel": {
+    "message": "Voix"
+  },
+  "engineSystem": {
+    "message": "Voix système"
+  },
+  "voiceDefault": {
+    "message": "Par défaut"
+  },
+  "supertonicNoteLead": {
+    "message": "Voix naturelles, générées sur votre appareil."
+  },
+  "supertonicNoteSize": {
+    "message": "398 Mo à télécharger à la première lecture, une seule fois."
+  },
+  "voiceFemale1": {
+    "message": "Femme 1"
+  },
+  "voiceFemale2": {
+    "message": "Femme 2"
+  },
+  "voiceFemale3": {
+    "message": "Femme 3"
+  },
+  "voiceFemale4": {
+    "message": "Femme 4"
+  },
+  "voiceFemale5": {
+    "message": "Femme 5"
+  },
+  "voiceMale1": {
+    "message": "Homme 1"
+  },
+  "voiceMale2": {
+    "message": "Homme 2"
+  },
+  "voiceMale3": {
+    "message": "Homme 3"
+  },
+  "voiceMale4": {
+    "message": "Homme 4"
+  },
+  "voiceMale5": {
+    "message": "Homme 5"
+  },
+  "selectionRead": {
+    "message": "Lire"
+  },
+  "noticeSupertonicLangUnsupported": {
+    "message": "Langue non prise en charge par Supertonic : lecture avec la voix système."
+  },
+  "ttsDownloadingModel": {
+    "message": "Téléchargement du modèle…"
+  },
+  "ttsLoadingEngine": {
+    "message": "Chargement du moteur…"
+  },
+  "ttsLoadingVoice": {
+    "message": "Chargement de la voix…"
+  },
+  "ttsPreparingNext": {
+    "message": "Préparation de la suite…"
+  },
+  "ttsAudioError": {
+    "message": "Erreur de lecture audio."
+  },
+  "selectionReadAria": {
+    "message": "Lire la sélection avec Orateur"
+  },
+  "optionsTitle": {
+    "message": "Réglages Orateur"
+  },
+  "optionsCacheSize": {
+    "message": "$1 Mo téléchargés — prêt à l'usage hors ligne."
+  },
+  "optionsClearCache": {
+    "message": "Effacer le cache"
+  },
+  "optionsClearingCache": {
+    "message": "Effacement…"
+  },
+  "optionsTelemetryHeading": {
+    "message": "Statistiques d'usage anonymes"
+  },
+  "optionsTelemetryDescription": {
+    "message": "Désactivé par défaut. Si vous l'activez, Orateur envoie quelques événements anonymes — début de lecture, résultat du téléchargement Supertonic, échecs d'extraction — pour aider à améliorer l'extension. Jamais le texte que vous écoutez, jamais les pages que vous visitez, jamais rien qui vous identifie."
+  },
+  "optionsTelemetryEnable": {
+    "message": "Partager des statistiques d'usage anonymes"
+  }
+}

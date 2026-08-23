@@ -60,13 +60,31 @@ export interface TtsControlMessage {
   action: TtsControlAction
 }
 
+/**
+ * Cause d'une attente affichée dans le toast de la pastille.
+ *
+ * tts-host.ts n'a pas accès à `browser.i18n` (voir son en-tête : il ne connaît
+ * ni les onglets ni `browser.*`) — il émet la cause, pas le texte déjà traduit,
+ * et c'est reader.content.ts qui la traduit au rendu, comme le reste de ses
+ * libellés.
+ */
+export type TtsLoadingReason =
+  | "downloading-model"
+  | "loading-engine"
+  | "loading-voice"
+  | "preparing-next"
+
 /** Reflète 1:1 les états de la pastille — voir PillState dans reader.content.ts. */
 export type TtsState =
-  | { phase: "loading"; label?: string; progress?: number }
+  | { phase: "loading"; reason?: TtsLoadingReason; progress?: number }
   | { phase: "playing"; block: number; total: number }
   | { phase: "paused" }
   | { phase: "ended" }
-  | { phase: "error"; message: string }
+  // `reason` distingue la seule erreur statique et donc traduisible
+  // (audio-playback, posée par tts-host.ts) d'une exception arbitraire
+  // (ONNX, réseau…) : `message` en porte alors le texte brut, non traduit —
+  // il n'y a rien de sensé à traduire dans un message d'exception.
+  | { phase: "error"; message: string; reason?: "audio-playback" }
 
 export interface TtsEventMessage {
   type: typeof TTS_EVENT

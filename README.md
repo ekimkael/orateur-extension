@@ -63,7 +63,8 @@ The workflow refuses a tag that isn't on `main` or that doesn't match
 them locally with `npx wxt submit init`.
 
 See [PRIVACY.md](PRIVACY.md) and
-[docs/store-listing.md](docs/store-listing.md) for the store-facing material.
+[docs/store-listing.en.md](docs/store-listing.en.md) (also available in
+[French](docs/store-listing.fr.md)) for the store-facing material.
 
 See [docs/selection-reader.md](docs/selection-reader.md) for how selection
 and the floating bubble work in detail.

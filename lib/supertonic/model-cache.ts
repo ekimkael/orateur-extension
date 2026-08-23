@@ -1,6 +1,11 @@
 // lib/supertonic/model-cache.ts
 //
-// Copié de web/app/lib/supertonic/model-cache.ts sans modification.
+// Copié de web/app/lib/supertonic/model-cache.ts, à trois deltas près.
+//
+// Deltas (jalon 1b, page d'options) : `clearModelCache` et `isModelCached`
+// sont exportées — web/app n'a pas besoin d'effacer son propre cache depuis
+// l'extérieur — et `getModelCacheSize` est nouvelle, pour afficher le poids
+// réel du cache dans les réglages plutôt que le seul booléen "téléchargé".
 
 // Extension explicite : ce fichier est aussi chargé par `node --test` (via
 // tts-host.test.ts), dont le résolveur ESM ne devine pas l'extension.
@@ -144,17 +149,36 @@ export async function loadModelFiles(
   }
 }
 
-async function clearModelCache(): Promise<void> {
+export async function clearModelCache(): Promise<void> {
   const root = await navigator.storage.getDirectory()
   await root.removeEntry(CACHE_DIR, { recursive: true })
 }
 
-async function isModelCached(): Promise<boolean> {
+export async function isModelCached(): Promise<boolean> {
   try {
     const dir = await getCacheRoot()
     const results = await Promise.all(ONNX_FILES.map(({ name }) => isCached(dir, name)))
     return results.every(Boolean)
   } catch {
     return false
+  }
+}
+
+/** Octets réellement occupés par le cache, ou `null` s'il n'est pas complet. */
+export async function getModelCacheSize(): Promise<number | null> {
+  try {
+    const dir = await getCacheRoot()
+    let total = 0
+    for (const { name } of ONNX_FILES) {
+      const handle = await dir.getFileHandle(name)
+      const file = await handle.getFile()
+      total += file.size
+    }
+    return total
+  } catch {
+    // Un seul fichier manquant ou une OPFS indisponible valent "pas de cache" :
+    // la page d'options n'a rien de plus précis à afficher dans ce cas que
+    // isModelCached() ne dit déjà.
+    return null
   }
 }

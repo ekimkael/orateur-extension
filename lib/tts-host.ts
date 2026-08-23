@@ -171,7 +171,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       // toujours vu par cette poignée avant l'événement (mis en file par le
       // navigateur, jamais immédiat).
       if (slot !== active || head.unitIndex < 0) return
-      onState({ phase: "error", message: "Erreur de lecture audio." })
+      onState({ phase: "error", message: "Erreur de lecture audio.", reason: "audio-playback" })
     })
     return head
   }
@@ -187,9 +187,9 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
             const percent = Math.round(
               ((p.fileIndex + (p.bytesTotal ? p.bytesLoaded / p.bytesTotal : 0)) / p.totalFiles) * 100
             )
-            onState({ phase: "loading", label: "Téléchargement du modèle…", progress: percent })
+            onState({ phase: "loading", reason: "downloading-model", progress: percent })
           })
-          onState({ phase: "loading", label: "Chargement du moteur…" })
+          onState({ phase: "loading", reason: "loading-engine" })
           const engine = await loadTextToSpeechEngine(getFile)
           // Échauffement une fois pour toutes les lectures à venir — voir la
           // découverte de la phase 0a : le premier run() de chaque session
@@ -392,7 +392,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       // lecture (RTF > 1, voir l'en-tête du fichier) : l'unité suivante n'est
       // pas encore prête, il faut l'attendre en silence sinon.
       if (!cache.has(next)) {
-        onState({ phase: "loading", label: "Préparation de la suite…" })
+        onState({ phase: "loading", reason: "preparing-next" })
         await synth(gen, next)
         if (gen !== generation) return
       }
@@ -432,7 +432,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
           onState({ phase: "ended" })
           return
         }
-        onState({ phase: "loading", label: "Chargement de la voix…" })
+        onState({ phase: "loading", reason: "loading-voice" })
         const style = await ensureStyle(request.voice)
         if (gen !== generation) return
         currentStyle = style

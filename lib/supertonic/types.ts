@@ -1,8 +1,12 @@
 // lib/supertonic/types.ts
 //
-// Copié de web/app/lib/supertonic/types.ts sans modification — trois dépôts
+// Copié de web/app/lib/supertonic/types.ts, à un delta près — trois dépôts
 // séparés, pas de workspace pour partager ça autrement. Voir engine.ts pour
-// les deux seuls deltas du portage.
+// les deux deltas du moteur.
+//
+// Delta de ce fichier : SUPERTONIC_VOICE_LABEL_KEYS porte des clés i18n
+// (jalon 1a), pas les libellés français que web/app garde en dur — l'exception
+// à documenter si ce fichier est ressynchronisé depuis web/app.
 
 export const SUPERTONIC_VOICES = [
   "M1", "M2", "M3", "M4", "M5",
@@ -11,17 +15,24 @@ export const SUPERTONIC_VOICES = [
 
 export type SupertonicVoice = (typeof SUPERTONIC_VOICES)[number]
 
-export const SUPERTONIC_VOICE_LABELS: Record<SupertonicVoice, string> = {
-  M1: "Homme 1",
-  M2: "Homme 2",
-  M3: "Homme 3",
-  M4: "Homme 4",
-  M5: "Homme 5",
-  F1: "Femme 1",
-  F2: "Femme 2",
-  F3: "Femme 3",
-  F4: "Femme 4",
-  F5: "Femme 5",
+/**
+ * Clés i18n (public/_locales/<locale>/messages.json), pas encore le texte : ce module
+ * est importé par lib/tts-host.ts, qui n'a pas accès à `browser.i18n` (voir son
+ * en-tête) — c'est à l'appelant côté UI (page d'options, popup) de résoudre la
+ * clé avec `browser.i18n.getMessage(...)`. Mêmes clés que la liste dupliquée
+ * dans reader.content.ts, pour que les deux restent traduites pareil.
+ */
+export const SUPERTONIC_VOICE_LABEL_KEYS: Record<SupertonicVoice, string> = {
+  M1: "voiceMale1",
+  M2: "voiceMale2",
+  M3: "voiceMale3",
+  M4: "voiceMale4",
+  M5: "voiceMale5",
+  F1: "voiceFemale1",
+  F2: "voiceFemale2",
+  F3: "voiceFemale3",
+  F4: "voiceFemale4",
+  F5: "voiceFemale5",
 }
 
 export type ModelStatus = "idle" | "loading" | "ready" | "error"

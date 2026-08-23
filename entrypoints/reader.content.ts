@@ -26,6 +26,7 @@ import {
   TTS_SPEAK,
   type TtsControlMessage,
   type TtsEventMessage,
+  type TtsLoadingReason,
   type TtsSetSpeedMessage,
   type TtsSpeakMessage,
 } from "../lib/tts-messages"
@@ -33,6 +34,7 @@ import {
 // depuis lib/supertonic/* ferait entrer le moteur dans ce bundle. La petite
 // liste ci-dessous, plus bas dans ce fichier, est donc dupliquée à dessein.
 import type { SupertonicVoice } from "../lib/supertonic/types.ts"
+import { track } from "../lib/telemetry.ts"
 
 export interface ReadPagePayload {
   text: string
@@ -123,6 +125,13 @@ export default defineContentScript({
     /** Réinjecté à chaque `playing` : un état de chargement y écrit la
      *  progression du téléchargement par-dessus, il faut de quoi le restaurer. */
     let supertonicTitle = ""
+    /**
+     * Vrai dès qu'un `reason: "downloading-model"` est vu pendant la session
+     * Supertonic en cours — sert à ne compter `supertonic_download_completed`/
+     * `_failed` (télémétrie, jalon 1c) que quand un téléchargement a vraiment
+     * eu lieu, pas à chaque lecture qui trouve le modèle déjà en cache.
+     */
+    let sawSupertonicDownload = false
     const token = Math.random().toString(36).slice(2)
     // Réassigné, pas figé : une lecture doit partir sur les réglages du moment,
     // y compris ceux changés depuis un autre onglet.
@@ -204,24 +213,46 @@ export default defineContentScript({
         // — le hoquet où l'unité suivante n'a pas fini de se synthétiser (RTF
         // > 1, voir tts-host.ts). Les transitions déjà prêtes, elles, sont
         // instantanées et n'émettent jamais cet état.
+        const label = state.reason ? browser.i18n.getMessage(LOADING_REASON_KEY[state.reason]) : undefined
+        // Télémétrie (jalon 1c) : une seule fois par session, au tout premier
+        // "downloading-model" — les ticks de progression suivants repassent
+        // par cette même branche sans redéclencher l'événement.
+        if (state.reason === "downloading-model" && !sawSupertonicDownload) {
+          sawSupertonicDownload = true
+          track({ name: "supertonic_download_started" })
+        }
         pill.setState(
           "loading",
-          state.label ?? supertonicTitle,
+          label ?? supertonicTitle,
           true,
-          state.label ? { label: state.label, percent: state.progress } : undefined
+          label ? { label, percent: state.progress } : undefined
         )
       } else if (state.phase === "playing") {
+        if (sawSupertonicDownload) {
+          sawSupertonicDownload = false
+          track({ name: "supertonic_download_completed" })
+        }
         paused = false
         pill.setState("playing", supertonicTitle)
       } else if (state.phase === "paused") {
         paused = true
         pill.setState("paused")
       } else if (state.phase === "ended") {
+        track({ name: "read_completed" })
         fold()
       } else if (state.phase === "error") {
+        if (sawSupertonicDownload) {
+          sawSupertonicDownload = false
+          track({ name: "supertonic_download_failed", properties: { reason: classifyTtsError(state.message) } })
+        }
         void browser.runtime.sendMessage({
           type: NOTIFY,
-          message: state.message,
+          // `state.message` d'une exception (ONNX, réseau) n'a rien de
+          // traduisible ; seule l'erreur audio statique de tts-host.ts l'est.
+          message:
+            state.reason === "audio-playback"
+              ? browser.i18n.getMessage("ttsAudioError")
+              : state.message,
         } satisfies NotifyMessage)
         fold()
       }
@@ -290,7 +321,7 @@ export default defineContentScript({
         // pourquoi la voix système est utilisée à sa place.
         void browser.runtime.sendMessage({
           type: NOTIFY,
-          message: "Langue non prise en charge par Supertonic : lecture avec la voix système.",
+          message: browser.i18n.getMessage("noticeSupertonicLangUnsupported"),
         } satisfies NotifyMessage)
       }
       startSystem(payload)
@@ -306,7 +337,9 @@ export default defineContentScript({
       usingSupertonic = true
       reading = true
       paused = false
+      sawSupertonicDownload = false
       supertonicTitle = payload.title ?? ""
+      track({ name: "read_started", properties: { engine: "supertonic" } })
       void browser.storage.local.set({ [READER_TOKEN]: token })
       pill.attach()
       pill.setState("loading", supertonicTitle, true)
@@ -348,6 +381,7 @@ export default defineContentScript({
       reading = true
       paused = false
       stale = false
+      track({ name: "read_started", properties: { engine: "system" } })
       // Prendre la parole : les pastilles des autres onglets s'en déduisent.
       void browser.storage.local.set({ [READER_TOKEN]: token })
       // La pastille a pu être masquée : une lecture lancée depuis le menu
@@ -409,7 +443,9 @@ export default defineContentScript({
       // ponytail: la fin n'est détectée que sur le dernier bloc — si celui-ci
       // erre au lieu de finir, la pastille reste dépliée jusqu'au clic sur ⏹.
       queue.at(-1)?.addEventListener("end", () => {
-        if (mine === generation) fold()
+        if (mine !== generation) return
+        track({ name: "read_completed" })
+        fold()
       })
       for (const utterance of queue) speechSynthesis.speak(utterance)
     }
@@ -737,11 +773,31 @@ const LABELS: Record<PillState, { primary: string; secondary: string }> = {
   paused: { primary: "▶", secondary: "⏹" },
 }
 
-const ARIA: Record<PillState, { primary: string; secondary: string }> = {
-  idle: { primary: "Lire cette page avec Orateur", secondary: "Masquer Orateur sur cette page" },
-  loading: { primary: "Extraction de l'article…", secondary: "Masquer Orateur sur cette page" },
-  playing: { primary: "Mettre en pause", secondary: "Arrêter la lecture" },
-  paused: { primary: "Reprendre la lecture", secondary: "Arrêter la lecture" },
+/**
+ * Traduit la cause émise par tts-host.ts en clé i18n — voir tts-messages.ts.
+ *
+ * `MessageKey`, pas `string` : TypeScript prend la dernière surcharge de
+ * `getMessage`, celle qui liste toutes les clés de
+ * public/_locales/<locale>/messages.json — un `Record<..., string>` trop large
+ * romprait l'appel plus bas.
+ */
+type MessageKey = Parameters<typeof browser.i18n.getMessage>[0]
+const LOADING_REASON_KEY: Record<TtsLoadingReason, MessageKey> = {
+  "downloading-model": "ttsDownloadingModel",
+  "loading-engine": "ttsLoadingEngine",
+  "loading-voice": "ttsLoadingVoice",
+  "preparing-next": "ttsPreparingNext",
+}
+
+/**
+ * Classe grossièrement une erreur de téléchargement pour la télémétrie
+ * (jalon 1c) — jamais le texte brut de `state.message` : il peut contenir un
+ * chemin, un nom de fichier, une trace, rien de destiné à quitter la machine.
+ */
+function classifyTtsError(message: string): "http" | "network" | "unknown" {
+  if (/HTTP \d/.test(message)) return "http"
+  if (/fetch|network/i.test(message)) return "network"
+  return "unknown"
 }
 
 /**
@@ -753,6 +809,40 @@ function createPill(
   onSecondary: () => void,
   initialPrefs: ReaderPreferences
 ) {
+  // Résolu ici, pas en haut du module : WXT importe ce fichier sous un faux
+  // `browser` (sans `i18n`) pour en lire la config au build, et createPill ne
+  // tourne qu'au vrai runtime du content script, appelé depuis main().
+  const ARIA: Record<PillState, { primary: string; secondary: string }> = {
+    idle: { primary: browser.i18n.getMessage("ariaReadPage"), secondary: browser.i18n.getMessage("ariaHidePill") },
+    loading: { primary: browser.i18n.getMessage("ariaExtracting"), secondary: browser.i18n.getMessage("ariaHidePill") },
+    playing: { primary: browser.i18n.getMessage("ariaPause"), secondary: browser.i18n.getMessage("ariaStopReading") },
+    paused: { primary: browser.i18n.getMessage("ariaResume"), secondary: browser.i18n.getMessage("ariaStopReading") },
+  }
+  const ENGINES: Array<[ReaderEngine, string]> = [
+    ["system", browser.i18n.getMessage("engineSystem")],
+    // Nom de marque, identique dans toutes les locales : rien à traduire.
+    ["supertonic", "Supertonic"],
+  ]
+  /**
+   * Les 10 voix Supertonic, dupliquées depuis lib/supertonic/types.ts plutôt
+   * qu'importées : la valeur (pas juste son type) ferait entrer le moteur dans
+   * ce bundle chargé sur toutes les pages. Les clés i18n, elles, sont les mêmes
+   * que dans lib/supertonic/types.ts (`voiceFemale1`…) — même traduction des
+   * deux côtés sans rien importer.
+   */
+  const SUPERTONIC_VOICE_OPTIONS: Array<[SupertonicVoice, string]> = [
+    ["F1", browser.i18n.getMessage("voiceFemale1")],
+    ["F2", browser.i18n.getMessage("voiceFemale2")],
+    ["F3", browser.i18n.getMessage("voiceFemale3")],
+    ["F4", browser.i18n.getMessage("voiceFemale4")],
+    ["F5", browser.i18n.getMessage("voiceFemale5")],
+    ["M1", browser.i18n.getMessage("voiceMale1")],
+    ["M2", browser.i18n.getMessage("voiceMale2")],
+    ["M3", browser.i18n.getMessage("voiceMale3")],
+    ["M4", browser.i18n.getMessage("voiceMale4")],
+    ["M5", browser.i18n.getMessage("voiceMale5")],
+  ]
+
   const host = document.createElement("orateur-reader-pill")
   host.style.cssText = HOST_STYLE
 
@@ -778,7 +868,7 @@ function createPill(
   // Posé une fois : l'icône et son intitulé ne dépendent pas de l'état de
   // lecture, contrairement à ceux de ▶ et ⏹.
   settings.dataset.icon = "sliders"
-  settings.setAttribute("aria-label", "Réglages de lecture")
+  settings.setAttribute("aria-label", browser.i18n.getMessage("ariaReadingSettings"))
   settings.setAttribute("aria-expanded", "false")
   // Replié : ▶ ⚙ ✕. Le titre s'ouvre entre ▶ et ⚙ pendant la lecture, donc les
   // deux boutons de bord ne bougent pas quand la pastille se déplie.
@@ -791,7 +881,7 @@ function createPill(
   const popover = document.createElement("div")
   popover.className = "settings-popover"
   popover.setAttribute("role", "group")
-  popover.setAttribute("aria-label", "Réglages de lecture")
+  popover.setAttribute("aria-label", browser.i18n.getMessage("ariaReadingSettings"))
   row.append(popover)
 
   /**
@@ -823,7 +913,7 @@ function createPill(
   let isPopoverOpen = false
 
   const engine = document.createElement("select")
-  settingsRow("Moteur", engine)
+  settingsRow(browser.i18n.getMessage("settingsEngineLabel"), engine)
   for (const [value, text] of ENGINES) {
     const choice = document.createElement("option")
     choice.value = value
@@ -837,6 +927,10 @@ function createPill(
     // de suite, pas attendre onPrefsChanged.
     currentPrefs = { ...currentPrefs, engine: engine.value as ReaderEngine }
     renderVoices()
+    // Télémétrie (jalon 1c) : moment où l'intérêt pour Supertonic se marque,
+    // avant tout téléchargement — sert de tête d'entonnoir jusqu'à
+    // supertonic_download_completed/_failed.
+    if (engine.value === "supertonic") track({ name: "supertonic_offered" })
   })
 
   // Le coût du premier ▶ : Supertonic ne télécharge rien tant qu'on ne lit
@@ -850,14 +944,14 @@ function createPill(
   const supertonicNote = document.createElement("div")
   supertonicNote.className = "settings-note"
   const noteLead = document.createElement("strong")
-  noteLead.textContent = "Voix naturelles, générées sur votre appareil."
+  noteLead.textContent = browser.i18n.getMessage("supertonicNoteLead")
   const noteRest = document.createElement("div")
-  noteRest.textContent = "398 Mo à télécharger à la première lecture, une seule fois."
+  noteRest.textContent = browser.i18n.getMessage("supertonicNoteSize")
   supertonicNote.append(noteLead, noteRest)
   popover.append(supertonicNote)
 
   const speed = document.createElement("input")
-  const speedValue = settingsRow("Vitesse", speed)
+  const speedValue = settingsRow(browser.i18n.getMessage("settingsSpeedLabel"), speed)
   speed.type = "range"
   speed.min = String(SPEED.min)
   speed.max = String(SPEED.max)
@@ -871,7 +965,7 @@ function createPill(
   speed.addEventListener("change", () => savePrefs({ speed: speed.valueAsNumber }))
 
   const voice = document.createElement("select")
-  settingsRow("Voix", voice)
+  settingsRow(browser.i18n.getMessage("settingsVoiceLabel"), voice)
   voice.addEventListener("change", () => {
     if (currentPrefs.engine === "supertonic") {
       savePrefs({ supertonicVoice: voice.value as SupertonicVoice })
@@ -947,7 +1041,7 @@ function createPill(
       syncControls()
       return
     }
-    const choices = [voiceChoice("", "Par défaut")]
+    const choices = [voiceChoice("", browser.i18n.getMessage("voiceDefault"))]
     // Aucun tri ni filtre par langue : deviner la bonne, c'est risquer de
     // masquer celle que l'utilisateur veut. Le select natif défile seul.
     for (const available of speechSynthesis.getVoices()) {
@@ -1024,21 +1118,6 @@ function createPill(
     },
   }
 }
-
-const ENGINES: Array<[ReaderEngine, string]> = [
-  ["system", "Voix système"],
-  ["supertonic", "Supertonic"],
-]
-
-/**
- * Les 10 voix Supertonic et leurs libellés français, dupliqués depuis
- * lib/supertonic/types.ts plutôt qu'importés : la valeur (pas juste son
- * type) ferait entrer le moteur dans ce bundle chargé sur toutes les pages.
- */
-const SUPERTONIC_VOICE_OPTIONS: Array<[SupertonicVoice, string]> = [
-  ["F1", "Femme 1"], ["F2", "Femme 2"], ["F3", "Femme 3"], ["F4", "Femme 4"], ["F5", "Femme 5"],
-  ["M1", "Homme 1"], ["M2", "Homme 2"], ["M3", "Homme 3"], ["M4", "Homme 4"], ["M5", "Homme 5"],
-]
 
 function voiceChoice(value: string, text: string) {
   const choice = document.createElement("option")

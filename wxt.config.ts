@@ -39,6 +39,10 @@ copyOrtAssets();
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
+  // Page d'options (jalon 1b) et popup (jalon 4c) uniquement — jamais les
+  // content scripts (reader/selection), qui doivent rester vanilla et légers
+  // sur `<all_urls>`. Voir le commentaire en tête de entrypoints/options/App.tsx.
+  modules: ['@wxt-dev/module-react'],
   // `web-ext` ne cherche que `/Applications/Firefox.app` par défaut : sans
   // Firefox stable installé (seule une édition Developer/Nightly présente),
   // `npm run dev:firefox` échoue avec un `ENOENT` opaque. `FIREFOX_BIN` laisse
@@ -53,9 +57,12 @@ export default defineConfig({
     excludeSources: ['public/ort/**', 'scratchpad/**', 'plans/**'],
   },
   manifest: ({ browser, manifestVersion }) => ({
-    name: 'Orateur',
-    description:
-      "Écoute l'article de la page courante ou n'importe quel texte sélectionné.",
+    // `__MSG_*__` : résolu depuis public/_locales/<locale>/messages.json.
+    // `default_locale: 'en'` fait de l'anglais le texte de repli — WXT l'exige
+    // dès qu'un manifest référence `__MSG_*__` quelque part.
+    default_locale: 'en',
+    name: '__MSG_extName__',
+    description: '__MSG_extDescription__',
     // `action` vide (sans popup) pour que le clic sur l'icône déclenche
     // onClicked. WXT le traduit en `browser_action` sur MV2.
     action: {},
@@ -123,8 +130,16 @@ export default defineConfig({
         gecko: {
           id: 'orateur@ekimkael',
           // Obligatoire pour toute nouvelle extension Firefox depuis nov. 2025.
-          // L'extension ne transmet rien : elle ouvre une URL dans un onglet.
-          data_collection_permissions: { required: ['none'] },
+          //
+          // `required: ['none']` : rien n'est collecté par défaut, l'extension
+          // fonctionne entièrement sans. `optional: ['technicalAndInteraction']`
+          // (jalon 1c) déclare la seule catégorie que la télémétrie opt-in peut
+          // toucher — enum vérifiée contre la doc AMO (Extension Workshop,
+          // « Data collection permissions »). Ce champ ne fait QUE déclarer ce
+          // qui PEUT arriver si l'utilisateur y consent : le vrai interrupteur
+          // est le drapeau `orateur:telemetry` dans lib/telemetry.ts, lu avant
+          // le moindre fetch(), sur les trois navigateurs.
+          data_collection_permissions: { required: ['none'], optional: ['technicalAndInteraction'] },
         },
       },
     }),

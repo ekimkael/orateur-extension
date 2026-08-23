@@ -1,7 +1,12 @@
 {
   "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    // @wxt-dev/module-react configure Vite/esbuild pour le vrai build, mais
+    // ne touche pas .wxt/tsconfig.json — sans ce réglage, `tsc --noEmit` (donc
+    // `npm run compile`) refuse tout JSX alors que `npm run dev`/`build`
+    // compilent très bien.
+    "jsx": "react-jsx"
   },
   // ponytail: les tests tournent sous `node --test`, pas dans l'extension.
   // Les exclure évite d'ajouter @types/node pour 3 assertions.

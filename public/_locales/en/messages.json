@@ -1,0 +1,149 @@
+{
+  "extName": {
+    "message": "Orateur"
+  },
+  "extDescription": {
+    "message": "Listens to the current page's article, or any selected text."
+  },
+  "menuSaveTitle": {
+    "message": "Save to Orateur"
+  },
+  "menuReadSelectionTitle": {
+    "message": "Read with Orateur"
+  },
+  "menuReadPageTitle": {
+    "message": "Read this page"
+  },
+  "errorSelectionEmpty": {
+    "message": "No text selected."
+  },
+  "errorSelectionTooShort": {
+    "message": "Selection too short to read."
+  },
+  "noticeSelectionTruncated": {
+    "message": "Selection very long: only the beginning will be read."
+  },
+  "errorPageNotInjectable": {
+    "message": "This page can't be read directly."
+  },
+  "errorSupertonicStartFailed": {
+    "message": "Couldn't start the Supertonic engine."
+  },
+  "ariaReadPage": {
+    "message": "Read this page with Orateur"
+  },
+  "ariaHidePill": {
+    "message": "Hide Orateur on this page"
+  },
+  "ariaExtracting": {
+    "message": "Extracting the article…"
+  },
+  "ariaPause": {
+    "message": "Pause"
+  },
+  "ariaStopReading": {
+    "message": "Stop reading"
+  },
+  "ariaResume": {
+    "message": "Resume reading"
+  },
+  "ariaReadingSettings": {
+    "message": "Reading settings"
+  },
+  "settingsEngineLabel": {
+    "message": "Engine"
+  },
+  "settingsSpeedLabel": {
+    "message": "Speed"
+  },
+  "settingsVoiceLabel": {
+    "message": "Voice"
+  },
+  "engineSystem": {
+    "message": "System voice"
+  },
+  "voiceDefault": {
+    "message": "Default"
+  },
+  "supertonicNoteLead": {
+    "message": "Natural voices, generated on your device."
+  },
+  "supertonicNoteSize": {
+    "message": "398 MB to download on first use, once."
+  },
+  "voiceFemale1": {
+    "message": "Female 1"
+  },
+  "voiceFemale2": {
+    "message": "Female 2"
+  },
+  "voiceFemale3": {
+    "message": "Female 3"
+  },
+  "voiceFemale4": {
+    "message": "Female 4"
+  },
+  "voiceFemale5": {
+    "message": "Female 5"
+  },
+  "voiceMale1": {
+    "message": "Male 1"
+  },
+  "voiceMale2": {
+    "message": "Male 2"
+  },
+  "voiceMale3": {
+    "message": "Male 3"
+  },
+  "voiceMale4": {
+    "message": "Male 4"
+  },
+  "voiceMale5": {
+    "message": "Male 5"
+  },
+  "selectionRead": {
+    "message": "Listen"
+  },
+  "noticeSupertonicLangUnsupported": {
+    "message": "Language not supported by Supertonic: reading with the system voice."
+  },
+  "ttsDownloadingModel": {
+    "message": "Downloading the model…"
+  },
+  "ttsLoadingEngine": {
+    "message": "Loading the engine…"
+  },
+  "ttsLoadingVoice": {
+    "message": "Loading the voice…"
+  },
+  "ttsPreparingNext": {
+    "message": "Preparing what's next…"
+  },
+  "ttsAudioError": {
+    "message": "Audio playback error."
+  },
+  "selectionReadAria": {
+    "message": "Listen to selection with Orateur"
+  },
+  "optionsTitle": {
+    "message": "Orateur settings"
+  },
+  "optionsCacheSize": {
+    "message": "$1 MB downloaded — ready to use offline."
+  },
+  "optionsClearCache": {
+    "message": "Clear cache"
+  },
+  "optionsClearingCache": {
+    "message": "Clearing…"
+  },
+  "optionsTelemetryHeading": {
+    "message": "Anonymous usage statistics"
+  },
+  "optionsTelemetryDescription": {
+    "message": "Off by default. If you turn this on, Orateur sends a few anonymous events — reading started, Supertonic download outcome, extraction failures — to help improve the extension. Never the text you read, never the pages you visit, never anything that identifies you."
+  },
+  "optionsTelemetryEnable": {
+    "message": "Share anonymous usage statistics"
+  }
+}
