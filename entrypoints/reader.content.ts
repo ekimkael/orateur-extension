@@ -830,8 +830,9 @@ function createPill(
   }
   const ENGINES: Array<[ReaderEngine, string]> = [
     ["system", browser.i18n.getMessage("engineSystem")],
-    // Nom de marque, identique dans toutes les locales : rien à traduire.
-    ["supertonic", "Supertonic"],
+    // "Voix naturelles IA" côté interface (jalon 1d) — même libellé que la
+    // page d'options, "Supertonic" reste le nom du modèle, pas du moteur.
+    ["supertonic", browser.i18n.getMessage("engineNaturalAI")],
   ]
   /**
    * Les 10 voix Supertonic, dupliquées depuis lib/supertonic/types.ts plutôt

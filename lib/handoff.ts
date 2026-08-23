@@ -1,4 +1,4 @@
-const ORATEUR_ORIGIN = "https://orateur.digitalekim.net"
+export const ORATEUR_ORIGIN = "https://orateur.digitalekim.net"
 
 /**
  * Une page est transférable si Orateur peut la refetcher côté serveur.
