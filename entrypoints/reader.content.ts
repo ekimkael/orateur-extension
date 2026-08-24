@@ -17,6 +17,7 @@ import {
   type ReaderPreferences,
 } from "../lib/reader-prefs"
 import { expandText } from "../lib/pronunciation/index.ts"
+import { createAnchorFinder } from "../lib/read-anchor.ts"
 import { buildReadingIntro } from "../lib/reading-intro"
 import { toSupertonicLang, type SupportedLang } from "../lib/supertonic-lang.ts"
 import {
@@ -35,6 +36,10 @@ import {
 // liste ci-dessous, plus bas dans ce fichier, est donc dupliquée à dessein.
 import type { SupertonicVoice } from "../lib/supertonic/types.ts"
 import { track } from "../lib/telemetry.ts"
+import { isHidden, loadHiddenSites, addHiddenSite, onHiddenSitesChanged } from "../lib/site-rules.ts"
+import { charteTokens } from "../lib/charte.ts"
+import { applyTheme } from "../lib/theme.ts"
+import { loadUiPrefs, onUiPrefsChanged, type ColorTheme } from "../lib/ui-prefs.ts"
 
 export interface ReadPagePayload {
   text: string
@@ -136,17 +141,27 @@ export default defineContentScript({
     // Réassigné, pas figé : une lecture doit partir sur les réglages du moment,
     // y compris ceux changés depuis un autre onglet.
     let prefs = await loadPrefs()
+    const hiddenSites = await loadHiddenSites()
+    const uiPrefs = await loadUiPrefs()
 
-    const pill = createPill(onPrimary, onSecondary, prefs)
+    const pill = createPill(onPrimary, onSecondary, prefs, !isHidden(location.hostname, hiddenSites), uiPrefs.theme)
+    const follower = createFollower()
+    follower.setEnabled(prefs.follow)
 
     browser.runtime.onMessage.addListener(onMessage)
     browser.runtime.onMessage.addListener(onTtsEvent)
     browser.storage.onChanged.addListener(onTokenChanged)
+    const unsubscribeHiddenSites = onHiddenSitesChanged((sites) => {
+      if (isHidden(location.hostname, sites)) pill.detach()
+      else pill.attach()
+    })
+    const unsubscribeUiPrefs = onUiPrefsChanged((next) => pill.setTheme(next.theme))
     const unsubscribePrefs = onPrefsChanged((newPrefs) => {
       const speedChanged = newPrefs.speed !== prefs.speed
       const voiceChanged = newPrefs.voiceURI !== prefs.voiceURI
       prefs = newPrefs
       pill.updatePrefs(newPrefs)
+      follower.setEnabled(newPrefs.follow)
       if (!reading) return
 
       if (usingSupertonic) {
@@ -194,7 +209,10 @@ export default defineContentScript({
       browser.runtime.onMessage.removeListener(onTtsEvent)
       browser.storage.onChanged.removeListener(onTokenChanged)
       unsubscribePrefs()
+      unsubscribeHiddenSites()
+      unsubscribeUiPrefs()
       cancelSpeech()
+      follower.end()
       pill.remove()
     })
 
@@ -233,6 +251,7 @@ export default defineContentScript({
           track({ name: "supertonic_download_completed" })
         }
         paused = false
+        follower.show(state.block)
         pill.setState("playing", supertonicTitle)
       } else if (state.phase === "paused") {
         paused = true
@@ -303,10 +322,11 @@ export default defineContentScript({
       if (!started && !reading) pill.setState("idle")
     }
 
-    /** ⏹ pendant la lecture, ✕ au repos : masquer jusqu'au rechargement. */
+    /** ⏹ pendant la lecture, ✕ au repos : ne plus afficher Orateur sur ce domaine. */
     function onSecondary() {
-      if (reading) stop()
-      else pill.remove()
+      if (reading) return stop()
+      pill.detach()
+      void addHiddenSite(location.hostname)
     }
 
     /** Choisit le moteur, puis démarre — le reste ne se recroise plus. */
@@ -334,6 +354,11 @@ export default defineContentScript({
       const intro = buildReadingIntro(payload.lang ?? "", payload.title ?? "")
       const text = intro ? `${intro} ${payload.text}` : payload.text
 
+      // Sur `payload.text`, pas sur `text` : l'annonce du titre n'est écrite
+      // nulle part dans la page. L'hôte la recolle au premier paragraphe
+      // (`splitBlocks`), donc les index concordent quand même.
+      follower.begin(splitParagraphs(payload.text))
+
       usingSupertonic = true
       reading = true
       paused = false
@@ -358,10 +383,14 @@ export default defineContentScript({
       // Un bloc par paragraphe, pour éviter la limite de longueur de Chrome.
       // Le découpage passe avant `expandText`, qui écrase les blancs — les
       // frontières de paragraphes n'y survivraient pas.
-      const raw = payload.text
-        .split(/\n{2,}/)
-        .map((block) => block.trim())
-        .filter(Boolean)
+      const raw = splitParagraphs(payload.text)
+
+      // Texte des blocs tel qu'il est dans la page : ni l'annonce du titre ni
+      // `expandText` ne s'y appliquent — c'est sur lui que le suivi retrouve
+      // le paragraphe dans le DOM. Il reste aligné sur `blocks` : aucune règle
+      // de `expandText` ne remplace par du vide, donc son `filter(Boolean)`
+      // plus bas ne retire jamais rien.
+      follower.begin([...raw])
 
       // Le titre n'est pas dans le texte extrait — Readability retire le h1 qui
       // le répète. L'annoncer en tête du premier bloc plutôt qu'en bloc à part :
@@ -392,62 +421,73 @@ export default defineContentScript({
     }
 
     /**
-     * Met en file ce qu'il reste à lire, aux réglages du moment.
+     * Relance la lecture à partir de `blockIndex`/`charIndex`, aux réglages
+     * du moment. Appelée au démarrage comme à chaque changement de vitesse
+     * ou de voix : dans les deux cas on repart du mot où la voix en était.
      *
-     * Appelée au démarrage comme à chaque changement de vitesse ou de voix :
-     * dans les deux cas on repart de `blockIndex`/`charIndex`, donc du mot où
-     * la voix en était.
+     * Un seul énoncé en vol à la fois (`play`), jamais toute la file
+     * poussée d'un coup dans `speechSynthesis.speak()` : sur Chrome/Windows,
+     * plusieurs énoncés mis en file en même temps se chevauchent ou
+     * s'interrompent au hasard — bug connu de la file native. Enchaîner au
+     * `end` du précédent est le contournement standard, et il gagne au
+     * passage la robustesse qui manquait avant : `error` avance aussi à la
+     * suite plutôt que de laisser la pastille dépliée sans plus jamais rien
+     * dire.
      */
     function speak() {
-      const mine = ++generation
+      generation++
       cancelSpeech()
+      play(blockIndex, charIndex)
+    }
 
-      // Résolue une fois pour toute la file : `getVoices()` reconstruit sa
-      // liste à chaque appel. Introuvable (voix désinstallée, autre machine)
-      // vaut défaut.
+    function play(block: number, from: number) {
+      const text = blocks[block]
+      if (text === undefined) {
+        track({ name: "read_completed" })
+        fold()
+        return
+      }
+      const mine = generation
+
+      // Résolue à chaque énoncé : `getVoices()` reconstruit sa liste à
+      // chaque appel. Introuvable (voix désinstallée, autre machine) vaut
+      // défaut.
       const voice = prefs.voiceURI
         ? speechSynthesis.getVoices().find((v) => v.voiceURI === prefs.voiceURI)
         : undefined
+      const utterance = new SpeechSynthesisUtterance(text.slice(from))
+      if (lang) utterance.lang = lang
+      utterance.rate = prefs.speed
+      if (voice) utterance.voice = voice
 
-      const queue = blocks.slice(blockIndex).map((block, offset) => {
-        // Seul le premier bloc reprend en cours de route ; les suivants sont
-        // entiers, et leurs positions repartent donc de zéro.
-        const from = offset === 0 ? charIndex : 0
-        const at = blockIndex + offset
-        const utterance = new SpeechSynthesisUtterance(block.slice(from))
-        if (lang) utterance.lang = lang
-        utterance.rate = prefs.speed
-        if (voice) utterance.voice = voice
-
-        utterance.addEventListener("start", () => {
-          blockIndex = at
-          charIndex = from
-        })
-        // `charIndex` est compté depuis le début de l'utterance, donc depuis le
-        // reste du bloc : le rebaser sur le bloc entier, sinon une deuxième
-        // reprise repartirait trop tôt.
-        //
-        // ponytail: les voix distantes n'émettent pas toujours `boundary`. Sans
-        // lui la position reste au dernier départ, et changer la vitesse fait
-        // reprendre le bloc courant depuis là — jamais plus loin que ça.
-        utterance.addEventListener("boundary", (event) => {
-          charIndex = from + event.charIndex
-        })
-        return utterance
-      })
-
-      // Se replier sans annuler : la file est déjà vide en fin naturelle, et si
-      // l'événement vient d'un autre onglet qui nous a coupés, annuler ici
-      // tuerait *sa* lecture.
-      //
-      // ponytail: la fin n'est détectée que sur le dernier bloc — si celui-ci
-      // erre au lieu de finir, la pastille reste dépliée jusqu'au clic sur ⏹.
-      queue.at(-1)?.addEventListener("end", () => {
+      utterance.addEventListener("start", () => {
         if (mine !== generation) return
-        track({ name: "read_completed" })
-        fold()
+        blockIndex = block
+        charIndex = from
+        follower.show(block)
       })
-      for (const utterance of queue) speechSynthesis.speak(utterance)
+      // `charIndex` est compté depuis le début de l'énoncé, donc depuis le
+      // reste du bloc : le rebaser sur le bloc entier, sinon une deuxième
+      // reprise repartirait trop tôt.
+      //
+      // ponytail: les voix distantes n'émettent pas toujours `boundary`. Sans
+      // lui la position reste au dernier départ, et changer la vitesse fait
+      // reprendre le bloc courant depuis là — jamais plus loin que ça.
+      utterance.addEventListener("boundary", (event) => {
+        if (mine !== generation) return
+        charIndex = from + event.charIndex
+      })
+      utterance.addEventListener("end", () => {
+        if (mine !== generation) return
+        play(block + 1, 0)
+      })
+      // Un énoncé qui échoue à se synthétiser ne doit pas taire tout le
+      // reste de l'article : avancer quand même, comme une fin naturelle.
+      utterance.addEventListener("error", () => {
+        if (mine !== generation) return
+        play(block + 1, 0)
+      })
+      speechSynthesis.speak(utterance)
     }
 
     /** ⏹ : couper le moteur, puis se replier. */
@@ -469,6 +509,7 @@ export default defineContentScript({
       paused = false
       stale = false
       usingSupertonic = false
+      follower.end()
       // La file coupée ne nous appartient plus : un `end` en retard ne doit pas
       // replier une lecture relancée entre-temps.
       generation++
@@ -491,31 +532,25 @@ function cancelSpeech() {
 const HOST_STYLE =
   "all:initial!important;position:fixed!important;bottom:16px!important;right:16px!important;z-index:2147483647!important"
 
-const PILL_CSS = `
+const PILL_CSS = charteTokens(".pill-row") + `
 .pill-row {
   /*
-   * Palette posée ici et pas sur :host — le HOST_STYLE inline porte un
+   * Tokens posés ici et pas sur :host — le HOST_STYLE inline porte un
    * all:initial!important qui écraserait tout ce qu'on y déclarerait.
    * Le popover en hérite : une seule matière pour les deux.
    */
-  --bg: #111827;
-  --fg: #fff;
-  --muted: #9ca3af;
-  --line: rgb(255 255 255 / 0.14);
-  --accent: #60a5fa;
-  /* Fait rendre le menu déroulant natif du select et le curseur en sombre.
-     Deux propriétés au lieu d'un select réimplémenté. */
-  color-scheme: dark;
-  accent-color: var(--accent);
+  accent-color: var(--primary);
 
   display: inline-flex;
   align-items: center;
   padding: 6px;
   border-radius: 999px;
   font: 500 13px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: var(--fg);
-  background: var(--bg);
-  box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
+  -webkit-font-smoothing: antialiased;
+  color: var(--foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
   position: relative;
 }
 button {
@@ -533,24 +568,25 @@ button {
   font-size: 15px;
   cursor: pointer;
 }
-button:hover:not(:disabled) { background: rgb(255 255 255 / 0.12) }
-button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px }
+button:hover:not(:disabled) { background: color-mix(in srgb, var(--foreground) 8%, transparent) }
+button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 button:disabled { opacity: 0.55; cursor: default }
 /* Le pressé doit s'entendre tout de suite : le retour est sur l'appui, pas au
    relâchement. */
 button:active:not(:disabled) { transform: scale(0.97) }
-button { transition: transform 100ms cubic-bezier(0.23, 1, 0.32, 1) }
+button { transition: transform 160ms var(--ease-out) }
 /*
- * "…" a très peu d'encre au-dessus de sa ligne de base contrairement aux
- * autres glyphes du bouton (▶ ✕ ⏸ ⏹) : centré comme eux par le flex du
- * bouton, il paraît quand même planté en bas. Mesuré à measureText() dans la
- * police système à 15px : ~4px d'écart entre son encre et celle des autres.
+ * Bouton principal (▶/⏸) : seul rempli de la pastille, à la couleur de marque
+ * — c'est lui qui lance ou suspend la lecture, les deux autres ne font
+ * qu'accompagner ou interrompre.
  */
-.loading-glyph { display: inline-block; transform: translateY(-4px) }
+.pill-primary { background: var(--primary); color: var(--primary-foreground) }
+.pill-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 88%, black) }
+.pill-primary:focus-visible { outline-color: var(--foreground) }
 /*
- * Icône en masque plutôt qu'en emoji : ⚙️ est rendu en couleur et à une chasse
- * différente sur chaque OS. Le masque suit currentColor, donc l'état désactivé
- * et le focus restent cohérents avec les autres boutons, et rien n'entre dans le
+ * Icône en masque plutôt qu'en emoji : le rendu diffère en couleur et en
+ * chasse selon l'OS. Le masque suit currentColor, donc l'état désactivé et le
+ * focus restent cohérents avec les autres boutons, et rien n'entre dans le
  * DOM — pas de SVG à injecter sur une page en Trusted Types.
  */
 button[data-icon]::before {
@@ -564,12 +600,37 @@ button[data-icon]::before {
 button[data-icon="sliders"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M4 7h5M15 7h5M4 12h9M19 12h1M4 17h3M13 17h7'/%3E%3Ccircle cx='12' cy='7' r='2.5'/%3E%3Ccircle cx='16' cy='12' r='2.5'/%3E%3Ccircle cx='10' cy='17' r='2.5'/%3E%3C/svg%3E");
 }
+button[data-icon="play"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z'/%3E%3C/svg%3E");
+}
+button[data-icon="pause"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='14' y='3' width='5' height='18' rx='1'/%3E%3Crect x='5' y='3' width='5' height='18' rx='1'/%3E%3C/svg%3E");
+}
+button[data-icon="square"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3C/svg%3E");
+}
+button[data-icon="x"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E");
+}
+/* Anneau tournant : le "loader-circle" de lucide, déjà utilisé par le spinner
+   du toast — même geste, même icône. */
+button[data-icon="loader-circle"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-6.219-8.56'/%3E%3C/svg%3E");
+  animation: loading-spin 700ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  button[data-icon="loader-circle"] { animation-duration: 1400ms }
+}
 /*
  * Au repos la pastille se replie sur ses deux boutons : le titre garde son
  * texte mais tombe à une largeur nulle. Une largeur n'a pas d'équivalent en
  * transform — même exception que pour un accordéon.
+ *
+ * Visé par sa classe, pas par le sélecteur span : le popover de réglages en
+ * contient d'autres, que la règle repliait avec le titre — intitulés et
+ * valeurs disparaissaient tant que la pastille n'était pas en train de lire.
  */
-span {
+.pill-title {
   max-width: 0;
   margin: 0;
   opacity: 0;
@@ -577,31 +638,31 @@ span {
   text-overflow: ellipsis;
   white-space: nowrap;
   transition:
-    max-width 200ms cubic-bezier(0.23, 1, 0.32, 1),
-    margin 200ms cubic-bezier(0.23, 1, 0.32, 1),
-    opacity 200ms cubic-bezier(0.23, 1, 0.32, 1);
+    max-width 200ms var(--ease-out),
+    margin 200ms var(--ease-out),
+    opacity 200ms var(--ease-out);
 }
-:host([data-expanded]) span {
+:host([data-expanded]) .pill-title {
   max-width: 220px;
   margin: 0 6px;
   opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {
-  span { transition: opacity 120ms ease-out }
+  .pill-title { transition: opacity 120ms ease-out }
 }
 .settings-popover {
   position: absolute;
   bottom: 100%;
   right: 0;
   /* Même fond que la pastille : le popover en est le prolongement, pas une
-     surface étrangère posée dessus. Le liseré clair fait l'arête. */
-  background: var(--bg);
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.45);
+     surface étrangère posée dessus. Le liseré fait l'arête. */
+  background: var(--card);
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
   padding: 12px;
   min-width: 210px;
-  color: var(--fg);
+  color: var(--foreground);
   font-size: 12px;
   opacity: 0;
   pointer-events: none;
@@ -610,8 +671,8 @@ span {
      centre et le lien avec le bouton se perd. */
   transform-origin: bottom right;
   transition:
-    opacity 150ms cubic-bezier(0.23, 1, 0.32, 1),
-    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+    opacity 150ms var(--ease-out),
+    transform 150ms var(--ease-out);
   z-index: 10000;
   margin-bottom: 8px;
 }
@@ -639,13 +700,13 @@ span {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg);
+  background: var(--card);
   border-radius: 999px;
-  border: 1px solid var(--line);
-  box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
   padding: 6px 14px 6px 10px;
   max-width: 220px;
-  color: var(--fg);
+  color: var(--foreground);
   font-size: 12px;
   white-space: nowrap;
   opacity: 0;
@@ -653,8 +714,8 @@ span {
   transform: translateY(-50%) scale(0.95) translateX(12px);
   transform-origin: center right;
   transition:
-    opacity 150ms cubic-bezier(0.23, 1, 0.32, 1),
-    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+    opacity 150ms var(--ease-out),
+    transform 150ms var(--ease-out);
   z-index: 10000;
 }
 .loading-toast[data-open] {
@@ -680,8 +741,8 @@ span {
   height: 14px;
   flex: none;
   border-radius: 999px;
-  border: 2px solid var(--line);
-  border-top-color: var(--accent);
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
   animation: loading-spin 700ms linear infinite;
 }
 .loading-toast[data-mode="indeterminate"] .loading-toast-spinner { display: block }
@@ -698,7 +759,7 @@ span {
   height: 4px;
   flex: none;
   border-radius: 999px;
-  background: var(--line);
+  background: var(--border);
   overflow: hidden;
 }
 .loading-toast[data-mode="determinate"] .loading-toast-bar { display: block }
@@ -707,9 +768,23 @@ span {
   height: 100%;
   transform: scaleX(0);
   transform-origin: left;
-  background: var(--accent);
+  background: var(--primary);
   transition: transform 150ms linear;
 }
+/*
+ * Une case à cocher se lit en ligne, intitulé à droite — pas dans la colonne
+ * de .settings-row, où le contrôle prend toute la largeur.
+ */
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.settings-toggle input { flex: none; margin: 0; cursor: pointer }
+.settings-toggle input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 .settings-row { display: flex; flex-direction: column; gap: 6px }
 .settings-row + .settings-row { margin-top: 12px }
 .settings-label {
@@ -717,10 +792,11 @@ span {
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--muted);
+  letter-spacing: 0.12em;
+  color: var(--muted-foreground);
   font-weight: 600;
   cursor: pointer;
 }
@@ -728,31 +804,32 @@ span {
    une ligne de plus. Chasse fixe pour que 1,0× et 1,2× ne la fassent pas
    sauter d'un pixel à chaque cran. */
 .settings-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   text-transform: none;
   letter-spacing: 0;
-  color: var(--fg);
+  color: var(--foreground);
   font-variant-numeric: tabular-nums;
 }
 .settings-control {
   width: 100%;
   font: inherit;
   font-size: 12px;
-  color: var(--fg);
+  color: var(--foreground);
   cursor: pointer;
 }
 select.settings-control {
   padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: rgb(255 255 255 / 0.06);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
   /* Un select natif tronque tout seul ; sans ça un nom de voix à rallonge
      élargit le popover jusqu'à le sortir de l'écran. */
   max-width: 100%;
 }
-select.settings-control:hover { background: rgb(255 255 255 / 0.12) }
+select.settings-control:hover { background: color-mix(in srgb, var(--foreground) 6%, var(--background)) }
 input.settings-control { margin: 2px 0 }
-.settings-control:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.settings-control:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 /* Le coût du premier ▶ Supertonic, collé à la ligne Moteur — c'est ce qui le
    rend acceptable plutôt que subi. Masqué par défaut : afficher un [hidden]
    coûte moins qu'un état de plus dans syncControls(). */
@@ -760,17 +837,17 @@ input.settings-control { margin: 2px 0 }
   margin-top: 6px;
   font-size: 11px;
   line-height: 1.4;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
-.settings-note strong { color: var(--fg); font-weight: 600 }
+.settings-note strong { color: var(--foreground); font-weight: 600 }
 `
 
 /** Libellé et intitulé accessible de chaque bouton, état par état. */
 const LABELS: Record<PillState, { primary: string; secondary: string }> = {
-  idle: { primary: "▶", secondary: "✕" },
-  loading: { primary: "…", secondary: "✕" },
-  playing: { primary: "⏸", secondary: "⏹" },
-  paused: { primary: "▶", secondary: "⏹" },
+  idle: { primary: "play", secondary: "x" },
+  loading: { primary: "loader-circle", secondary: "x" },
+  playing: { primary: "pause", secondary: "square" },
+  paused: { primary: "play", secondary: "square" },
 }
 
 /**
@@ -800,6 +877,152 @@ function classifyTtsError(message: string): "http" | "network" | "unknown" {
   return "unknown"
 }
 
+/** Même découpe que `splitBlocks` côté hôte : un bloc par paragraphe. */
+const splitParagraphs = (text: string) =>
+  text.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean)
+
+/** Nom du surlignage dans le registre du document. */
+const HIGHLIGHT_NAME = "orateur-reading"
+
+/**
+ * Fond translucide, et rien d'autre : la couleur du texte reste celle de la
+ * page, donc son contraste aussi, et la même teinte tient sur fond clair comme
+ * sur fond sombre. Vit dans le document de la page, hors de portée des tokens
+ * du shadow root — donc en dur, mais alignée sur --primary de la charte
+ * (même formule que ::selection, entrypoints/options/style.css).
+ */
+const HIGHLIGHT_CSS = `::highlight(${HIGHLIGHT_NAME}){background-color:rgb(245 78 0 / 0.3)}`
+
+/**
+ * Silence du défilement automatique après un geste de l'utilisateur : le
+ * temps de deux ou trois paragraphes, de quoi relire un passage sans que la
+ * page reparte toute seule.
+ */
+const MANUAL_SCROLL_GRACE = 10_000
+
+/**
+ * Gestes qui valent reprise en main du défilement.
+ *
+ * Jamais `scroll` : l'événement ne dit pas qui a scrollé, nos propres
+ * `scrollIntoView` se prendraient donc eux-mêmes pour un geste de
+ * l'utilisateur et le suivi s'arrêterait au premier paragraphe.
+ */
+const SCROLL_GESTURES = ["wheel", "touchmove", "keydown"] as const
+
+/**
+ * Suit la lecture sur la page : surligne le paragraphe lu, et l'amène dans le
+ * champ de vision quand il n'y est pas.
+ *
+ * L'API CSS Custom Highlight plutôt que des `<span>` posés autour du texte :
+ * elle ne peut peindre que le fond, la couleur et la décoration — donc aucun
+ * recalcul de mise en page, aucune mutation du DOM de la page (rien à faire
+ * passer par Trusted Types, rien qu'un rendu React du site puisse effacer,
+ * aucun sélecteur CSS de la page cassé), et une seule repeinte par
+ * paragraphe.
+ */
+function createFollower() {
+  // Chrome 105, Safari 17.2, Firefox 140. Ailleurs on lit sans suivre, plutôt
+  // que d'embarquer un polyfill qui, lui, mutera la page.
+  const supported = typeof Highlight === "function" && typeof CSS !== "undefined" && "highlights" in CSS
+
+  let sheet: CSSStyleSheet | null = null
+  let highlight: Highlight | null = null
+  let findAnchor: ReturnType<typeof createAnchorFinder> | null = null
+  let blocks: string[] = []
+  /** Dernier paragraphe surligné : évite de rechercher deux fois le même. */
+  let current = -1
+  let anchor: Element | null = null
+  let enabled = true
+  let lastGesture = 0
+
+  const noteGesture = () => {
+    lastGesture = Date.now()
+  }
+
+  /** Ouvre le suivi sur les blocs d'une lecture. Idempotent. */
+  function begin(paragraphs: string[]) {
+    if (!supported) return
+    end()
+    blocks = paragraphs
+    findAnchor = createAnchorFinder(document)
+    if (!sheet) {
+      // Feuille construite plutôt qu'un `<style>` injecté : rien à soumettre à
+      // la directive `style-src` de la page, et rien à retirer de son DOM.
+      sheet = new CSSStyleSheet()
+      sheet.replaceSync(HIGHLIGHT_CSS)
+    }
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
+    highlight = new Highlight()
+    CSS.highlights.set(HIGHLIGHT_NAME, highlight)
+    for (const gesture of SCROLL_GESTURES) {
+      window.addEventListener(gesture, noteGesture, { passive: true })
+    }
+  }
+
+  /** Surligne le paragraphe `index`, et l'amène à l'écran s'il n'y est pas. */
+  function show(index: number) {
+    if (!findAnchor || index === current) return
+    current = index
+    const block = blocks[index]
+    // Bloc introuvable dans la page — un `<pre>`, dit « Extrait de code. » —
+    // le paragraphe précédent reste surligné plutôt que rien : la lecture est
+    // bien là, quelque part entre les deux.
+    anchor = block === undefined ? null : findAnchor(block)
+    if (anchor && enabled) paint(anchor)
+  }
+
+  function paint(element: Element) {
+    if (!highlight) return
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    highlight.clear()
+    highlight.add(range)
+    reveal(element)
+  }
+
+  function reveal(element: Element) {
+    if (Date.now() - lastGesture < MANUAL_SCROLL_GRACE) return
+    const box = element.getBoundingClientRect()
+    // Déjà en vue : le haut du bloc est à l'écran, dans les deux premiers
+    // tiers. Le haut plutôt que le bloc entier — un paragraphe plus haut que
+    // la fenêtre ne rentre jamais, et la page défilerait à chaque fois.
+    if (box.top >= 0 && box.top <= window.innerHeight * 0.66) return
+    element.scrollIntoView({
+      // `center` et pas `start` : un en-tête collant masque le haut de la
+      // fenêtre sur la moitié des sites.
+      block: "center",
+      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    })
+  }
+
+  /** Le réglage a changé pendant la lecture. */
+  function setEnabled(value: boolean) {
+    if (value === enabled) return
+    enabled = value
+    if (!enabled) highlight?.clear()
+    else if (anchor) paint(anchor)
+  }
+
+  /** Rend la page à elle-même : plus de surlignage, plus d'écouteur. */
+  function end() {
+    blocks = []
+    findAnchor = null
+    anchor = null
+    current = -1
+    if (highlight) {
+      highlight.clear()
+      CSS.highlights.delete(HIGHLIGHT_NAME)
+      highlight = null
+    }
+    if (sheet) {
+      document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet)
+    }
+    for (const gesture of SCROLL_GESTURES) window.removeEventListener(gesture, noteGesture)
+  }
+
+  return { begin, show, setEnabled, end }
+}
+
 /**
  * Pastille flottante, dans un shadow root fermé — même isolation que la bulle
  * de sélection, pour les mêmes raisons.
@@ -807,7 +1030,9 @@ function classifyTtsError(message: string): "http" | "network" | "unknown" {
 function createPill(
   onPrimary: () => void,
   onSecondary: () => void,
-  initialPrefs: ReaderPreferences
+  initialPrefs: ReaderPreferences,
+  attached: boolean,
+  initialTheme: ColorTheme
 ) {
   // Résolu ici, pas en haut du module : WXT importe ce fichier sous un faux
   // `browser` (sans `i18n`) pour en lire la config au build, et createPill ne
@@ -820,8 +1045,9 @@ function createPill(
   }
   const ENGINES: Array<[ReaderEngine, string]> = [
     ["system", browser.i18n.getMessage("engineSystem")],
-    // Nom de marque, identique dans toutes les locales : rien à traduire.
-    ["supertonic", "Supertonic"],
+    // "Voix naturelles IA" côté interface (jalon 1d) — même libellé que la
+    // page d'options, "Supertonic" reste le nom du modèle, pas du moteur.
+    ["supertonic", browser.i18n.getMessage("engineNaturalAI")],
   ]
   /**
    * Les 10 voix Supertonic, dupliquées depuis lib/supertonic/types.ts plutôt
@@ -845,6 +1071,7 @@ function createPill(
 
   const host = document.createElement("orateur-reader-pill")
   host.style.cssText = HOST_STYLE
+  applyTheme(initialTheme, host)
 
   const root = host.attachShadow({ mode: "closed" })
   const style = document.createElement("style")
@@ -854,15 +1081,9 @@ function createPill(
   const row = document.createElement("div")
   row.className = "pill-row"
   const primary = button(onPrimary)
-  // "…" a très peu d'encre au-dessus de sa ligne de base (contrairement à
-  // ▶ ✕ ⏸ ⏹, qui s'équilibrent entre eux) : centré par le flex du bouton
-  // comme les autres, il paraît quand même planté en bas. Un nudge isolé sur
-  // cet élément plutôt que sur `primary` — son propre `transform` sert déjà
-  // au retour d'appui (:active), les deux se marcheraient dessus sinon.
-  const loadingGlyph = document.createElement("div")
-  loadingGlyph.className = "loading-glyph"
-  loadingGlyph.textContent = "…"
+  primary.className = "pill-primary"
   const label = document.createElement("span")
+  label.className = "pill-title"
   const secondary = button(onSecondary)
   const settings = button(() => togglePopover())
   // Posé une fois : l'icône et son intitulé ne dépendent pas de l'état de
@@ -894,8 +1115,8 @@ function createPill(
   toast.className = "loading-toast"
   toast.setAttribute("role", "status")
   toast.setAttribute("aria-live", "polite")
-  // `div`, pas `span` : la règle `span { max-width: 0; opacity: 0 }` plus bas
-  // (le label replié de la pastille) écraserait silencieusement ces deux-là.
+  // `div` plutôt que `span` : sans conséquence ici, les deux sont mis en
+  // forme par leur classe.
   const toastSpinner = document.createElement("div")
   toastSpinner.className = "loading-toast-spinner"
   toastSpinner.setAttribute("aria-hidden", "true")
@@ -976,6 +1197,22 @@ function createPill(
       savePrefs({ voiceURI: voice.value || null })
     }
   })
+  /**
+   * Suivi de la lecture sur la page. En pied de popover : c'est le seul
+   * réglage qui ne parle pas de la voix.
+   */
+  const follow = document.createElement("input")
+  follow.type = "checkbox"
+  follow.id = "orateur-follow"
+  const followRow = document.createElement("label")
+  followRow.className = "settings-toggle"
+  followRow.htmlFor = follow.id
+  const followText = document.createElement("span")
+  followText.textContent = browser.i18n.getMessage("settingsFollowLabel")
+  followRow.append(follow, followText)
+  popover.append(followRow)
+  follow.addEventListener("change", () => savePrefs({ follow: follow.checked }))
+
   renderVoices()
   // Chrome charge ses voix après coup : sans cet événement la liste reste
   // réduite à « Par défaut » pendant les premières secondes de la page.
@@ -1032,6 +1269,7 @@ function createPill(
       // justement le défaut. Rien à rattraper.
       voice.value = currentPrefs.voiceURI ?? ""
     }
+    follow.checked = currentPrefs.follow
     supertonicNote.hidden = currentPrefs.engine !== "supertonic"
   }
 
@@ -1069,7 +1307,9 @@ function createPill(
     if (!host.isConnected) (document.body ?? document.documentElement).append(host)
   }
 
-  attach()
+  // Site exclu (réglages → Sites) : la pastille reste montée en mémoire,
+  // prête pour `pill.attach()`, mais hors du DOM tant que rien ne la demande.
+  if (attached) attach()
   setState("idle")
 
   function setState(
@@ -1078,10 +1318,9 @@ function createPill(
     interruptible = false,
     toastInfo?: { label: string; percent?: number }
   ) {
-    if (state === "loading") primary.replaceChildren(loadingGlyph)
-    else primary.textContent = LABELS[state].primary
+    primary.dataset.icon = LABELS[state].primary
     primary.setAttribute("aria-label", ARIA[state].primary)
-    secondary.textContent = LABELS[state].secondary
+    secondary.dataset.icon = LABELS[state].secondary
     secondary.setAttribute("aria-label", ARIA[state].secondary)
     // Rien à annuler tant que l'extraction tourne : quelques centaines de
     // millisecondes, plus simple à neutraliser qu'à interrompre. Supertonic
@@ -1105,6 +1344,12 @@ function createPill(
 
   return {
     attach,
+    // Retire juste l'élément du DOM : contrairement à `remove`, les écouteurs
+    // document restent en place. C'est ce qui permet à `attach()` de rendre
+    // ensuite une pastille dont le popover se referme encore au clic
+    // extérieur et à Échap — un site exclu peut alterner détaché/rattaché
+    // toute la session, `remove` ne devant jouer qu'une fois, au déchargement.
+    detach: () => host.remove(),
     setState,
     remove: () => {
       document.removeEventListener("click", onDocumentClick, true)
@@ -1116,6 +1361,7 @@ function createPill(
       currentPrefs = prefs
       syncControls()
     },
+    setTheme: (theme: ColorTheme) => applyTheme(theme, host),
   }
 }
 

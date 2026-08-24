@@ -33,7 +33,7 @@
     "message": "Lire cette page avec Orateur"
   },
   "ariaHidePill": {
-    "message": "Masquer Orateur sur cette page"
+    "message": "Ne plus afficher Orateur sur ce site"
   },
   "ariaExtracting": {
     "message": "Extraction de l'article…"
@@ -58,6 +58,9 @@
   },
   "settingsVoiceLabel": {
     "message": "Voix"
+  },
+  "settingsFollowLabel": {
+    "message": "Suivre sur la page"
   },
   "engineSystem": {
     "message": "Voix système"
@@ -129,21 +132,138 @@
     "message": "Réglages Orateur"
   },
   "optionsCacheSize": {
-    "message": "$1 Mo téléchargés — prêt à l'usage hors ligne."
+    "message": "$1 Mo sur votre appareil. Les voix naturelles fonctionnent hors ligne."
   },
   "optionsClearCache": {
-    "message": "Effacer le cache"
+    "message": "Effacer les $1 Mo"
   },
   "optionsClearingCache": {
     "message": "Effacement…"
   },
-  "optionsTelemetryHeading": {
-    "message": "Statistiques d'usage anonymes"
-  },
   "optionsTelemetryDescription": {
-    "message": "Désactivé par défaut. Si vous l'activez, Orateur envoie quelques événements anonymes — début de lecture, résultat du téléchargement Supertonic, échecs d'extraction — pour aider à améliorer l'extension. Jamais le texte que vous écoutez, jamais les pages que vous visitez, jamais rien qui vous identifie."
+    "message": "Désactivé par défaut. Si vous l'activez, Orateur signale quand une lecture démarre, si le téléchargement du modèle a réussi, et quand une extraction échoue."
   },
   "optionsTelemetryEnable": {
     "message": "Partager des statistiques d'usage anonymes"
+  },
+  "optionsHeading": {
+    "message": "Réglages"
+  },
+  "optionsTagline": {
+    "message": "Comment Orateur lit les pages, et ce qu'il garde sur votre appareil."
+  },
+  "optionsNavLabel": {
+    "message": "Sections des réglages"
+  },
+  "optionsSectionGeneral": {
+    "message": "Général"
+  },
+  "optionsThemeLabel": {
+    "message": "Thème"
+  },
+  "optionsThemeSystem": {
+    "message": "Système"
+  },
+  "optionsThemeLight": {
+    "message": "Clair"
+  },
+  "optionsThemeDark": {
+    "message": "Sombre"
+  },
+  "optionsFollowLabel": {
+    "message": "Suivre la lecture sur la page"
+  },
+  "optionsFollowHelp": {
+    "message": "Surligne le paragraphe lu et l'amène à l'écran. Le défilement se met en pause dès que vous reprenez la main."
+  },
+  "optionsThemeHelp": {
+    "message": "« Système » suit le réglage de votre navigateur."
+  },
+  "optionsLanguageLabel": {
+    "message": "Langue"
+  },
+  "optionsLanguageAuto": {
+    "message": "Automatique"
+  },
+  "optionsLanguageHelp": {
+    "message": "« Automatique » suit la langue de votre navigateur."
+  },
+  "optionsSectionSites": {
+    "message": "Sites"
+  },
+  "optionsSitesHelp": {
+    "message": "Orateur reste discret sur les sites listés ici — ni pastille, ni bulle de sélection."
+  },
+  "optionsSitesPlaceholder": {
+    "message": "exemple.com"
+  },
+  "optionsSitesAdd": {
+    "message": "Ajouter"
+  },
+  "optionsSitesEmpty": {
+    "message": "Aucun site masqué pour l’instant."
+  },
+  "ariaRemoveSite": {
+    "message": "Ne plus masquer Orateur sur $1"
+  },
+  "optionsSectionVoice": {
+    "message": "Moteur et voix"
+  },
+  "engineNaturalAI": {
+    "message": "Voix naturelles IA"
+  },
+  "engineSystemDesc": {
+    "message": "Prête tout de suite. Rien à télécharger."
+  },
+  "engineNaturalAIDesc": {
+    "message": "Nettement plus proches de l'humain."
+  },
+  "optionsModelAlertPendingLead": {
+    "message": "398 Mo à télécharger"
+  },
+  "optionsModelAlertPending": {
+    "message": " à la première lecture, une seule fois. Ensuite tout tourne sur votre appareil, hors ligne — aucun texte n'est envoyé nulle part. Modèle Supertonic."
+  },
+  "optionsModelAlertReadyLead": {
+    "message": "Modèle déjà téléchargé."
+  },
+  "optionsModelAlertReady": {
+    "message": " Tout tourne sur votre appareil, hors ligne — aucun texte n'est envoyé nulle part."
+  },
+  "optionsSpeedHelp": {
+    "message": "L'extrait se joue à cette vitesse."
+  },
+  "optionsPreviewVoice": {
+    "message": "Écouter un extrait"
+  },
+  "optionsStopPreview": {
+    "message": "Arrêter l'extrait"
+  },
+  "optionsPreviewSampleText": {
+    "message": "Voici à quoi ressemble cette voix, à cette vitesse."
+  },
+  "optionsSectionModel": {
+    "message": "Modèle IA"
+  },
+  "optionsModelReady": {
+    "message": "Prêt hors ligne"
+  },
+  "optionsModelEmpty": {
+    "message": "Rien de téléchargé pour l'instant. 398 Mo à la première lecture en voix naturelles, une seule fois."
+  },
+  "optionsClearCacheConfirm": {
+    "message": "Confirmer"
+  },
+  "optionsClearCacheHint": {
+    "message": "Ce clic supprime tout. Sans confirmation, on annule dans 4 s."
+  },
+  "optionsSectionPrivacy": {
+    "message": "Confidentialité"
+  },
+  "optionsTelemetryNever": {
+    "message": "Jamais le texte que vous écoutez, jamais les pages que vous visitez, jamais rien qui vous identifie."
+  },
+  "optionsOpenApp": {
+    "message": "Ouvrir Orateur"
   }
 }

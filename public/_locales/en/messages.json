@@ -33,7 +33,7 @@
     "message": "Read this page with Orateur"
   },
   "ariaHidePill": {
-    "message": "Hide Orateur on this page"
+    "message": "Stop showing Orateur on this site"
   },
   "ariaExtracting": {
     "message": "Extracting the article…"
@@ -58,6 +58,9 @@
   },
   "settingsVoiceLabel": {
     "message": "Voice"
+  },
+  "settingsFollowLabel": {
+    "message": "Follow on page"
   },
   "engineSystem": {
     "message": "System voice"
@@ -129,21 +132,138 @@
     "message": "Orateur settings"
   },
   "optionsCacheSize": {
-    "message": "$1 MB downloaded — ready to use offline."
+    "message": "$1 MB on your device. The natural voices work offline."
   },
   "optionsClearCache": {
-    "message": "Clear cache"
+    "message": "Delete the $1 MB"
   },
   "optionsClearingCache": {
     "message": "Clearing…"
   },
-  "optionsTelemetryHeading": {
-    "message": "Anonymous usage statistics"
-  },
   "optionsTelemetryDescription": {
-    "message": "Off by default. If you turn this on, Orateur sends a few anonymous events — reading started, Supertonic download outcome, extraction failures — to help improve the extension. Never the text you read, never the pages you visit, never anything that identifies you."
+    "message": "Off by default. If you turn it on, Orateur reports when a reading starts, whether the model download succeeded, and when an extraction fails."
   },
   "optionsTelemetryEnable": {
     "message": "Share anonymous usage statistics"
+  },
+  "optionsHeading": {
+    "message": "Settings"
+  },
+  "optionsTagline": {
+    "message": "How Orateur reads pages, and what it keeps on your device."
+  },
+  "optionsNavLabel": {
+    "message": "Settings sections"
+  },
+  "optionsSectionGeneral": {
+    "message": "General"
+  },
+  "optionsThemeLabel": {
+    "message": "Theme"
+  },
+  "optionsThemeSystem": {
+    "message": "System"
+  },
+  "optionsThemeLight": {
+    "message": "Light"
+  },
+  "optionsThemeDark": {
+    "message": "Dark"
+  },
+  "optionsFollowLabel": {
+    "message": "Follow along on the page"
+  },
+  "optionsFollowHelp": {
+    "message": "Highlights the paragraph being read and brings it into view. Auto-scrolling pauses as soon as you scroll yourself."
+  },
+  "optionsThemeHelp": {
+    "message": "“System” follows your browser’s setting."
+  },
+  "optionsLanguageLabel": {
+    "message": "Language"
+  },
+  "optionsLanguageAuto": {
+    "message": "Automatic"
+  },
+  "optionsLanguageHelp": {
+    "message": "“Automatic” follows your browser’s language."
+  },
+  "optionsSectionSites": {
+    "message": "Sites"
+  },
+  "optionsSitesHelp": {
+    "message": "Orateur stays hidden on the sites listed here — no pill, no selection bubble."
+  },
+  "optionsSitesPlaceholder": {
+    "message": "example.com"
+  },
+  "optionsSitesAdd": {
+    "message": "Add"
+  },
+  "optionsSitesEmpty": {
+    "message": "No sites hidden yet."
+  },
+  "ariaRemoveSite": {
+    "message": "Stop hiding Orateur on $1"
+  },
+  "optionsSectionVoice": {
+    "message": "Engine and voice"
+  },
+  "engineNaturalAI": {
+    "message": "Natural AI voices"
+  },
+  "engineSystemDesc": {
+    "message": "Ready right away. Nothing to download."
+  },
+  "engineNaturalAIDesc": {
+    "message": "Noticeably closer to human."
+  },
+  "optionsModelAlertPendingLead": {
+    "message": "398 MB to download"
+  },
+  "optionsModelAlertPending": {
+    "message": " on the first reading, once. After that everything runs on your device, offline — no text is sent anywhere. Supertonic model."
+  },
+  "optionsModelAlertReadyLead": {
+    "message": "Model already downloaded."
+  },
+  "optionsModelAlertReady": {
+    "message": " Everything runs on your device, offline — no text is sent anywhere."
+  },
+  "optionsSpeedHelp": {
+    "message": "The sample plays at this speed."
+  },
+  "optionsPreviewVoice": {
+    "message": "Hear a sample"
+  },
+  "optionsStopPreview": {
+    "message": "Stop the sample"
+  },
+  "optionsPreviewSampleText": {
+    "message": "This is what this voice sounds like, at this speed."
+  },
+  "optionsSectionModel": {
+    "message": "AI model"
+  },
+  "optionsModelReady": {
+    "message": "Ready offline"
+  },
+  "optionsModelEmpty": {
+    "message": "Nothing downloaded yet. 398 MB on the first reading with natural voices, once."
+  },
+  "optionsClearCacheConfirm": {
+    "message": "Confirm"
+  },
+  "optionsClearCacheHint": {
+    "message": "This click deletes everything. Cancels in 4 s without confirmation."
+  },
+  "optionsSectionPrivacy": {
+    "message": "Privacy"
+  },
+  "optionsTelemetryNever": {
+    "message": "Never the text you listen to, never the pages you visit, never anything that identifies you."
+  },
+  "optionsOpenApp": {
+    "message": "Open Orateur"
   }
 }

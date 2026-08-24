@@ -78,8 +78,10 @@ const TEXT_BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,pre"
  * `case "code": return []`) et mobile ne le collecte pas. Le silence complet
  * laisse un tutoriel amputé sans le dire, d'où l'annonce.
  *
- * Aucune position annoncée : la pastille ne défile ni ne surligne, « ci-dessous »
- * supposerait que l'auditeur regarde le bon endroit de la page.
+ * Aucune position annoncée : le suivi de lecture retrouve les blocs dans la
+ * page par leur texte (lib/read-anchor.ts), et celui-ci n'est pas celui du
+ * `<pre>` — le surlignage reste donc sur le paragraphe précédent, et
+ * « ci-dessous » ne désignerait rien de sûr.
  *
  * Même convention que `reading-intro` : code sur deux lettres, français par
  * défaut — le français est la valeur de repli, pas une entrée de la table.
