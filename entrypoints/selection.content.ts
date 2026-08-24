@@ -23,10 +23,14 @@ import { loadUiPrefs, onUiPrefsChanged, type ColorTheme } from "../lib/ui-prefs.
  */
 const ACTIONS = [
   { id: "read", labelKey: "selectionRead", ariaLabelKey: "selectionReadAria", icon: "headphones" },
-  { id: "save", labelKey: "selectionReadLater", ariaLabelKey: "selectionReadLaterAria", icon: "bookmark" },
 ] as const
 
-export type SelectionAction = (typeof ACTIONS)[number]["id"]
+/**
+ * `save` ne vit plus que dans le menu contextuel : la bulle est un raccourci de
+ * lecture immédiate, pas un gestionnaire de file d'attente. Le type n'est donc
+ * plus dérivé d'`ACTIONS`, qui ne décrit que les boutons de la bulle.
+ */
+export type SelectionAction = "read" | "save"
 
 /** Ce que le background reçoit, quelle que soit la porte d'entrée. */
 export interface SelectionPayload {
@@ -290,9 +294,6 @@ button[data-icon]::before {
 }
 button[data-icon="headphones"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3'/%3E%3C/svg%3E");
-}
-button[data-icon="bookmark"] {
-  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z'/%3E%3C/svg%3E");
 }
 @keyframes appear {
   from { opacity: 0; transform: scale(0.92) }

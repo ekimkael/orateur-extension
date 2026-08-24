@@ -1,13 +1,16 @@
 # Selected-text reading
 
 Select text on any page and have Orateur read it, either via the context
-menu or a floating bubble. Two actions, both available in both places:
+menu or a floating bubble. Two actions, but only the context menu offers both:
 
 - **Read** — read the selection out loud right there, on the page. Same
   pastille, same engines (system voice or Supertonic), as "Read this page"
-  (see `entrypoints/reader.content.ts`). No network call.
+  (see `entrypoints/reader.content.ts`). No network call. Available from the
+  bubble and the context menu.
 - **Read later** — hand the selection off to the Orateur web app, to listen
   to whenever. This is the only path of the two that leaves the browser.
+  Context menu only: the bubble is a shortcut for reading right away, not a
+  queue manager.
 
 ## What the feature does — and doesn't do
 
@@ -47,9 +50,11 @@ back to `info.selectionText` if the script isn't there.
 **Floating bubble** — the content script listens for `mouseup`,
 `mousedown` and `keyup` on the document. On release, it reads the
 selection on the next tick (it isn't settled yet), and shows the bubble
-with both buttons. Clicking one sends
-`{ type: "orateur:selection-action", action: "read" | "save", text, title, lang }`
-to the background, which routes to `read()` or `saveSelection()`.
+with its single "Read" button. Clicking it sends
+`{ type: "orateur:selection-action", action: "read", text, title, lang }`
+to the background, which routes to `read()`. The message shape still
+carries `action: "read" | "save"` — the context menu is the other sender,
+and its "save" reaches the same listener via `selectionFromMenu()`.
 
 ## Decisions
 

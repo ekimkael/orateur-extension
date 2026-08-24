@@ -455,13 +455,25 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined) {
 
   const result = await extractFromTab(tab.id)
   if (result?.ok === false) {
+    // Repli jalon 5 : Gmail, Substack, docs — Readability n'y voit pas
+    // d'article, mais il y a de la prose visible à lire. Pas de `title` : ce
+    // n'est pas un article nommable, même raison que la lecture d'une
+    // sélection (voir `read()` ci-dessous).
+    if (result.text) {
+      track({ name: "extraction_failed", properties: { reason: "fallback_text" } })
+      return startReading(tab.id, { text: result.text, lang: result.lang })
+    }
     track({ name: "extraction_failed", properties: { reason: "not_article" } })
     await notify(result.error)
     return false
   }
   if (!result?.ok) {
-    track({ name: "extraction_failed", properties: { reason: "not_injectable" } })
-    await notify(browser.i18n.getMessage("errorPageNotInjectable"))
+    // La visionneuse PDF n'accepte aucun content script : pas de repli
+    // possible ici, mais le menu contextuel sur une sélection, lui, marche
+    // (voir `selectionFromMenu`) — le message le dit.
+    const pdf = /\.pdf(?:$|[?#])/i.test(tab.url ?? "")
+    track({ name: "extraction_failed", properties: { reason: pdf ? "pdf" : "not_injectable" } })
+    await notify(browser.i18n.getMessage(pdf ? "errorPdfUseSelection" : "errorPageNotInjectable"))
     return false
   }
 
@@ -493,31 +505,94 @@ async function open(url: string) {
   await browser.tabs.create({ url })
 }
 
+/** Un seul essai avant de rendre la main — jalon 5, voir `extractFromTab`. */
+const RETRY_DELAY = 700
+
 /**
- * Exécute l'extracteur dans l'onglet et récupère sa valeur de retour.
+ * Extrait l'article de l'onglet, avec une reprise ciblée — jalon 5.
+ *
+ * Premier essai sur la frame principale seule, comme avant. S'il échoue *sans
+ * que l'injection elle-même ait échoué* (page non injectable : `null`
+ * immédiat, pas de repli possible), un second essai, différé et élargi à
+ * toutes les frames, couvre deux cibles à la fois : la SPA dont le contenu
+ * arrive après coup, et l'article logé dans une iframe.
+ *
+ * ponytail: une seule reprise, pas de `MutationObserver` ni de
+ * `webNavigation` — et elle ne coûte le délai qu'au chemin d'échec ; un
+ * article classique, trouvé du premier coup, ne le paie jamais.
+ */
+async function extractFromTab(tabId: number): Promise<ExtractResult | null> {
+  const firstPass = await injectAll(tabId, false)
+  if (firstPass.length === 0) return null // page non injectable : rien à reprendre
+  const first = best(firstPass)
+  if (first?.ok) return first
+
+  await sleep(RETRY_DELAY)
+  return best(await injectAll(tabId, true)) ?? first
+}
+
+/**
+ * Exécute l'extracteur dans l'onglet et récupère la valeur de retour de
+ * chaque frame injectée. Tableau vide si l'injection elle-même a échoué
+ * (about:, addons.mozilla.org, visionneuse PDF…) — à distinguer d'un
+ * extracteur qui a tourné mais rendu un échec (`ok: false`).
  *
  * Deux API pour un même geste : `scripting` n'existe qu'en MV3, Firefox MV2 ne
  * connaît que `tabs.executeScript`. Les deux enveloppent le résultat
  * différemment.
  */
-async function extractFromTab(tabId: number): Promise<ExtractResult | null> {
+async function injectAll(tabId: number, allFrames: boolean): Promise<ExtractResult[]> {
   try {
     if (browser.scripting) {
-      const [injection] = await browser.scripting.executeScript({
-        target: { tabId },
+      const injections = await browser.scripting.executeScript({
+        target: { tabId, allFrames },
         files: [EXTRACT_SCRIPT],
       })
-      return (injection?.result as ExtractResult | undefined) ?? null
+      return injections
+        .map((injection) => injection.result as ExtractResult | undefined)
+        .filter((result): result is ExtractResult => result != null)
     }
 
     const results = await browser.tabs.executeScript(tabId, {
       file: EXTRACT_SCRIPT,
+      allFrames,
     })
-    return (results?.[0] as ExtractResult | undefined) ?? null
+    return (results ?? []).filter((result): result is ExtractResult => result != null)
   } catch {
-    // Page non injectable (about:, addons.mozilla.org, PDF viewer…).
-    return null
+    return []
   }
+}
+
+/**
+ * Le meilleur résultat parmi les frames injectées : un article trouvé plutôt
+ * qu'un échec, le texte le plus long à égalité de catégorie — la frame
+ * principale d'un site à widgets peut ne rendre qu'un fil publicitaire pendant
+ * qu'une iframe contient l'article.
+ */
+function best(results: ExtractResult[]): ExtractResult | null {
+  const articles = results.filter(
+    (result): result is Extract<ExtractResult, { ok: true }> => result.ok
+  )
+  if (articles.length > 0) {
+    return articles.reduce((longest, article) =>
+      article.article.textContent.length > longest.article.textContent.length ? article : longest
+    )
+  }
+
+  const fallbacks = results.filter(
+    (result): result is Extract<ExtractResult, { ok: false }> => !result.ok && !!result.text
+  )
+  if (fallbacks.length > 0) {
+    return fallbacks.reduce((longest, fallback) =>
+      (fallback.text?.length ?? 0) > (longest.text?.length ?? 0) ? fallback : longest
+    )
+  }
+
+  return results[0] ?? null
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
 async function notify(message: string) {

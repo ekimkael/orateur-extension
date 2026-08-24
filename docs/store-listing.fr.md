@@ -54,9 +54,8 @@ Un clic sur l'icône envoie l'article de la page vers l'application web Orateur,
 pour l'écouter, le reprendre plus tard ou le garder en file d'attente.
 
 Sélectionnez du texte n'importe où et une bulle apparaît : « Lire » le dit à
-voix haute directement sur la page, « Lire plus tard » l'envoie vers Orateur.
-La même chose est disponible dans le menu contextuel avec « Lire avec
-Orateur » et « Lire la sélection plus tard ».
+voix haute directement sur la page. Le menu contextuel propose la même chose,
+avec en plus « Lire la sélection plus tard », pour l'envoyer vers Orateur.
 
 ━━ Vie privée ━━
 

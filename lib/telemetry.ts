@@ -66,7 +66,7 @@ export type TelemetryEvent =
   | { name: "supertonic_download_started"; properties?: undefined }
   | { name: "supertonic_download_completed"; properties?: undefined }
   | { name: "supertonic_download_failed"; properties: { reason: "http" | "network" | "unknown" } }
-  | { name: "extraction_failed"; properties: { reason: "not_injectable" | "not_article" } }
+  | { name: "extraction_failed"; properties: { reason: "not_injectable" | "not_article" | "pdf" | "fallback_text" } }
 
 export interface TelemetryTrackMessage {
   type: typeof TELEMETRY_TRACK

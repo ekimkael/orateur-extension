@@ -29,6 +29,9 @@
   "errorPageNotInjectable": {
     "message": "Cette page ne peut pas être lue directement."
   },
+  "errorPdfUseSelection": {
+    "message": "PDF : sélectionnez le texte, puis clic droit → Lire avec Orateur."
+  },
   "errorSupertonicStartFailed": {
     "message": "Impossible de démarrer le moteur Supertonic."
   },
@@ -130,12 +133,6 @@
   },
   "selectionReadAria": {
     "message": "Lire la sélection avec Orateur"
-  },
-  "selectionReadLater": {
-    "message": "Lire plus tard"
-  },
-  "selectionReadLaterAria": {
-    "message": "Lire la sélection plus tard dans Orateur"
   },
   "optionsTitle": {
     "message": "Réglages Orateur"

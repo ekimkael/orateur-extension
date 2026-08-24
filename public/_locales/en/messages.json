@@ -29,6 +29,9 @@
   "errorPageNotInjectable": {
     "message": "This page can't be read directly."
   },
+  "errorPdfUseSelection": {
+    "message": "PDF: select the text, then right-click → Read with Orateur."
+  },
   "errorSupertonicStartFailed": {
     "message": "Couldn't start the Supertonic engine."
   },
@@ -130,12 +133,6 @@
   },
   "selectionReadAria": {
     "message": "Listen to selection with Orateur"
-  },
-  "selectionReadLater": {
-    "message": "Listen later"
-  },
-  "selectionReadLaterAria": {
-    "message": "Save selection to listen later in Orateur"
   },
   "optionsTitle": {
     "message": "Orateur settings"
