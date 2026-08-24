@@ -33,7 +33,7 @@
     "message": "Read this page with Orateur"
   },
   "ariaHidePill": {
-    "message": "Hide Orateur on this page"
+    "message": "Stop showing Orateur on this site"
   },
   "ariaExtracting": {
     "message": "Extracting the article…"
@@ -187,6 +187,24 @@
   },
   "optionsLanguageHelp": {
     "message": "“Automatic” follows your browser’s language."
+  },
+  "optionsSectionSites": {
+    "message": "Sites"
+  },
+  "optionsSitesHelp": {
+    "message": "Orateur stays hidden on the sites listed here — no pill, no selection bubble."
+  },
+  "optionsSitesPlaceholder": {
+    "message": "example.com"
+  },
+  "optionsSitesAdd": {
+    "message": "Add"
+  },
+  "optionsSitesEmpty": {
+    "message": "No sites hidden yet."
+  },
+  "ariaRemoveSite": {
+    "message": "Stop hiding Orateur on $1"
   },
   "optionsSectionVoice": {
     "message": "Engine and voice"

@@ -349,6 +349,81 @@ input[type="range"] {
   }
 }
 
+/* ── Sites exclus ────────────────────────────────────────────────────── */
+.site-add {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.site-add input[type="text"] {
+  flex: 1;
+  height: 40px;
+  padding: 0 0.75rem;
+  font: inherit;
+  color: var(--foreground);
+  background-color: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: border-color 160ms var(--ease-out);
+}
+
+.site-add input[type="text"]:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--primary) 60%, transparent);
+}
+
+.site-add button {
+  flex: 0 0 auto;
+  height: 40px;
+  padding: 0 1rem;
+  background: var(--secondary);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+}
+
+.site-add button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .site-add button:not(:disabled):hover {
+    border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  }
+}
+
+.site-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.site-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8125rem;
+}
+
+.site-item .btn-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.site-item .btn-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* ── Cartes moteur (radiogroup) ──────────────────────────────────────── */
 .engine-grid {
   display: grid;

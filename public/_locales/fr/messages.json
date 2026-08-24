@@ -33,7 +33,7 @@
     "message": "Lire cette page avec Orateur"
   },
   "ariaHidePill": {
-    "message": "Masquer Orateur sur cette page"
+    "message": "Ne plus afficher Orateur sur ce site"
   },
   "ariaExtracting": {
     "message": "Extraction de l'article…"
@@ -187,6 +187,24 @@
   },
   "optionsLanguageHelp": {
     "message": "« Automatique » suit la langue de votre navigateur."
+  },
+  "optionsSectionSites": {
+    "message": "Sites"
+  },
+  "optionsSitesHelp": {
+    "message": "Orateur reste discret sur les sites listés ici — ni pastille, ni bulle de sélection."
+  },
+  "optionsSitesPlaceholder": {
+    "message": "exemple.com"
+  },
+  "optionsSitesAdd": {
+    "message": "Ajouter"
+  },
+  "optionsSitesEmpty": {
+    "message": "Aucun site masqué pour l’instant."
+  },
+  "ariaRemoveSite": {
+    "message": "Ne plus masquer Orateur sur $1"
   },
   "optionsSectionVoice": {
     "message": "Moteur et voix"

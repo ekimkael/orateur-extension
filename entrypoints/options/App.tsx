@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useReaderPrefs } from "../../hooks/useReaderPrefs"
 import { useUiPrefs } from "../../hooks/useUiPrefs"
+import { useHiddenSites } from "../../hooks/useHiddenSites"
 import { useTelemetryConsent } from "../../hooks/useTelemetryConsent"
 import { TranslationProvider, useTranslation } from "../../hooks/useTranslation"
 import { EngineSelect } from "../../components/EngineSelect"
@@ -19,6 +20,7 @@ import { clearModelCache, getModelCacheSize } from "../../lib/supertonic/model-c
 import { resolveLocale } from "../../lib/i18n"
 import { applyTheme } from "../../lib/theme"
 import { ORATEUR_ORIGIN } from "../../lib/handoff"
+import { normalizeSite } from "../../lib/site-rules"
 import type { UiLanguage } from "../../lib/ui-prefs"
 
 export function App() {
@@ -47,6 +49,9 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
   const t = useTranslation()
   const { consent, setEnabled: setTelemetryEnabled } = useTelemetryConsent()
   const locale = resolveLocale(uiPrefs.language)
+
+  const { sites: hiddenSites, add: addSite, remove: removeSite } = useHiddenSites()
+  const [siteInput, setSiteInput] = useState("")
 
   const [cacheBytes, setCacheBytes] = useState<number | null>(null)
   const [clearing, setClearing] = useState(false)
@@ -160,6 +165,54 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
               </label>
               <p className="help">{t("optionsFollowHelp")}</p>
             </div>
+          </section>
+
+          <section className="section" id="sites">
+            <p className="eyebrow">{t("optionsSectionSites")}</p>
+            <p className="help">{t("optionsSitesHelp")}</p>
+
+            <form
+              className="site-add"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (!normalizeSite(siteInput)) return
+                addSite(siteInput)
+                setSiteInput("")
+              }}
+            >
+              <input
+                type="text"
+                value={siteInput}
+                onChange={(e) => setSiteInput(e.target.value)}
+                placeholder={t("optionsSitesPlaceholder")}
+                aria-label={t("optionsSitesPlaceholder")}
+              />
+              <button type="submit" disabled={!normalizeSite(siteInput)}>
+                {t("optionsSitesAdd")}
+              </button>
+            </form>
+
+            {hiddenSites.length > 0 ? (
+              <ul className="site-list">
+                {hiddenSites.map((site) => (
+                  <li key={site} className="site-item">
+                    <span>{site}</span>
+                    <button
+                      type="button"
+                      className="btn-icon"
+                      aria-label={t("ariaRemoveSite", [site])}
+                      onClick={() => removeSite(site)}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                        <path d="M18 6 6 18M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="help">{t("optionsSitesEmpty")}</p>
+            )}
           </section>
 
           <section className="section" id="voix">

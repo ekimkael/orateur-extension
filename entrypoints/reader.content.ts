@@ -36,6 +36,7 @@ import {
 // liste ci-dessous, plus bas dans ce fichier, est donc dupliquée à dessein.
 import type { SupertonicVoice } from "../lib/supertonic/types.ts"
 import { track } from "../lib/telemetry.ts"
+import { isHidden, loadHiddenSites, addHiddenSite, onHiddenSitesChanged } from "../lib/site-rules.ts"
 
 export interface ReadPagePayload {
   text: string
@@ -137,14 +138,19 @@ export default defineContentScript({
     // Réassigné, pas figé : une lecture doit partir sur les réglages du moment,
     // y compris ceux changés depuis un autre onglet.
     let prefs = await loadPrefs()
+    const hiddenSites = await loadHiddenSites()
 
-    const pill = createPill(onPrimary, onSecondary, prefs)
+    const pill = createPill(onPrimary, onSecondary, prefs, !isHidden(location.hostname, hiddenSites))
     const follower = createFollower()
     follower.setEnabled(prefs.follow)
 
     browser.runtime.onMessage.addListener(onMessage)
     browser.runtime.onMessage.addListener(onTtsEvent)
     browser.storage.onChanged.addListener(onTokenChanged)
+    const unsubscribeHiddenSites = onHiddenSitesChanged((sites) => {
+      if (isHidden(location.hostname, sites)) pill.detach()
+      else pill.attach()
+    })
     const unsubscribePrefs = onPrefsChanged((newPrefs) => {
       const speedChanged = newPrefs.speed !== prefs.speed
       const voiceChanged = newPrefs.voiceURI !== prefs.voiceURI
@@ -198,6 +204,7 @@ export default defineContentScript({
       browser.runtime.onMessage.removeListener(onTtsEvent)
       browser.storage.onChanged.removeListener(onTokenChanged)
       unsubscribePrefs()
+      unsubscribeHiddenSites()
       cancelSpeech()
       follower.end()
       pill.remove()
@@ -309,10 +316,11 @@ export default defineContentScript({
       if (!started && !reading) pill.setState("idle")
     }
 
-    /** ⏹ pendant la lecture, ✕ au repos : masquer jusqu'au rechargement. */
+    /** ⏹ pendant la lecture, ✕ au repos : ne plus afficher Orateur sur ce domaine. */
     function onSecondary() {
-      if (reading) stop()
-      else pill.remove()
+      if (reading) return stop()
+      pill.detach()
+      void addHiddenSite(location.hostname)
     }
 
     /** Choisit le moteur, puis démarre — le reste ne se recroise plus. */
@@ -996,7 +1004,8 @@ function createFollower() {
 function createPill(
   onPrimary: () => void,
   onSecondary: () => void,
-  initialPrefs: ReaderPreferences
+  initialPrefs: ReaderPreferences,
+  attached: boolean
 ) {
   // Résolu ici, pas en haut du module : WXT importe ce fichier sous un faux
   // `browser` (sans `i18n`) pour en lire la config au build, et createPill ne
@@ -1277,7 +1286,9 @@ function createPill(
     if (!host.isConnected) (document.body ?? document.documentElement).append(host)
   }
 
-  attach()
+  // Site exclu (réglages → Sites) : la pastille reste montée en mémoire,
+  // prête pour `pill.attach()`, mais hors du DOM tant que rien ne la demande.
+  if (attached) attach()
   setState("idle")
 
   function setState(
@@ -1313,6 +1324,12 @@ function createPill(
 
   return {
     attach,
+    // Retire juste l'élément du DOM : contrairement à `remove`, les écouteurs
+    // document restent en place. C'est ce qui permet à `attach()` de rendre
+    // ensuite une pastille dont le popover se referme encore au clic
+    // extérieur et à Échap — un site exclu peut alterner détaché/rattaché
+    // toute la session, `remove` ne devant jouer qu'une fois, au déchargement.
+    detach: () => host.remove(),
     setState,
     remove: () => {
       document.removeEventListener("click", onDocumentClick, true)

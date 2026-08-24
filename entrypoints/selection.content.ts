@@ -1,5 +1,6 @@
 import { placeBubble } from "../lib/bubble-position"
 import { rangesToText, validateSelectionText } from "../lib/selection-text"
+import { isHidden, loadHiddenSites } from "../lib/site-rules.ts"
 
 /**
  * Actions proposées sur une sélection.
@@ -59,7 +60,12 @@ export default defineContentScript({
   // cross-origin aussi, faute d'avoir à le tenter.
   allFrames: true,
 
-  main(ctx) {
+  async main(ctx) {
+    // Site exclu (réglages → Sites) : ni pastille ni bulle sur ce domaine.
+    // ponytail: pas d'abonnement aux changements ici, contrairement à la
+    // pastille — retirer un site ramène la bulle au prochain rechargement.
+    if (isHidden(location.hostname, await loadHiddenSites())) return
+
     let captured: SelectionPayload | null = null
     /** Écouteurs de courte durée, actifs seulement quand la bulle est visible. */
     let watching: AbortController | null = null
