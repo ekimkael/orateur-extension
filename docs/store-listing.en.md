@@ -67,6 +67,15 @@ Details: https://github.com/ekimkael/orateur-extension/blob/main/PRIVACY.md
 
 ---
 
+## Single purpose description (Chrome Web Store Privacy tab)
+
+```
+Orateur reads the current page's article, or any selected text, out loud —
+either right on the page (system voice or an optional on-device neural
+voice) or by sending it to the Orateur web app to listen there. That is the
+extension's only function.
+```
+
 ## Permission justifications (Chrome Web Store and Edge)
 
 ### `<all_urls>` — host + content scripts
