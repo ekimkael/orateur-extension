@@ -11,6 +11,9 @@
   "menuReadSelectionTitle": {
     "message": "Lire avec Orateur"
   },
+  "menuReadLaterSelectionTitle": {
+    "message": "Lire la sélection plus tard"
+  },
   "menuReadPageTitle": {
     "message": "Lire cette page"
   },
@@ -127,6 +130,12 @@
   },
   "selectionReadAria": {
     "message": "Lire la sélection avec Orateur"
+  },
+  "selectionReadLater": {
+    "message": "Lire plus tard"
+  },
+  "selectionReadLaterAria": {
+    "message": "Lire la sélection plus tard dans Orateur"
   },
   "optionsTitle": {
     "message": "Réglages Orateur"

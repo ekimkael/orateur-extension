@@ -23,6 +23,7 @@ import { loadUiPrefs, onUiPrefsChanged, type ColorTheme } from "../lib/ui-prefs.
  */
 const ACTIONS = [
   { id: "read", labelKey: "selectionRead", ariaLabelKey: "selectionReadAria", icon: "headphones" },
+  { id: "save", labelKey: "selectionReadLater", ariaLabelKey: "selectionReadLaterAria", icon: "bookmark" },
 ] as const
 
 export type SelectionAction = (typeof ACTIONS)[number]["id"]
@@ -273,6 +274,7 @@ button {
   animation: appear 120ms ease-out;
   transition: opacity 100ms ease-out, transform 100ms ease-out, background-color 160ms var(--ease-out);
 }
+button + button { margin-left: 6px }
 button:hover { background: color-mix(in srgb, var(--foreground) 8%, var(--card)) }
 button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 /* Icône en masque plutôt qu'en emoji : rendu identique sur tous les OS, suit
@@ -288,6 +290,9 @@ button[data-icon]::before {
 }
 button[data-icon="headphones"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3'/%3E%3C/svg%3E");
+}
+button[data-icon="bookmark"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z'/%3E%3C/svg%3E");
 }
 @keyframes appear {
   from { opacity: 0; transform: scale(0.92) }
@@ -402,11 +407,11 @@ function createBubble(onAction: (action: SelectionAction) => void, initialTheme:
   }
 }
 
-/** Les actions sont alignées sur une ligne : largeurs cumulées, hauteur maximale. */
+/** Les actions sont alignées sur une ligne : largeurs cumulées (+ la gouttière entre boutons), hauteur maximale. */
 function measure(buttons: HTMLElement[]) {
   const rects = buttons.map((button) => button.getBoundingClientRect())
   return {
-    width: rects.reduce((total, rect) => total + rect.width, 0),
+    width: rects.reduce((total, rect) => total + rect.width, 0) + 6 * (rects.length - 1),
     height: Math.max(...rects.map((rect) => rect.height)),
   }
 }

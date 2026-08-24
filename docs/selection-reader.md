@@ -1,22 +1,30 @@
 # Selected-text reading
 
 Select text on any page and have Orateur read it, either via the context
-menu or a floating bubble.
+menu or a floating bubble. Two actions, both available in both places:
+
+- **Read** — read the selection out loud right there, on the page. Same
+  pastille, same engines (system voice or Supertonic), as "Read this page"
+  (see `entrypoints/reader.content.ts`). No network call.
+- **Read later** — hand the selection off to the Orateur web app, to listen
+  to whenever. This is the only path of the two that leaves the browser.
 
 ## What the feature does — and doesn't do
 
-The extension **contains no reader**. No TTS, no player, no store: its
-only job is to extract content and hand it off to the web app, which
-already has all of that.
+Reading in place reuses the extension's own reader: `read()` in
+`entrypoints/background.ts` sends `START_READING` to the tab's content
+script, exactly like reading the whole page.
+
+Reading later reuses the same path as saving an article — the extension
+**contains no store** for it, just a handoff:
 
 ```
 Selection → text extraction → validation → URL fragment → /articles/new
 ```
 
-Reading a selection therefore reuses exactly the same path as saving an
-article: `buildImportUrl()` encodes the payload in the fragment,
-`/articles/new` reads it via `readExtensionImport()` and pre-fills the
-import form. Nothing is duplicated.
+`buildImportUrl()` encodes the payload in the fragment, `/articles/new`
+reads it via `readExtensionImport()` and pre-fills the import form.
+Nothing is duplicated with the article-saving flow.
 
 ## Files
 
@@ -28,24 +36,25 @@ import form. Nothing is duplicated.
 | `entrypoints/selection.content.ts` | Selection detection, floating bubble, response to the background. |
 | `entrypoints/background.ts` | Context-menu entry, action handling, opening the reader. |
 
-## The two flows
+## The two entry points
 
-**Context menu** — the "Read with Orateur" entry is declared with
-`contexts: ["selection"]`, so the browser only shows it on a selection.
-On click, the background script queries the content script of the
-relevant frame (`info.frameId`) for clean text, and falls back to
-`info.selectionText` if the script isn't there.
+**Context menu** — "Read with Orateur" and "Listen to selection later" are
+both declared with `contexts: ["selection"]`, so the browser only shows
+them on a selection. On click, the background script queries the content
+script of the relevant frame (`info.frameId`) for clean text, and falls
+back to `info.selectionText` if the script isn't there.
 
 **Floating bubble** — the content script listens for `mouseup`,
 `mousedown` and `keyup` on the document. On release, it reads the
-selection on the next tick (it isn't settled yet), and shows the bubble.
-Clicking it sends
-`{ type: "orateur:selection-action", action: "read", text, title, lang }`
-to the background.
+selection on the next tick (it isn't settled yet), and shows the bubble
+with both buttons. Clicking one sends
+`{ type: "orateur:selection-action", action: "read" | "save", text, title, lang }`
+to the background, which routes to `read()` or `saveSelection()`.
 
 ## Decisions
 
-**Text travels escaped, as HTML paragraphs.** On the web side,
+**Text travels escaped, as HTML paragraphs — on the "Read later" path.** On
+the web side,
 `createStoredArticleFromImport` treats `content` as HTML as soon as it
 spots markup: sending raw text would let a selected `<div>` from a docs
 page slip through. `textToParagraphHtml()` escapes `&`, `<` and `>` and
@@ -61,10 +70,12 @@ on all websites" warning. The context menu, on the other hand, costs
 nothing. Removing the bubble would make the permission unnecessary; the
 reverse isn't true.
 
-**An in-progress read isn't handled here.** Every action opens a tab to
-`/articles/new`, just like saving an article. Orateur is the one that
-arbitrates — the extension has no reading state to consult and shouldn't
-invent one.
+**"Read later" doesn't check for an in-progress read.** It always opens a
+tab to `/articles/new`, just like saving an article. Orateur is the one
+that arbitrates — the extension has no reading state to consult there and
+shouldn't invent one. "Read," on the other hand, goes through the same
+`READER_TOKEN` coordination as reading the whole page: starting it stops
+whatever another tab was reading (see `entrypoints/reader.content.ts`).
 
 **Three permanent listeners, not one more.** No `MutationObserver`, no
 `selectionchange` (which fires on every caret move), no periodic
@@ -99,10 +110,11 @@ Focus is never stolen: taking it would clear the selection.
 
 | Situation | Behavior |
 | --- | --- |
-| Same-origin **and** cross-origin iframes | Works: `allFrames: true` gives each frame its own instance, no crossing boundaries. |
+| Same-origin **and** cross-origin iframes | Bubble and text extraction work: `allFrames: true` gives each frame its own instance. "Read" plays fine too, but the reading pill lives in the main frame, so the paragraph-follow highlight (`createFollower` in `entrypoints/reader.content.ts`) can't find the source element there — `findAnchor` returns `null` and nothing gets painted, same as any unmatched block. |
+| A selection starting mid-paragraph | Reads and saves fine — the extracted text just starts wherever the selection did. The follow highlight won't necessarily find the exact same substring in the DOM; same "no match, nothing painted" fallback as above. |
 | Open shadow DOM | Works, selection passes through. |
 | Closed shadow DOM | Selection isn't exposed by the browser; the bubble doesn't show. |
-| PDF viewer | No content script runs there. The context menu falls back to `info.selectionText`. |
+| PDF viewer | No content script runs there, so neither the bubble nor "Read" is available. The context menu still shows both entries, falling back to `info.selectionText`: "Listen to selection later" opens Orateur as usual, but "Read" can't reach a pastille to read with and shows the `errorPageNotInjectable` badge instead. |
 | Google Docs | Text is painted on a canvas, nothing selectable in the DOM sense. No effect. |
 | `<input>` / `<textarea>` | Supported via `selectionStart`/`selectionEnd`; the bubble anchors to the field. |
 | `contenteditable` (Notion, CMS) | Supported through the normal path. |
@@ -112,7 +124,7 @@ Focus is never stolen: taking it would clear the selection.
 
 ## Adding an action
 
-"Translate", "Summarize", "Save":
+"Translate", "Summarize", and the like:
 
 1. Add an entry to `ACTIONS` in `entrypoints/selection.content.ts`.
 2. Add a case to the background's `if (message.action === …)`.

@@ -5,11 +5,13 @@ import {
   READER_TOKEN,
   START_READING,
   type NotifyMessage,
+  type ReadPagePayload,
   type StartReadingMessage,
 } from "./reader.content"
 import {
   GET_SELECTION,
   SELECTION_ACTION,
+  type SelectionAction,
   type SelectionActionMessage,
   type SelectionPayload,
 } from "./selection.content"
@@ -46,6 +48,7 @@ import { createTtsHost } from "../lib/tts-host"
 
 const MENU_ID = "save-to-orateur"
 const SELECTION_MENU_ID = "read-selection-with-orateur"
+const SAVE_SELECTION_MENU_ID = "save-selection-with-orateur"
 const READ_PAGE_MENU_ID = "read-page-with-orateur"
 const EXTRACT_SCRIPT = "/content-scripts/extract.js"
 
@@ -175,6 +178,11 @@ export default defineBackground({
       contexts: ["selection"],
     })
     browser.contextMenus.create({
+      id: SAVE_SELECTION_MENU_ID,
+      title: browser.i18n.getMessage("menuReadLaterSelectionTitle"),
+      contexts: ["selection"],
+    })
+    browser.contextMenus.create({
       id: READ_PAGE_MENU_ID,
       title: browser.i18n.getMessage("menuReadPageTitle"),
       // Pas de contexte "link" : on lit le DOM de l'onglet courant, pas la
@@ -192,7 +200,11 @@ export default defineBackground({
 
   browser.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === SELECTION_MENU_ID) {
-      void readSelectionFromMenu(info, tab)
+      void selectionFromMenu("read", info, tab)
+      return
+    }
+    if (info.menuItemId === SAVE_SELECTION_MENU_ID) {
+      void selectionFromMenu("save", info, tab)
       return
     }
     if (info.menuItemId === READ_PAGE_MENU_ID) {
@@ -211,9 +223,8 @@ export default defineBackground({
   browser.runtime.onMessage.addListener(
     (message: SelectionActionMessage, sender) => {
       if (message?.type !== SELECTION_ACTION) return
-      // Une seule action pour l'instant ; les suivantes (traduire, résumer)
-      // s'embranchent ici.
-      if (message.action === "read") void read(message, sender.tab?.url)
+      if (message.action === "read") void read(message, sender.tab?.id)
+      else if (message.action === "save") void saveSelection(message, sender.tab?.url)
     }
   )
 
@@ -352,14 +363,16 @@ async function save(
 }
 
 /**
- * Lit la sélection demandée depuis le menu contextuel du navigateur.
+ * Résout la sélection demandée depuis le menu contextuel du navigateur, puis
+ * l'envoie à l'action choisie (lire sur place, ou lire plus tard sur Orateur).
  *
  * Le content script est interrogé en premier : `info.selectionText` est aplati
  * par le navigateur, tronqué par Chrome, et ignore les champs de formulaire. Il
  * ne sert que de repli, sur les pages où le script n'a pas pu s'injecter
  * (visionneuse PDF, pages internes, boutique d'extensions).
  */
-async function readSelectionFromMenu(
+async function selectionFromMenu(
+  action: SelectionAction,
   info: { selectionText?: string; frameId?: number; pageUrl?: string },
   tab: { id?: number; url?: string; title?: string } | undefined
 ) {
@@ -367,15 +380,17 @@ async function readSelectionFromMenu(
 
   const captured =
     tab?.id == null ? null : await askContentScript(tab.id, info.frameId)
-  if (captured) return read(captured, url)
+  if (captured) {
+    if (action === "read") return read(captured, tab?.id)
+    return saveSelection(captured, url)
+  }
 
   const result = validateSelectionText(info.selectionText ?? "")
   if (!result.ok) return notify(browser.i18n.getMessage(SELECTION_ERROR_KEYS[result.reason]))
 
-  await read(
-    { text: result.text, truncated: result.truncated, title: tab?.title },
-    url
-  )
+  const payload: SelectionPayload = { text: result.text, truncated: result.truncated, title: tab?.title }
+  if (action === "read") await read(payload, tab?.id)
+  else await saveSelection(payload, url)
 }
 
 async function askContentScript(tabId: number, frameId?: number) {
@@ -391,14 +406,29 @@ async function askContentScript(tabId: number, frameId?: number) {
 }
 
 /**
- * Transfère la sélection au lecteur d'Orateur.
+ * Lit la sélection sur place, comme « Lire cette page » — même pastille, même
+ * moteur, aucun appel réseau.
+ *
+ * Sans `title` : `buildReadingIntro` annoncerait « Au programme : <titre de la
+ * page> » avant un extrait qui n'en est qu'un morceau. La pastille reste donc
+ * sans libellé, ce qui est juste — il n'y a pas d'article à nommer.
+ */
+async function read(payload: SelectionPayload, tabId?: number) {
+  if (payload.truncated) await notify(browser.i18n.getMessage("noticeSelectionTruncated"))
+
+  if (tabId != null && (await startReading(tabId, { text: payload.text, lang: payload.lang }))) return
+  await notify(browser.i18n.getMessage("errorPageNotInjectable"))
+}
+
+/**
+ * Transfère la sélection au lecteur d'Orateur, pour l'écouter plus tard.
  *
  * Même route et même contrat que la sauvegarde d'article : le contenu voyage
  * dans le fragment et `/articles/new` s'occupe du reste. Comme partout ailleurs
  * dans l'extension, un onglet est ouvert — c'est Orateur qui décide de ce qu'il
  * advient d'une lecture déjà en cours.
  */
-async function read(payload: SelectionPayload, url?: string) {
+async function saveSelection(payload: SelectionPayload, url?: string) {
   if (payload.truncated) await notify(browser.i18n.getMessage("noticeSelectionTruncated"))
 
   await open(
@@ -435,13 +465,24 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined) {
     return false
   }
 
-  await browser.tabs.sendMessage(tab.id, {
-    type: START_READING,
+  return startReading(tab.id, {
     text: result.article.textContent,
     title: result.article.title ?? undefined,
     lang: result.article.lang ?? undefined,
-  } satisfies StartReadingMessage)
-  return true
+  })
+}
+
+/** Faux si aucun content script ne répond dans l'onglet. */
+async function startReading(tabId: number, payload: ReadPagePayload) {
+  try {
+    await browser.tabs.sendMessage(tabId, {
+      type: START_READING,
+      ...payload,
+    } satisfies StartReadingMessage)
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function handoff(url: string, title?: string | null) {
