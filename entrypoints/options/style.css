@@ -298,6 +298,12 @@ input[type="range"] {
   border-radius: calc(var(--radius-lg) + 3px);
 }
 
+/* Variante grille (position) : 6 options, ne tient pas sur une ligne. */
+.segmented-grid {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .segmented label {
   position: relative;
   display: block;

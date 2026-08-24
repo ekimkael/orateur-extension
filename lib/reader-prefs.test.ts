@@ -26,6 +26,7 @@ test("part sur les défauts quand rien n'est stocké", async () => {
     voiceURI: null,
     supertonicVoice: "F1",
     follow: true,
+    position: "bottom-right",
   })
 })
 
@@ -49,6 +50,7 @@ test("savePrefs n'écrase que la clé fournie", async () => {
     voiceURI: "urn:voix",
     supertonicVoice: "F1",
     follow: true,
+    position: "bottom-right",
   })
 })
 
@@ -87,5 +89,6 @@ test("deux écritures successives ne se perdent pas", async () => {
     voiceURI: "urn:voix",
     supertonicVoice: "F1",
     follow: true,
+    position: "bottom-right",
   })
 })

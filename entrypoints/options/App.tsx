@@ -15,6 +15,7 @@ import { EngineSelect } from "../../components/EngineSelect"
 import { SpeedSlider } from "../../components/SpeedSlider"
 import { VoicePicker } from "../../components/VoicePicker"
 import { ThemeSegmented } from "../../components/ThemeSegmented"
+import { PositionSegmented } from "../../components/PositionSegmented"
 import { SettingsNav } from "./SettingsNav"
 import { clearModelCache, getModelCacheSize } from "../../lib/supertonic/model-cache.ts"
 import { resolveLocale } from "../../lib/i18n"
@@ -164,6 +165,14 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
                 <span className="toggle-text">{t("optionsFollowLabel")}</span>
               </label>
               <p className="help">{t("optionsFollowHelp")}</p>
+            </div>
+
+            <div className="row">
+              <span className="row-head">
+                <span className="row-label">{t("optionsPositionLabel")}</span>
+              </span>
+              <PositionSegmented value={prefs.position} onChange={(position) => updatePrefs({ position })} />
+              <p className="help">{t("optionsPositionHelp")}</p>
             </div>
           </section>
 

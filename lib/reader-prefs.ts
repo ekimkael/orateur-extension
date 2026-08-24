@@ -2,6 +2,14 @@ import type { SupertonicVoice } from "./supertonic/types.ts"
 
 export type ReaderEngine = "system" | "supertonic"
 
+export type PillPosition =
+  | "top-left"
+  | "top-center"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-center"
+  | "bottom-right"
+
 /**
  * Bornes du curseur de vitesse.
  *
@@ -32,6 +40,8 @@ export interface ReaderPreferences {
    * veut l'un sans l'autre.
    */
   follow: boolean
+  /** Coin (ou centre) de l'écran où poser la pastille. */
+  position: PillPosition
 }
 
 const PREFS_KEY = "orateur:reader-prefs"
@@ -41,6 +51,7 @@ const DEFAULT_PREFS: ReaderPreferences = {
   voiceURI: null,
   supertonicVoice: "F1",
   follow: true,
+  position: "bottom-right",
 }
 
 export async function loadPrefs(): Promise<ReaderPreferences> {
