@@ -53,9 +53,9 @@ de voix. Rien ne quitte votre navigateur.
 Un clic sur l'icône envoie l'article de la page vers l'application web Orateur,
 pour l'écouter, le reprendre plus tard ou le garder en file d'attente.
 
-Sélectionnez du texte n'importe où et une bulle apparaît : un clic, et la
-sélection part vers Orateur. La même chose est disponible dans le menu
-contextuel avec « Lire avec Orateur ».
+Sélectionnez du texte n'importe où et une bulle apparaît : « Lire » le dit à
+voix haute directement sur la page. Le menu contextuel propose la même chose,
+avec en plus « Lire la sélection plus tard », pour l'envoyer vers Orateur.
 
 ━━ Vie privée ━━
 
@@ -117,8 +117,8 @@ tous les onglets.
 ### `contextMenus`
 
 ```
-Ajouter les entrées « Lire avec Orateur », « Lire la sélection » et « Lire
-cette page » au menu contextuel.
+Ajouter les entrées « Lire avec Orateur », « Lire la sélection plus tard » et
+« Lire cette page » au menu contextuel.
 ```
 
 ### `storage`

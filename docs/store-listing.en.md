@@ -51,9 +51,9 @@ leaves your browser.
 Clicking the icon sends the page's article to the Orateur web app, to listen
 to it, pick it up later, or keep it queued.
 
-Select text anywhere and a bubble appears: one click sends the selection to
-Orateur. The same is available from the context menu under "Read with
-Orateur."
+Select text anywhere and a bubble appears: "Listen" reads it aloud right on
+the page. The context menu offers the same, plus "Listen to selection
+later" to send it to Orateur.
 
 ━━ Privacy ━━
 
@@ -112,8 +112,8 @@ all tabs.
 ### `contextMenus`
 
 ```
-Add the "Read with Orateur," "Read selection," and "Read this page" entries
-to the context menu.
+Add the "Read with Orateur," "Listen to selection later," and "Read this
+page" entries to the context menu.
 ```
 
 ### `storage`

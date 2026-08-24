@@ -25,7 +25,12 @@ const ACTIONS = [
   { id: "read", labelKey: "selectionRead", ariaLabelKey: "selectionReadAria", icon: "headphones" },
 ] as const
 
-export type SelectionAction = (typeof ACTIONS)[number]["id"]
+/**
+ * `save` ne vit plus que dans le menu contextuel : la bulle est un raccourci de
+ * lecture immédiate, pas un gestionnaire de file d'attente. Le type n'est donc
+ * plus dérivé d'`ACTIONS`, qui ne décrit que les boutons de la bulle.
+ */
+export type SelectionAction = "read" | "save"
 
 /** Ce que le background reçoit, quelle que soit la porte d'entrée. */
 export interface SelectionPayload {
@@ -273,6 +278,7 @@ button {
   animation: appear 120ms ease-out;
   transition: opacity 100ms ease-out, transform 100ms ease-out, background-color 160ms var(--ease-out);
 }
+button + button { margin-left: 6px }
 button:hover { background: color-mix(in srgb, var(--foreground) 8%, var(--card)) }
 button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 /* Icône en masque plutôt qu'en emoji : rendu identique sur tous les OS, suit
@@ -402,11 +408,11 @@ function createBubble(onAction: (action: SelectionAction) => void, initialTheme:
   }
 }
 
-/** Les actions sont alignées sur une ligne : largeurs cumulées, hauteur maximale. */
+/** Les actions sont alignées sur une ligne : largeurs cumulées (+ la gouttière entre boutons), hauteur maximale. */
 function measure(buttons: HTMLElement[]) {
   const rects = buttons.map((button) => button.getBoundingClientRect())
   return {
-    width: rects.reduce((total, rect) => total + rect.width, 0),
+    width: rects.reduce((total, rect) => total + rect.width, 0) + 6 * (rects.length - 1),
     height: Math.max(...rects.map((rect) => rect.height)),
   }
 }

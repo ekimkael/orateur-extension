@@ -1,8 +1,10 @@
-import { extractArticle, type ExtractedArticle } from "../lib/extract-article"
+import { extractArticle, visibleText, type ExtractedArticle } from "../lib/extract-article"
 
 export type ExtractResult =
   | { ok: true; article: ExtractedArticle }
-  | { ok: false; error: string }
+  // `text`/`lang` : repli jalon 5 (Gmail, Substack, docs) — présents seulement
+  // quand la page a assez de texte visible pour valoir la peine d'être lue.
+  | { ok: false; error: string; text?: string; lang?: string }
 
 export default defineContentScript({
   // Injecté à la demande par le background (permission activeTab), jamais
@@ -16,7 +18,13 @@ export default defineContentScript({
     } catch (error) {
       // Une exception ne traverse pas la frontière executeScript : on la
       // transporte dans la valeur de retour.
-      return { ok: false, error: (error as Error).message }
+      const { text, lang } = visibleText(document)
+      return {
+        ok: false,
+        error: (error as Error).message,
+        text: text || undefined,
+        lang: lang ?? undefined,
+      }
     }
   },
 })

@@ -11,6 +11,9 @@
   "menuReadSelectionTitle": {
     "message": "Lire avec Orateur"
   },
+  "menuReadLaterSelectionTitle": {
+    "message": "Lire la sélection plus tard"
+  },
   "menuReadPageTitle": {
     "message": "Lire cette page"
   },
@@ -25,6 +28,9 @@
   },
   "errorPageNotInjectable": {
     "message": "Cette page ne peut pas être lue directement."
+  },
+  "errorPdfUseSelection": {
+    "message": "PDF : sélectionnez le texte, puis clic droit → Lire avec Orateur."
   },
   "errorSupertonicStartFailed": {
     "message": "Impossible de démarrer le moteur Supertonic."
@@ -178,6 +184,30 @@
   },
   "optionsThemeHelp": {
     "message": "« Système » suit le réglage de votre navigateur."
+  },
+  "optionsPositionLabel": {
+    "message": "Position de la pastille"
+  },
+  "optionsPositionHelp": {
+    "message": "Où la pastille du lecteur s'affiche sur la page."
+  },
+  "optionsPositionTopLeft": {
+    "message": "Haut gauche"
+  },
+  "optionsPositionTopCenter": {
+    "message": "Haut centre"
+  },
+  "optionsPositionTopRight": {
+    "message": "Haut droite"
+  },
+  "optionsPositionBottomLeft": {
+    "message": "Bas gauche"
+  },
+  "optionsPositionBottomCenter": {
+    "message": "Bas centre"
+  },
+  "optionsPositionBottomRight": {
+    "message": "Bas droite"
   },
   "optionsLanguageLabel": {
     "message": "Langue"

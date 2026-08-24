@@ -71,6 +71,22 @@ function desarmHeadings(scope: Document | Element) {
 const TEXT_BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,pre"
 
 /**
+ * Mêmes blocs, plus les `<div>` feuilles — pour le repli `visibleText` (jalon 5)
+ * uniquement. Gmail, Substack et consorts ne posent pas de `<p>` : sans cet
+ * ajout, aucun bloc ne matcherait et `toSpeakableText` retomberait sur
+ * `root.textContent`, un pavé d'un seul tenant sans découpe, donc sans
+ * surlignage ni reprise de position possibles.
+ */
+const FALLBACK_BLOCKS = `${TEXT_BLOCKS},div:not(:has(p,div,li,blockquote,pre,h1,h2,h3,h4,h5,h6))`
+
+/**
+ * Sous ce volume de texte, le repli n'a plus de sens : un dashboard ou une
+ * arborescence GitHub ont quelques mots visibles (libellés, noms de fichiers)
+ * sans être une page à lire.
+ */
+const MIN_FALLBACK_LENGTH = 400
+
+/**
  * Ce qui est dit à la place d'un bloc de code.
  *
  * Lire un extrait à voix haute, c'est énoncer sa ponctuation, son indentation
@@ -180,6 +196,32 @@ export function extractArticle(
   }
 }
 
+/**
+ * Texte visible de la page, quand ce n'est pas un article — jalon 5.
+ *
+ * Même nettoyage que `extractArticle` (INERT_SELECTORS, removeNoise,
+ * desarmHeadings) puis même aplatissement, mais sans passer par Readability :
+ * Gmail, Substack et les docs n'ont pas de conteneur d'article à trouver, mais
+ * ont de la prose à lire. Rend `""` en dessous de MIN_FALLBACK_LENGTH — sans
+ * ce plancher, un dashboard ou une arborescence GitHub se feraient lire leurs
+ * quelques libellés visibles.
+ *
+ * Le document d'origine n'est jamais modifié, comme `extractArticle`.
+ */
+export function visibleText(doc: Document): { text: string; lang: string | null } {
+  const clone = doc.cloneNode(true) as Document
+  remove(clone, INERT_SELECTORS)
+  removeNoise(clone)
+  desarmHeadings(clone)
+
+  const root = clone.body
+  const lang = doc.documentElement.lang || null
+  if (!root) return { text: "", lang }
+
+  const text = toSpeakableText(root, lang ?? "", FALLBACK_BLOCKS)
+  return { text: text.length >= MIN_FALLBACK_LENGTH ? text : "", lang }
+}
+
 function remove(scope: Document | Element, selectors: string) {
   // querySelectorAll renvoie une liste statique : supprimer pendant l'itération
   // est sûr, et retirer un parent rend `.remove()` inopérant sur ses enfants.
@@ -225,9 +267,9 @@ function clean(root: Element) {
  * `textContent` seul collerait la fin d'un titre au début du paragraphe suivant.
  * Les espaces internes sont normalisés pour éviter les coupures artificielles.
  */
-function toSpeakableText(root: Element, lang: string) {
+function toSpeakableText(root: Element, lang: string, blockSelector = TEXT_BLOCKS) {
   const notice = CODE_NOTICE_BY_LANGUAGE[lang.slice(0, 2)] ?? CODE_NOTICE
-  const blocks = Array.from(root.querySelectorAll(TEXT_BLOCKS))
+  const blocks = Array.from(root.querySelectorAll(blockSelector))
     // Un <p> dans un <blockquote>, un <li> dans un <li> : déjà couvert par le
     // parent, qui est lui-même dans la sélection.
     .filter((el) => !el.parentElement?.closest("li,blockquote,pre"))

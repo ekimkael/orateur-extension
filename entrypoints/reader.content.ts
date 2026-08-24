@@ -15,11 +15,13 @@ import {
   SPEED,
   type ReaderEngine,
   type ReaderPreferences,
+  type PillPosition,
 } from "../lib/reader-prefs"
 import { expandText } from "../lib/pronunciation/index.ts"
 import { createAnchorFinder } from "../lib/read-anchor.ts"
 import { buildReadingIntro } from "../lib/reading-intro"
 import { toSupertonicLang, type SupportedLang } from "../lib/supertonic-lang.ts"
+import { detectLang } from "../lib/detect-lang.ts"
 import {
   TTS_CONTROL,
   TTS_EVENT,
@@ -332,13 +334,18 @@ export default defineContentScript({
     /** Choisit le moteur, puis démarre — le reste ne se recroise plus. */
     function start(payload: ReadPagePayload) {
       if (prefs.engine === "supertonic") {
-        const supertonicLang = toSupertonicLang(payload.lang ?? "")
+        // La déclaration de la page d'abord ; si elle manque ou sort du
+        // modèle, une détection sur le texte réel avant d'abandonner —
+        // beaucoup de pages ne déclarent aucun `lang`.
+        const supertonicLang =
+          toSupertonicLang(payload.lang ?? "") ?? detectLang(payload.text, null)
         if (supertonicLang) {
           startSupertonic(payload, supertonicLang)
           return
         }
-        // Langue hors du modèle : un repli silencieux serait déroutant — dire
-        // pourquoi la voix système est utilisée à sa place.
+        // Langue hors du modèle même après détection : un repli silencieux
+        // serait déroutant — dire pourquoi la voix système est utilisée à sa
+        // place.
         void browser.runtime.sendMessage({
           type: NOTIFY,
           message: browser.i18n.getMessage("noticeSupertonicLangUnsupported"),
@@ -348,10 +355,14 @@ export default defineContentScript({
     }
 
     function startSupertonic(payload: ReadPagePayload, lang: SupportedLang) {
+      // `lang` est la langue résolue (déclaration ou détection), pas
+      // forcément `payload.lang` : l'annonce du titre doit sonner dans la
+      // langue qui va réellement être lue.
+      //
       // Même annonce de titre qu'en système (buildReadingIntro), composée ici
       // plutôt que par l'hôte : lib/tts-host.ts ne connaît ni onglets ni titres,
       // seulement du texte à synthétiser.
-      const intro = buildReadingIntro(payload.lang ?? "", payload.title ?? "")
+      const intro = buildReadingIntro(lang, payload.title ?? "")
       const text = intro ? `${intro} ${payload.text}` : payload.text
 
       // Sur `payload.text`, pas sur `text` : l'annonce du titre n'est écrite
@@ -392,21 +403,30 @@ export default defineContentScript({
       // plus bas ne retire jamais rien.
       follower.begin([...raw])
 
+      // La déclaration de la page l'emporte quand la détection ne la
+      // contredit pas — elle porte souvent une région (`en-US`) que la
+      // détection, elle, ne rend jamais. Ne s'en écarter que si le texte
+      // réel dit clairement autre chose : article entier mal étiqueté, ou
+      // page sans `lang` du tout.
+      const declared = toSupertonicLang(payload.lang ?? "")
+      const detected = detectLang(payload.text, declared)
+      const resolvedLang = detected && detected !== declared ? detected : payload.lang
+
       // Le titre n'est pas dans le texte extrait — Readability retire le h1 qui
       // le répète. L'annoncer en tête du premier bloc plutôt qu'en bloc à part :
       // il suit alors la même reprise que le reste, comme sur mobile.
-      const intro = buildReadingIntro(payload.lang ?? "", payload.title ?? "")
+      const intro = buildReadingIntro(resolvedLang ?? "", payload.title ?? "")
       if (intro && raw.length) raw[0] = `${intro} ${raw[0]}`
 
       // Texte à dire, jamais à afficher : sigles épelés, symboles verbalisés,
       // anglicismes réécrits pour les voix système. Ce sont les seules
       // disponibles ici, donc la couche phonétique s'applique toujours.
-      blocks = raw.map((block) => expandText(block, { language: payload.lang })).filter(Boolean)
+      blocks = raw.map((block) => expandText(block, { language: resolvedLang })).filter(Boolean)
       if (!blocks.length) return fold()
 
       blockIndex = 0
       charIndex = 0
-      lang = payload.lang
+      lang = resolvedLang
       reading = true
       paused = false
       stale = false
@@ -529,17 +549,58 @@ function cancelSpeech() {
   speechSynthesis.cancel()
 }
 
-const HOST_STYLE =
-  "all:initial!important;position:fixed!important;bottom:16px!important;right:16px!important;z-index:2147483647!important"
+/**
+ * `*-center` ajoute `left:50%` + une translation plutôt qu'un `right`/`left`
+ * fixe : seul moyen de rester centré quel que soit la largeur de la pastille,
+ * qui varie repliée/dépliée.
+ */
+const POSITION_RULES: Record<PillPosition, string> = {
+  "top-left": "top:16px!important;left:16px!important",
+  "top-center": "top:16px!important;left:50%!important;transform:translateX(-50%)!important",
+  "top-right": "top:16px!important;right:16px!important",
+  "bottom-left": "bottom:16px!important;left:16px!important",
+  "bottom-center": "bottom:16px!important;left:50%!important;transform:translateX(-50%)!important",
+  "bottom-right": "bottom:16px!important;right:16px!important",
+}
+
+/**
+ * Pose la position sur le host : le style inline *et* l'attribut dont dépendent
+ * les variantes CSS du toast et du popover. Les deux ensemble dans une seule
+ * fonction pour qu'ils ne puissent pas diverger — même forme que `applyTheme`.
+ *
+ * Le storage n'est pas une source sûre : une valeur inconnue doit retomber sur
+ * le défaut des deux côtés, sinon la pastille se pose en bas-à-droite pendant
+ * qu'aucun sélecteur de variante ne matche.
+ */
+function applyPosition(position: PillPosition, host: HTMLElement) {
+  const safe = position in POSITION_RULES ? position : "bottom-right"
+  host.style.cssText =
+    `all:initial!important;position:fixed!important;${POSITION_RULES[safe]};z-index:2147483647!important`
+  host.dataset.orateurPosition = safe
+}
 
 const PILL_CSS = charteTokens(".pill-row") + `
 .pill-row {
   /*
-   * Tokens posés ici et pas sur :host — le HOST_STYLE inline porte un
-   * all:initial!important qui écraserait tout ce qu'on y déclarerait.
-   * Le popover en hérite : une seule matière pour les deux.
+   * Tokens posés ici et pas sur :host — le style inline posé par
+   * applyPosition() porte un all:initial!important qui écraserait tout ce
+   * qu'on y déclarerait. Le popover en hérite : une seule matière pour les deux.
    */
   accent-color: var(--primary);
+
+  /*
+   * Les deux calques flottants (toast, popover) suivent la position de la
+   * pastille. Leur transform mélange trois rôles — centrage, échelle,
+   * glissement d'entrée : en sortir le centrage et le glissement permet aux
+   * variantes plus bas de n'en réécrire qu'une part, sans jamais redéclarer
+   * transform. C'est ce qui garde les règles prefers-reduced-motion
+   * gagnantes : elles ont une spécificité plus faible que les variantes.
+   */
+  --toast-center: translateY(-50%);
+  --toast-slide: translateX(12px);
+  --pop-slide: translateY(4px);
+  --pop-origin-x: right;
+  --pop-origin-y: bottom;
 
   display: inline-flex;
   align-items: center;
@@ -666,10 +727,10 @@ button[data-icon="loader-circle"] {
   font-size: 12px;
   opacity: 0;
   pointer-events: none;
-  transform: scale(0.95) translateY(4px);
+  transform: scale(0.95) var(--pop-slide);
   /* Un popover s'ouvre depuis ce qui l'a ouvert : sans ça il grandit depuis son
      centre et le lien avec le bouton se perd. */
-  transform-origin: bottom right;
+  transform-origin: var(--pop-origin-x) var(--pop-origin-y);
   transition:
     opacity 150ms var(--ease-out),
     transform 150ms var(--ease-out);
@@ -684,13 +745,13 @@ button[data-icon="loader-circle"] {
 .settings-popover[data-open] {
   opacity: 1;
   pointer-events: auto;
-  transform: scale(1) translateY(0);
+  transform: scale(1);
 }
 /*
  * Pastille jumelle, pas un popover : même hauteur de ligne que .pill-row,
- * mêmes bouts entièrement arrondis. Dockée à gauche — c'est là qu'il reste de
- * la place, la pastille principale étant déjà plaquée contre le bord droit de
- * l'écran — et sort vers la gauche depuis ce point d'ancrage.
+ * mêmes bouts entièrement arrondis. Dockée à gauche par défaut — c'est là qu'il
+ * reste de la place quand la pastille est plaquée contre le bord droit. Les
+ * variantes plus bas la redockent selon la position choisie.
  */
 .loading-toast {
   position: absolute;
@@ -711,7 +772,7 @@ button[data-icon="loader-circle"] {
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-50%) scale(0.95) translateX(12px);
+  transform: var(--toast-center) scale(0.95) var(--toast-slide);
   transform-origin: center right;
   transition:
     opacity 150ms var(--ease-out),
@@ -721,11 +782,95 @@ button[data-icon="loader-circle"] {
 .loading-toast[data-open] {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(-50%) scale(1) translateX(0);
+  transform: var(--toast-center) scale(1);
 }
 @media (prefers-reduced-motion: reduce) {
-  .loading-toast { transform: translateY(-50%); transition: opacity 120ms ease-out }
-  .loading-toast[data-open] { transform: translateY(-50%) }
+  /* --toast-center et pas translateY(-50%) en dur : aux positions *-center le
+     toast est centré horizontalement, pas verticalement. */
+  .loading-toast { transform: var(--toast-center); transition: opacity 120ms ease-out }
+  .loading-toast[data-open] { transform: var(--toast-center) }
+}
+
+/* ── Le toast et le popover suivent la position de la pastille ───────────
+ *
+ * Deux axes indépendants lus sur l'attribut posé par applyPosition() :
+ * ^="top" bascule le popover vers le bas, $="left" renvoie le toast à
+ * droite de la pastille et aligne le popover à gauche. Sans ça les deux
+ * calques sortent de l'écran sur 4 des 6 positions.
+ */
+:host([data-orateur-position$="left"]) .pill-row {
+  --toast-slide: translateX(-12px);
+  --pop-origin-x: left;
+}
+:host([data-orateur-position$="left"]) .loading-toast {
+  right: auto;
+  left: 100%;
+  margin-right: 0;
+  margin-left: 8px;
+  transform-origin: center left;
+}
+:host([data-orateur-position$="left"]) .settings-popover {
+  right: auto;
+  left: 0;
+}
+:host([data-orateur-position^="top"]) .pill-row {
+  --pop-slide: translateY(-4px);
+  --pop-origin-y: top;
+}
+:host([data-orateur-position^="top"]) .settings-popover {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 8px;
+}
+/*
+ * Au centre, le toast s'empile au-dessus de la pastille au lieu de se poser à
+ * côté : il n'y a plus qu'un demi-écran à sa gauche, et sous ~420px de large il
+ * rognait.
+ */
+:host([data-orateur-position$="center"]) .pill-row {
+  --toast-center: translateX(-50%);
+  --toast-slide: translateY(4px);
+}
+:host([data-orateur-position$="center"]) .loading-toast {
+  top: auto;
+  right: auto;
+  bottom: 100%;
+  left: 50%;
+  margin: 0 0 8px;
+  transform-origin: bottom center;
+}
+/* Après le bloc $="center" : même spécificité, seul l'ordre départage. */
+:host([data-orateur-position="top-center"]) .pill-row {
+  --toast-slide: translateY(-4px);
+}
+:host([data-orateur-position="top-center"]) .loading-toast {
+  bottom: auto;
+  top: 100%;
+  margin: 8px 0 0;
+  transform-origin: top center;
+}
+/*
+ * Empilé, le toast occupe la place où s'ouvre le popover — et il est justement
+ * visible pendant le téléchargement du modèle, l'instant où l'on ouvre les
+ * réglages pour changer de moteur. Popover ouvert, le toast reprend donc sa
+ * place latérale. Le combinateur frère fonctionne parce que le popover est
+ * inséré avant le toast dans .pill-row. Redéclarer les variables sur l'élément
+ * lui-même écrase celles héritées de .pill-row : le bloc est autonome.
+ *
+ * ponytail: seuls opacity et transform sont en transition — le retour latéral
+ * fait donc glisser le transform pendant que top/right/margin sautent.
+ * Transitoire et rare ; poser transition:none ici si ça pique.
+ */
+:host([data-orateur-position$="center"]) .settings-popover[data-open] ~ .loading-toast {
+  --toast-center: translateY(-50%);
+  --toast-slide: translateX(12px);
+  top: 50%;
+  bottom: auto;
+  right: 100%;
+  left: auto;
+  margin: 0 8px 0 0;
+  transform-origin: center right;
 }
 .loading-toast-label {
   flex: 1;
@@ -1070,7 +1215,7 @@ function createPill(
   ]
 
   const host = document.createElement("orateur-reader-pill")
-  host.style.cssText = HOST_STYLE
+  applyPosition(initialPrefs.position, host)
   applyTheme(initialTheme, host)
 
   const root = host.attachShadow({ mode: "closed" })
@@ -1358,6 +1503,7 @@ function createPill(
       host.remove()
     },
     updatePrefs: (prefs: ReaderPreferences) => {
+      if (prefs.position !== currentPrefs.position) applyPosition(prefs.position, host)
       currentPrefs = prefs
       syncControls()
     },

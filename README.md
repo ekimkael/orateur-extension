@@ -8,10 +8,11 @@ listen to it.
 - **Toolbar icon**: extracts the article from the active page (via
   [Readability](https://github.com/mozilla/readability)) and opens it in
   Orateur.
-- **"Read with Orateur" context menu**: sends the selected text, even
-  outside of an article.
-- **Floating bubble**: appears when hovering over a selection, to start
-  reading without going through the menu.
+- **"Read with Orateur" / "Listen to selection later" context menu**: reads
+  the selected text out loud on the page, or sends it to Orateur to read
+  later — even outside of an article.
+- **Floating bubble**: appears when hovering over a selection, with the same
+  two actions, without going through the menu.
 - **"Read this page" context menu**: reads the extracted article out loud
   directly on the page — no tab opened, nothing sent to Orateur. On Firefox,
   Alt-clicking the toolbar icon does the same (Chrome doesn't expose modifier

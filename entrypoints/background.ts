@@ -5,11 +5,13 @@ import {
   READER_TOKEN,
   START_READING,
   type NotifyMessage,
+  type ReadPagePayload,
   type StartReadingMessage,
 } from "./reader.content"
 import {
   GET_SELECTION,
   SELECTION_ACTION,
+  type SelectionAction,
   type SelectionActionMessage,
   type SelectionPayload,
 } from "./selection.content"
@@ -46,6 +48,7 @@ import { createTtsHost } from "../lib/tts-host"
 
 const MENU_ID = "save-to-orateur"
 const SELECTION_MENU_ID = "read-selection-with-orateur"
+const SAVE_SELECTION_MENU_ID = "save-selection-with-orateur"
 const READ_PAGE_MENU_ID = "read-page-with-orateur"
 const EXTRACT_SCRIPT = "/content-scripts/extract.js"
 
@@ -175,6 +178,11 @@ export default defineBackground({
       contexts: ["selection"],
     })
     browser.contextMenus.create({
+      id: SAVE_SELECTION_MENU_ID,
+      title: browser.i18n.getMessage("menuReadLaterSelectionTitle"),
+      contexts: ["selection"],
+    })
+    browser.contextMenus.create({
       id: READ_PAGE_MENU_ID,
       title: browser.i18n.getMessage("menuReadPageTitle"),
       // Pas de contexte "link" : on lit le DOM de l'onglet courant, pas la
@@ -192,7 +200,11 @@ export default defineBackground({
 
   browser.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === SELECTION_MENU_ID) {
-      void readSelectionFromMenu(info, tab)
+      void selectionFromMenu("read", info, tab)
+      return
+    }
+    if (info.menuItemId === SAVE_SELECTION_MENU_ID) {
+      void selectionFromMenu("save", info, tab)
       return
     }
     if (info.menuItemId === READ_PAGE_MENU_ID) {
@@ -211,9 +223,8 @@ export default defineBackground({
   browser.runtime.onMessage.addListener(
     (message: SelectionActionMessage, sender) => {
       if (message?.type !== SELECTION_ACTION) return
-      // Une seule action pour l'instant ; les suivantes (traduire, résumer)
-      // s'embranchent ici.
-      if (message.action === "read") void read(message, sender.tab?.url)
+      if (message.action === "read") void read(message, sender.tab?.id)
+      else if (message.action === "save") void saveSelection(message, sender.tab?.url)
     }
   )
 
@@ -352,14 +363,16 @@ async function save(
 }
 
 /**
- * Lit la sélection demandée depuis le menu contextuel du navigateur.
+ * Résout la sélection demandée depuis le menu contextuel du navigateur, puis
+ * l'envoie à l'action choisie (lire sur place, ou lire plus tard sur Orateur).
  *
  * Le content script est interrogé en premier : `info.selectionText` est aplati
  * par le navigateur, tronqué par Chrome, et ignore les champs de formulaire. Il
  * ne sert que de repli, sur les pages où le script n'a pas pu s'injecter
  * (visionneuse PDF, pages internes, boutique d'extensions).
  */
-async function readSelectionFromMenu(
+async function selectionFromMenu(
+  action: SelectionAction,
   info: { selectionText?: string; frameId?: number; pageUrl?: string },
   tab: { id?: number; url?: string; title?: string } | undefined
 ) {
@@ -367,15 +380,17 @@ async function readSelectionFromMenu(
 
   const captured =
     tab?.id == null ? null : await askContentScript(tab.id, info.frameId)
-  if (captured) return read(captured, url)
+  if (captured) {
+    if (action === "read") return read(captured, tab?.id)
+    return saveSelection(captured, url)
+  }
 
   const result = validateSelectionText(info.selectionText ?? "")
   if (!result.ok) return notify(browser.i18n.getMessage(SELECTION_ERROR_KEYS[result.reason]))
 
-  await read(
-    { text: result.text, truncated: result.truncated, title: tab?.title },
-    url
-  )
+  const payload: SelectionPayload = { text: result.text, truncated: result.truncated, title: tab?.title }
+  if (action === "read") await read(payload, tab?.id)
+  else await saveSelection(payload, url)
 }
 
 async function askContentScript(tabId: number, frameId?: number) {
@@ -391,14 +406,29 @@ async function askContentScript(tabId: number, frameId?: number) {
 }
 
 /**
- * Transfère la sélection au lecteur d'Orateur.
+ * Lit la sélection sur place, comme « Lire cette page » — même pastille, même
+ * moteur, aucun appel réseau.
+ *
+ * Sans `title` : `buildReadingIntro` annoncerait « Au programme : <titre de la
+ * page> » avant un extrait qui n'en est qu'un morceau. La pastille reste donc
+ * sans libellé, ce qui est juste — il n'y a pas d'article à nommer.
+ */
+async function read(payload: SelectionPayload, tabId?: number) {
+  if (payload.truncated) await notify(browser.i18n.getMessage("noticeSelectionTruncated"))
+
+  if (tabId != null && (await startReading(tabId, { text: payload.text, lang: payload.lang }))) return
+  await notify(browser.i18n.getMessage("errorPageNotInjectable"))
+}
+
+/**
+ * Transfère la sélection au lecteur d'Orateur, pour l'écouter plus tard.
  *
  * Même route et même contrat que la sauvegarde d'article : le contenu voyage
  * dans le fragment et `/articles/new` s'occupe du reste. Comme partout ailleurs
  * dans l'extension, un onglet est ouvert — c'est Orateur qui décide de ce qu'il
  * advient d'une lecture déjà en cours.
  */
-async function read(payload: SelectionPayload, url?: string) {
+async function saveSelection(payload: SelectionPayload, url?: string) {
   if (payload.truncated) await notify(browser.i18n.getMessage("noticeSelectionTruncated"))
 
   await open(
@@ -425,23 +455,46 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined) {
 
   const result = await extractFromTab(tab.id)
   if (result?.ok === false) {
+    // Repli jalon 5 : Gmail, Substack, docs — Readability n'y voit pas
+    // d'article, mais il y a de la prose visible à lire. Pas de `title` : ce
+    // n'est pas un article nommable, même raison que la lecture d'une
+    // sélection (voir `read()` ci-dessous).
+    if (result.text) {
+      track({ name: "extraction_failed", properties: { reason: "fallback_text" } })
+      return startReading(tab.id, { text: result.text, lang: result.lang })
+    }
     track({ name: "extraction_failed", properties: { reason: "not_article" } })
     await notify(result.error)
     return false
   }
   if (!result?.ok) {
-    track({ name: "extraction_failed", properties: { reason: "not_injectable" } })
-    await notify(browser.i18n.getMessage("errorPageNotInjectable"))
+    // La visionneuse PDF n'accepte aucun content script : pas de repli
+    // possible ici, mais le menu contextuel sur une sélection, lui, marche
+    // (voir `selectionFromMenu`) — le message le dit.
+    const pdf = /\.pdf(?:$|[?#])/i.test(tab.url ?? "")
+    track({ name: "extraction_failed", properties: { reason: pdf ? "pdf" : "not_injectable" } })
+    await notify(browser.i18n.getMessage(pdf ? "errorPdfUseSelection" : "errorPageNotInjectable"))
     return false
   }
 
-  await browser.tabs.sendMessage(tab.id, {
-    type: START_READING,
+  return startReading(tab.id, {
     text: result.article.textContent,
     title: result.article.title ?? undefined,
     lang: result.article.lang ?? undefined,
-  } satisfies StartReadingMessage)
-  return true
+  })
+}
+
+/** Faux si aucun content script ne répond dans l'onglet. */
+async function startReading(tabId: number, payload: ReadPagePayload) {
+  try {
+    await browser.tabs.sendMessage(tabId, {
+      type: START_READING,
+      ...payload,
+    } satisfies StartReadingMessage)
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function handoff(url: string, title?: string | null) {
@@ -452,31 +505,94 @@ async function open(url: string) {
   await browser.tabs.create({ url })
 }
 
+/** Un seul essai avant de rendre la main — jalon 5, voir `extractFromTab`. */
+const RETRY_DELAY = 700
+
 /**
- * Exécute l'extracteur dans l'onglet et récupère sa valeur de retour.
+ * Extrait l'article de l'onglet, avec une reprise ciblée — jalon 5.
+ *
+ * Premier essai sur la frame principale seule, comme avant. S'il échoue *sans
+ * que l'injection elle-même ait échoué* (page non injectable : `null`
+ * immédiat, pas de repli possible), un second essai, différé et élargi à
+ * toutes les frames, couvre deux cibles à la fois : la SPA dont le contenu
+ * arrive après coup, et l'article logé dans une iframe.
+ *
+ * ponytail: une seule reprise, pas de `MutationObserver` ni de
+ * `webNavigation` — et elle ne coûte le délai qu'au chemin d'échec ; un
+ * article classique, trouvé du premier coup, ne le paie jamais.
+ */
+async function extractFromTab(tabId: number): Promise<ExtractResult | null> {
+  const firstPass = await injectAll(tabId, false)
+  if (firstPass.length === 0) return null // page non injectable : rien à reprendre
+  const first = best(firstPass)
+  if (first?.ok) return first
+
+  await sleep(RETRY_DELAY)
+  return best(await injectAll(tabId, true)) ?? first
+}
+
+/**
+ * Exécute l'extracteur dans l'onglet et récupère la valeur de retour de
+ * chaque frame injectée. Tableau vide si l'injection elle-même a échoué
+ * (about:, addons.mozilla.org, visionneuse PDF…) — à distinguer d'un
+ * extracteur qui a tourné mais rendu un échec (`ok: false`).
  *
  * Deux API pour un même geste : `scripting` n'existe qu'en MV3, Firefox MV2 ne
  * connaît que `tabs.executeScript`. Les deux enveloppent le résultat
  * différemment.
  */
-async function extractFromTab(tabId: number): Promise<ExtractResult | null> {
+async function injectAll(tabId: number, allFrames: boolean): Promise<ExtractResult[]> {
   try {
     if (browser.scripting) {
-      const [injection] = await browser.scripting.executeScript({
-        target: { tabId },
+      const injections = await browser.scripting.executeScript({
+        target: { tabId, allFrames },
         files: [EXTRACT_SCRIPT],
       })
-      return (injection?.result as ExtractResult | undefined) ?? null
+      return injections
+        .map((injection) => injection.result as ExtractResult | undefined)
+        .filter((result): result is ExtractResult => result != null)
     }
 
     const results = await browser.tabs.executeScript(tabId, {
       file: EXTRACT_SCRIPT,
+      allFrames,
     })
-    return (results?.[0] as ExtractResult | undefined) ?? null
+    return (results ?? []).filter((result): result is ExtractResult => result != null)
   } catch {
-    // Page non injectable (about:, addons.mozilla.org, PDF viewer…).
-    return null
+    return []
   }
+}
+
+/**
+ * Le meilleur résultat parmi les frames injectées : un article trouvé plutôt
+ * qu'un échec, le texte le plus long à égalité de catégorie — la frame
+ * principale d'un site à widgets peut ne rendre qu'un fil publicitaire pendant
+ * qu'une iframe contient l'article.
+ */
+function best(results: ExtractResult[]): ExtractResult | null {
+  const articles = results.filter(
+    (result): result is Extract<ExtractResult, { ok: true }> => result.ok
+  )
+  if (articles.length > 0) {
+    return articles.reduce((longest, article) =>
+      article.article.textContent.length > longest.article.textContent.length ? article : longest
+    )
+  }
+
+  const fallbacks = results.filter(
+    (result): result is Extract<ExtractResult, { ok: false }> => !result.ok && !!result.text
+  )
+  if (fallbacks.length > 0) {
+    return fallbacks.reduce((longest, fallback) =>
+      (fallback.text?.length ?? 0) > (longest.text?.length ?? 0) ? fallback : longest
+    )
+  }
+
+  return results[0] ?? null
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
 async function notify(message: string) {

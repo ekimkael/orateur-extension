@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { JSDOM } from "jsdom"
-import { extractArticle } from "./extract-article.ts"
+import { extractArticle, visibleText } from "./extract-article.ts"
 
 /**
  * Readability n'accorde de score qu'aux blocs de plus de 140 caractères : les
@@ -243,6 +243,57 @@ test("rejette une page GitHub (arborescence de dépôt)", () => {
   )
 
   assert.throws(() => extractArticle(doc), /article lisible/)
+})
+
+test("visibleText lit un fil de messages sans <p> (à la Gmail)", () => {
+  const doc = docFrom(
+    `<html lang="fr"><body>
+      <div id="conteneur">
+        <div class="message">
+          <div>Bonjour Marie, je te confirme la réunion de mardi à 14h en salle B. Merci de prévenir Paul si tu ne peux pas venir, on décalera la réunion en fonction des disponibilités de chacun cette semaine-là.</div>
+        </div>
+        <div class="message">
+          <div>Merci pour l'info, je serai présent à cette réunion. Peux-tu aussi inviter Julie, elle travaille sur le même dossier ce trimestre et pourrait apporter des éléments utiles à la discussion de mardi, surtout sur la partie budget qu'elle connaît mieux que nous.</div>
+        </div>
+      </div>
+    </body></html>`
+  )
+
+  const { text, lang } = visibleText(doc)
+
+  assert.match(text, /réunion de mardi/)
+  assert.match(text, /Julie/)
+  // Découpé en blocs (les <div> feuilles du message), pas un seul pavé —
+  // sans quoi ni surlignage ni reprise de position ne seraient possibles.
+  assert.equal(text.split("\n\n").length, 2)
+  assert.equal(lang, "fr")
+})
+
+test("visibleText rend une chaîne vide sous le seuil (dashboard, arborescence de dépôt)", () => {
+  const dashboard = docFrom(
+    `<html><body>
+      <nav><a href="/">Vue d'ensemble</a></nav>
+      <main><div class="widget"><span>Revenus</span><span>12 480 €</span></div></main>
+    </body></html>`
+  )
+  const repo = docFrom(
+    `<html><body>
+      <header><nav><a href="/">Issues</a></nav></header>
+      <main><div id="repo-content-pjax-container"><a href="/lib">lib</a><span>3 commits</span></div></main>
+    </body></html>`
+  )
+
+  assert.equal(visibleText(dashboard).text, "")
+  assert.equal(visibleText(repo).text, "")
+})
+
+test("visibleText ne modifie jamais le DOM d'origine", () => {
+  const doc = docFrom(CLASSIC)
+  const before = doc.documentElement.outerHTML
+
+  visibleText(doc)
+
+  assert.equal(doc.documentElement.outerHTML, before)
 })
 
 test("nettoie un article criblé de publicités", () => {
