@@ -1,6 +1,9 @@
 import { placeBubble } from "../lib/bubble-position"
 import { rangesToText, validateSelectionText } from "../lib/selection-text"
 import { isHidden, loadHiddenSites } from "../lib/site-rules.ts"
+import { charteTokens } from "../lib/charte.ts"
+import { applyTheme } from "../lib/theme.ts"
+import { loadUiPrefs, onUiPrefsChanged, type ColorTheme } from "../lib/ui-prefs.ts"
 
 /**
  * Actions proposées sur une sélection.
@@ -14,9 +17,12 @@ import { isHidden, loadHiddenSites } from "../lib/site-rules.ts"
  * un faux `browser` (sans `i18n`) pour en lire la config au build, et une
  * phrase complète par clé — plutôt que concaténer un verbe et un suffixe fixe
  * — laisse chaque locale tourner la phrase comme elle veut.
+ *
+ * `icon` nomme une entrée `button[data-icon]` (masque CSS, voir BUBBLE_CSS) —
+ * pas un emoji : rendu identique sur tous les OS, suit currentColor.
  */
 const ACTIONS = [
-  { id: "read", labelKey: "selectionRead", ariaLabelKey: "selectionReadAria", icon: "🎧" },
+  { id: "read", labelKey: "selectionRead", ariaLabelKey: "selectionReadAria", icon: "headphones" },
 ] as const
 
 export type SelectionAction = (typeof ACTIONS)[number]["id"]
@@ -71,10 +77,12 @@ export default defineContentScript({
     let watching: AbortController | null = null
     let pending = 0
 
+    const theme = await loadUiPrefs()
     const bubble = createBubble((action) => {
       if (captured) void browser.runtime.sendMessage(message(action, captured))
       dismiss()
-    })
+    }, theme.theme)
+    const unsubscribeUiPrefs = onUiPrefsChanged((next) => bubble.setTheme(next.theme))
 
     /**
      * Le background demande la sélection quand l'utilisateur passe par le menu
@@ -93,7 +101,10 @@ export default defineContentScript({
     ctx.addEventListener(document, "mouseup", schedule)
     ctx.addEventListener(document, "mousedown", onMouseDown)
     ctx.addEventListener(document, "keyup", onKeyUp)
-    ctx.onInvalidated(dismiss)
+    ctx.onInvalidated(() => {
+      unsubscribeUiPrefs()
+      dismiss()
+    })
 
     function schedule() {
       // La sélection n'est arrêtée qu'après l'action par défaut du mouseup :
@@ -243,26 +254,41 @@ function selectionRect() {
 const HOST_STYLE =
   "all:initial!important;position:fixed!important;top:0!important;left:0!important;z-index:2147483647!important"
 
-const BUBBLE_CSS = `
+const BUBBLE_CSS = charteTokens("button") + `
 button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   margin: 0;
   padding: 7px 12px;
-  border: 0;
+  border: 1px solid var(--border);
   border-radius: 999px;
   font: 500 13px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #fff;
-  background: #111827;
-  box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
+  -webkit-font-smoothing: antialiased;
+  color: var(--foreground);
+  background: var(--card);
+  box-shadow: var(--shadow);
   cursor: pointer;
   white-space: nowrap;
   animation: appear 120ms ease-out;
-  transition: opacity 100ms ease-out, transform 100ms ease-out;
+  transition: opacity 100ms ease-out, transform 100ms ease-out, background-color 160ms var(--ease-out);
 }
-button:hover { background: #1f2937 }
-button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px }
+button:hover { background: color-mix(in srgb, var(--foreground) 8%, var(--card)) }
+button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
+/* Icône en masque plutôt qu'en emoji : rendu identique sur tous les OS, suit
+   currentColor. Même mécanisme que la pastille (entrypoints/reader.content.ts). */
+button[data-icon]::before {
+  content: "";
+  width: 15px;
+  height: 15px;
+  flex: none;
+  background: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
+button[data-icon="headphones"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3'/%3E%3C/svg%3E");
+}
 @keyframes appear {
   from { opacity: 0; transform: scale(0.92) }
   to { opacity: 1; transform: none }
@@ -288,9 +314,10 @@ button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px }
  * bouton, et le nôtre ne peut pas fuir. Rien n'est construit par `innerHTML` :
  * seul du texte statique entre dans l'arbre, jamais la sélection.
  */
-function createBubble(onAction: (action: SelectionAction) => void) {
+function createBubble(onAction: (action: SelectionAction) => void, initialTheme: ColorTheme) {
   const host = document.createElement("orateur-selection-bubble")
   host.style.cssText = HOST_STYLE
+  applyTheme(initialTheme, host)
 
   const root = host.attachShadow({ mode: "closed" })
   const style = document.createElement("style")
@@ -304,7 +331,8 @@ function createBubble(onAction: (action: SelectionAction) => void) {
     button.type = "button"
     // Résolu ici, pas dans ACTIONS : createBubble ne tourne qu'au vrai runtime
     // du content script, appelé depuis main() — voir le commentaire sur ACTIONS.
-    button.textContent = `${action.icon} ${browser.i18n.getMessage(action.labelKey)}`
+    button.dataset.icon = action.icon
+    button.append(browser.i18n.getMessage(action.labelKey))
     // Un <button> natif porte déjà `role="button"`, la navigation clavier et
     // l'activation par Entrée/Espace ; l'`aria-label` remplace juste le libellé
     // court, illisible hors contexte au lecteur d'écran.
@@ -366,6 +394,10 @@ function createBubble(onAction: (action: SelectionAction) => void) {
       // disconnected some other way mid-transition) — 100ms transition +
       // 50ms safety margin.
       hideTimeout = setTimeout(finishHide, 150)
+    },
+
+    setTheme(theme: ColorTheme) {
+      applyTheme(theme, host)
     },
   }
 }

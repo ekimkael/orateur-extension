@@ -37,6 +37,9 @@ import {
 import type { SupertonicVoice } from "../lib/supertonic/types.ts"
 import { track } from "../lib/telemetry.ts"
 import { isHidden, loadHiddenSites, addHiddenSite, onHiddenSitesChanged } from "../lib/site-rules.ts"
+import { charteTokens } from "../lib/charte.ts"
+import { applyTheme } from "../lib/theme.ts"
+import { loadUiPrefs, onUiPrefsChanged, type ColorTheme } from "../lib/ui-prefs.ts"
 
 export interface ReadPagePayload {
   text: string
@@ -139,8 +142,9 @@ export default defineContentScript({
     // y compris ceux changés depuis un autre onglet.
     let prefs = await loadPrefs()
     const hiddenSites = await loadHiddenSites()
+    const uiPrefs = await loadUiPrefs()
 
-    const pill = createPill(onPrimary, onSecondary, prefs, !isHidden(location.hostname, hiddenSites))
+    const pill = createPill(onPrimary, onSecondary, prefs, !isHidden(location.hostname, hiddenSites), uiPrefs.theme)
     const follower = createFollower()
     follower.setEnabled(prefs.follow)
 
@@ -151,6 +155,7 @@ export default defineContentScript({
       if (isHidden(location.hostname, sites)) pill.detach()
       else pill.attach()
     })
+    const unsubscribeUiPrefs = onUiPrefsChanged((next) => pill.setTheme(next.theme))
     const unsubscribePrefs = onPrefsChanged((newPrefs) => {
       const speedChanged = newPrefs.speed !== prefs.speed
       const voiceChanged = newPrefs.voiceURI !== prefs.voiceURI
@@ -205,6 +210,7 @@ export default defineContentScript({
       browser.storage.onChanged.removeListener(onTokenChanged)
       unsubscribePrefs()
       unsubscribeHiddenSites()
+      unsubscribeUiPrefs()
       cancelSpeech()
       follower.end()
       pill.remove()
@@ -526,31 +532,25 @@ function cancelSpeech() {
 const HOST_STYLE =
   "all:initial!important;position:fixed!important;bottom:16px!important;right:16px!important;z-index:2147483647!important"
 
-const PILL_CSS = `
+const PILL_CSS = charteTokens(".pill-row") + `
 .pill-row {
   /*
-   * Palette posée ici et pas sur :host — le HOST_STYLE inline porte un
+   * Tokens posés ici et pas sur :host — le HOST_STYLE inline porte un
    * all:initial!important qui écraserait tout ce qu'on y déclarerait.
    * Le popover en hérite : une seule matière pour les deux.
    */
-  --bg: #111827;
-  --fg: #fff;
-  --muted: #9ca3af;
-  --line: rgb(255 255 255 / 0.14);
-  --accent: #60a5fa;
-  /* Fait rendre le menu déroulant natif du select et le curseur en sombre.
-     Deux propriétés au lieu d'un select réimplémenté. */
-  color-scheme: dark;
-  accent-color: var(--accent);
+  accent-color: var(--primary);
 
   display: inline-flex;
   align-items: center;
   padding: 6px;
   border-radius: 999px;
   font: 500 13px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: var(--fg);
-  background: var(--bg);
-  box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
+  -webkit-font-smoothing: antialiased;
+  color: var(--foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
   position: relative;
 }
 button {
@@ -568,24 +568,25 @@ button {
   font-size: 15px;
   cursor: pointer;
 }
-button:hover:not(:disabled) { background: rgb(255 255 255 / 0.12) }
-button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px }
+button:hover:not(:disabled) { background: color-mix(in srgb, var(--foreground) 8%, transparent) }
+button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 button:disabled { opacity: 0.55; cursor: default }
 /* Le pressé doit s'entendre tout de suite : le retour est sur l'appui, pas au
    relâchement. */
 button:active:not(:disabled) { transform: scale(0.97) }
-button { transition: transform 100ms cubic-bezier(0.23, 1, 0.32, 1) }
+button { transition: transform 160ms var(--ease-out) }
 /*
- * "…" a très peu d'encre au-dessus de sa ligne de base contrairement aux
- * autres glyphes du bouton (▶ ✕ ⏸ ⏹) : centré comme eux par le flex du
- * bouton, il paraît quand même planté en bas. Mesuré à measureText() dans la
- * police système à 15px : ~4px d'écart entre son encre et celle des autres.
+ * Bouton principal (▶/⏸) : seul rempli de la pastille, à la couleur de marque
+ * — c'est lui qui lance ou suspend la lecture, les deux autres ne font
+ * qu'accompagner ou interrompre.
  */
-.loading-glyph { display: inline-block; transform: translateY(-4px) }
+.pill-primary { background: var(--primary); color: var(--primary-foreground) }
+.pill-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 88%, black) }
+.pill-primary:focus-visible { outline-color: var(--foreground) }
 /*
- * Icône en masque plutôt qu'en emoji : ⚙️ est rendu en couleur et à une chasse
- * différente sur chaque OS. Le masque suit currentColor, donc l'état désactivé
- * et le focus restent cohérents avec les autres boutons, et rien n'entre dans le
+ * Icône en masque plutôt qu'en emoji : le rendu diffère en couleur et en
+ * chasse selon l'OS. Le masque suit currentColor, donc l'état désactivé et le
+ * focus restent cohérents avec les autres boutons, et rien n'entre dans le
  * DOM — pas de SVG à injecter sur une page en Trusted Types.
  */
 button[data-icon]::before {
@@ -598,6 +599,27 @@ button[data-icon]::before {
 }
 button[data-icon="sliders"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M4 7h5M15 7h5M4 12h9M19 12h1M4 17h3M13 17h7'/%3E%3Ccircle cx='12' cy='7' r='2.5'/%3E%3Ccircle cx='16' cy='12' r='2.5'/%3E%3Ccircle cx='10' cy='17' r='2.5'/%3E%3C/svg%3E");
+}
+button[data-icon="play"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z'/%3E%3C/svg%3E");
+}
+button[data-icon="pause"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='14' y='3' width='5' height='18' rx='1'/%3E%3Crect x='5' y='3' width='5' height='18' rx='1'/%3E%3C/svg%3E");
+}
+button[data-icon="square"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3C/svg%3E");
+}
+button[data-icon="x"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E");
+}
+/* Anneau tournant : le "loader-circle" de lucide, déjà utilisé par le spinner
+   du toast — même geste, même icône. */
+button[data-icon="loader-circle"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-6.219-8.56'/%3E%3C/svg%3E");
+  animation: loading-spin 700ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  button[data-icon="loader-circle"] { animation-duration: 1400ms }
 }
 /*
  * Au repos la pastille se replie sur ses deux boutons : le titre garde son
@@ -616,9 +638,9 @@ button[data-icon="sliders"] {
   text-overflow: ellipsis;
   white-space: nowrap;
   transition:
-    max-width 200ms cubic-bezier(0.23, 1, 0.32, 1),
-    margin 200ms cubic-bezier(0.23, 1, 0.32, 1),
-    opacity 200ms cubic-bezier(0.23, 1, 0.32, 1);
+    max-width 200ms var(--ease-out),
+    margin 200ms var(--ease-out),
+    opacity 200ms var(--ease-out);
 }
 :host([data-expanded]) .pill-title {
   max-width: 220px;
@@ -633,14 +655,14 @@ button[data-icon="sliders"] {
   bottom: 100%;
   right: 0;
   /* Même fond que la pastille : le popover en est le prolongement, pas une
-     surface étrangère posée dessus. Le liseré clair fait l'arête. */
-  background: var(--bg);
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.45);
+     surface étrangère posée dessus. Le liseré fait l'arête. */
+  background: var(--card);
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
   padding: 12px;
   min-width: 210px;
-  color: var(--fg);
+  color: var(--foreground);
   font-size: 12px;
   opacity: 0;
   pointer-events: none;
@@ -649,8 +671,8 @@ button[data-icon="sliders"] {
      centre et le lien avec le bouton se perd. */
   transform-origin: bottom right;
   transition:
-    opacity 150ms cubic-bezier(0.23, 1, 0.32, 1),
-    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+    opacity 150ms var(--ease-out),
+    transform 150ms var(--ease-out);
   z-index: 10000;
   margin-bottom: 8px;
 }
@@ -678,13 +700,13 @@ button[data-icon="sliders"] {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg);
+  background: var(--card);
   border-radius: 999px;
-  border: 1px solid var(--line);
-  box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
   padding: 6px 14px 6px 10px;
   max-width: 220px;
-  color: var(--fg);
+  color: var(--foreground);
   font-size: 12px;
   white-space: nowrap;
   opacity: 0;
@@ -692,8 +714,8 @@ button[data-icon="sliders"] {
   transform: translateY(-50%) scale(0.95) translateX(12px);
   transform-origin: center right;
   transition:
-    opacity 150ms cubic-bezier(0.23, 1, 0.32, 1),
-    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+    opacity 150ms var(--ease-out),
+    transform 150ms var(--ease-out);
   z-index: 10000;
 }
 .loading-toast[data-open] {
@@ -719,8 +741,8 @@ button[data-icon="sliders"] {
   height: 14px;
   flex: none;
   border-radius: 999px;
-  border: 2px solid var(--line);
-  border-top-color: var(--accent);
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
   animation: loading-spin 700ms linear infinite;
 }
 .loading-toast[data-mode="indeterminate"] .loading-toast-spinner { display: block }
@@ -737,7 +759,7 @@ button[data-icon="sliders"] {
   height: 4px;
   flex: none;
   border-radius: 999px;
-  background: var(--line);
+  background: var(--border);
   overflow: hidden;
 }
 .loading-toast[data-mode="determinate"] .loading-toast-bar { display: block }
@@ -746,7 +768,7 @@ button[data-icon="sliders"] {
   height: 100%;
   transform: scaleX(0);
   transform-origin: left;
-  background: var(--accent);
+  background: var(--primary);
   transition: transform 150ms linear;
 }
 /*
@@ -762,7 +784,7 @@ button[data-icon="sliders"] {
   cursor: pointer;
 }
 .settings-toggle input { flex: none; margin: 0; cursor: pointer }
-.settings-toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.settings-toggle input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 .settings-row { display: flex; flex-direction: column; gap: 6px }
 .settings-row + .settings-row { margin-top: 12px }
 .settings-label {
@@ -770,10 +792,11 @@ button[data-icon="sliders"] {
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--muted);
+  letter-spacing: 0.12em;
+  color: var(--muted-foreground);
   font-weight: 600;
   cursor: pointer;
 }
@@ -781,31 +804,32 @@ button[data-icon="sliders"] {
    une ligne de plus. Chasse fixe pour que 1,0× et 1,2× ne la fassent pas
    sauter d'un pixel à chaque cran. */
 .settings-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   text-transform: none;
   letter-spacing: 0;
-  color: var(--fg);
+  color: var(--foreground);
   font-variant-numeric: tabular-nums;
 }
 .settings-control {
   width: 100%;
   font: inherit;
   font-size: 12px;
-  color: var(--fg);
+  color: var(--foreground);
   cursor: pointer;
 }
 select.settings-control {
   padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: rgb(255 255 255 / 0.06);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
   /* Un select natif tronque tout seul ; sans ça un nom de voix à rallonge
      élargit le popover jusqu'à le sortir de l'écran. */
   max-width: 100%;
 }
-select.settings-control:hover { background: rgb(255 255 255 / 0.12) }
+select.settings-control:hover { background: color-mix(in srgb, var(--foreground) 6%, var(--background)) }
 input.settings-control { margin: 2px 0 }
-.settings-control:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.settings-control:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 /* Le coût du premier ▶ Supertonic, collé à la ligne Moteur — c'est ce qui le
    rend acceptable plutôt que subi. Masqué par défaut : afficher un [hidden]
    coûte moins qu'un état de plus dans syncControls(). */
@@ -813,17 +837,17 @@ input.settings-control { margin: 2px 0 }
   margin-top: 6px;
   font-size: 11px;
   line-height: 1.4;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
-.settings-note strong { color: var(--fg); font-weight: 600 }
+.settings-note strong { color: var(--foreground); font-weight: 600 }
 `
 
 /** Libellé et intitulé accessible de chaque bouton, état par état. */
 const LABELS: Record<PillState, { primary: string; secondary: string }> = {
-  idle: { primary: "▶", secondary: "✕" },
-  loading: { primary: "…", secondary: "✕" },
-  playing: { primary: "⏸", secondary: "⏹" },
-  paused: { primary: "▶", secondary: "⏹" },
+  idle: { primary: "play", secondary: "x" },
+  loading: { primary: "loader-circle", secondary: "x" },
+  playing: { primary: "pause", secondary: "square" },
+  paused: { primary: "play", secondary: "square" },
 }
 
 /**
@@ -862,10 +886,12 @@ const HIGHLIGHT_NAME = "orateur-reading"
 
 /**
  * Fond translucide, et rien d'autre : la couleur du texte reste celle de la
- * page, donc son contraste aussi, et le même bleu tient sur fond clair comme
- * sur fond sombre. Le bleu est celui de la pastille (--accent).
+ * page, donc son contraste aussi, et la même teinte tient sur fond clair comme
+ * sur fond sombre. Vit dans le document de la page, hors de portée des tokens
+ * du shadow root — donc en dur, mais alignée sur --primary de la charte
+ * (même formule que ::selection, entrypoints/options/style.css).
  */
-const HIGHLIGHT_CSS = `::highlight(${HIGHLIGHT_NAME}){background-color:rgb(96 165 250 / 0.3)}`
+const HIGHLIGHT_CSS = `::highlight(${HIGHLIGHT_NAME}){background-color:rgb(245 78 0 / 0.3)}`
 
 /**
  * Silence du défilement automatique après un geste de l'utilisateur : le
@@ -1005,7 +1031,8 @@ function createPill(
   onPrimary: () => void,
   onSecondary: () => void,
   initialPrefs: ReaderPreferences,
-  attached: boolean
+  attached: boolean,
+  initialTheme: ColorTheme
 ) {
   // Résolu ici, pas en haut du module : WXT importe ce fichier sous un faux
   // `browser` (sans `i18n`) pour en lire la config au build, et createPill ne
@@ -1044,6 +1071,7 @@ function createPill(
 
   const host = document.createElement("orateur-reader-pill")
   host.style.cssText = HOST_STYLE
+  applyTheme(initialTheme, host)
 
   const root = host.attachShadow({ mode: "closed" })
   const style = document.createElement("style")
@@ -1053,14 +1081,7 @@ function createPill(
   const row = document.createElement("div")
   row.className = "pill-row"
   const primary = button(onPrimary)
-  // "…" a très peu d'encre au-dessus de sa ligne de base (contrairement à
-  // ▶ ✕ ⏸ ⏹, qui s'équilibrent entre eux) : centré par le flex du bouton
-  // comme les autres, il paraît quand même planté en bas. Un nudge isolé sur
-  // cet élément plutôt que sur `primary` — son propre `transform` sert déjà
-  // au retour d'appui (:active), les deux se marcheraient dessus sinon.
-  const loadingGlyph = document.createElement("div")
-  loadingGlyph.className = "loading-glyph"
-  loadingGlyph.textContent = "…"
+  primary.className = "pill-primary"
   const label = document.createElement("span")
   label.className = "pill-title"
   const secondary = button(onSecondary)
@@ -1297,10 +1318,9 @@ function createPill(
     interruptible = false,
     toastInfo?: { label: string; percent?: number }
   ) {
-    if (state === "loading") primary.replaceChildren(loadingGlyph)
-    else primary.textContent = LABELS[state].primary
+    primary.dataset.icon = LABELS[state].primary
     primary.setAttribute("aria-label", ARIA[state].primary)
-    secondary.textContent = LABELS[state].secondary
+    secondary.dataset.icon = LABELS[state].secondary
     secondary.setAttribute("aria-label", ARIA[state].secondary)
     // Rien à annuler tant que l'extraction tourne : quelques centaines de
     // millisecondes, plus simple à neutraliser qu'à interrompre. Supertonic
@@ -1341,6 +1361,7 @@ function createPill(
       currentPrefs = prefs
       syncControls()
     },
+    setTheme: (theme: ColorTheme) => applyTheme(theme, host),
   }
 }
 
