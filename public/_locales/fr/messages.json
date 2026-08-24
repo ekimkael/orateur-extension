@@ -185,6 +185,30 @@
   "optionsThemeHelp": {
     "message": "« Système » suit le réglage de votre navigateur."
   },
+  "optionsPositionLabel": {
+    "message": "Position de la pastille"
+  },
+  "optionsPositionHelp": {
+    "message": "Où la pastille du lecteur s'affiche sur la page."
+  },
+  "optionsPositionTopLeft": {
+    "message": "Haut gauche"
+  },
+  "optionsPositionTopCenter": {
+    "message": "Haut centre"
+  },
+  "optionsPositionTopRight": {
+    "message": "Haut droite"
+  },
+  "optionsPositionBottomLeft": {
+    "message": "Bas gauche"
+  },
+  "optionsPositionBottomCenter": {
+    "message": "Bas centre"
+  },
+  "optionsPositionBottomRight": {
+    "message": "Bas droite"
+  },
   "optionsLanguageLabel": {
     "message": "Langue"
   },
