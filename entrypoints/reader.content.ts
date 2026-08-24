@@ -1518,9 +1518,17 @@ function voiceChoice(value: string, text: string) {
   return choice
 }
 
-/** « 1,2× » — virgule décimale, et toujours une décimale pour ne pas sauter. */
+/**
+ * « 1,2× » en français, « 1.2× » en anglais — le séparateur suit la langue du
+ * navigateur (`Intl`), pas une virgule française codée en dur. Toujours une
+ * décimale pour ne pas sauter.
+ */
 function formatSpeed(speed: number) {
-  return `${speed.toFixed(1).replace(".", ",")}×`
+  const digit = new Intl.NumberFormat(browser.i18n.getUILanguage(), {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(speed)
+  return `${digit}×`
 }
 
 function button(onClick: () => void) {
