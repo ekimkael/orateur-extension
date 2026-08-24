@@ -16,8 +16,8 @@ test("splitBlocks renvoie un tableau vide pour un texte vide", () => {
 
 test("splitUnits garde un paragraphe court en une seule unité", () => {
   assert.deepEqual(splitUnits("Un.\n\nDeux.", "fr"), [
-    { text: "Un.", endsParagraph: true, paragraph: 0 },
-    { text: "Deux.", endsParagraph: true, paragraph: 1 },
+    { text: "Un.", endsParagraph: true, paragraph: 0, lang: "fr" },
+    { text: "Deux.", endsParagraph: true, paragraph: 1, lang: "fr" },
   ])
 })
 
@@ -64,5 +64,19 @@ test("splitUnits rapporte chaque unité à son paragraphe", () => {
   assert.deepEqual(
     units.map((u) => u.paragraph),
     [0, 0, 1, 2]
+  )
+})
+
+test("splitUnits bascule un paragraphe entièrement anglais dans un texte français", () => {
+  const fr =
+    "Le chat est assis sur le tapis et regarde la fenêtre avec attention, pendant que la " +
+    "pluie tombe doucement sur les toits de la ville entière."
+  const en =
+    "The cat is sitting on the mat and watching the window with attention, while the rain " +
+    "falls gently on the roofs of the whole city outside."
+  const units = splitUnits(`${fr}\n\n${en}\n\nCourt.`, "fr")
+  assert.deepEqual(
+    units.map((u) => u.lang),
+    ["fr", "en", "fr"]
   )
 })

@@ -15,11 +15,13 @@ import {
   SPEED,
   type ReaderEngine,
   type ReaderPreferences,
+  type PillPosition,
 } from "../lib/reader-prefs"
 import { expandText } from "../lib/pronunciation/index.ts"
 import { createAnchorFinder } from "../lib/read-anchor.ts"
 import { buildReadingIntro } from "../lib/reading-intro"
 import { toSupertonicLang, type SupportedLang } from "../lib/supertonic-lang.ts"
+import { detectLang } from "../lib/detect-lang.ts"
 import {
   TTS_CONTROL,
   TTS_EVENT,
@@ -332,13 +334,18 @@ export default defineContentScript({
     /** Choisit le moteur, puis démarre — le reste ne se recroise plus. */
     function start(payload: ReadPagePayload) {
       if (prefs.engine === "supertonic") {
-        const supertonicLang = toSupertonicLang(payload.lang ?? "")
+        // La déclaration de la page d'abord ; si elle manque ou sort du
+        // modèle, une détection sur le texte réel avant d'abandonner —
+        // beaucoup de pages ne déclarent aucun `lang`.
+        const supertonicLang =
+          toSupertonicLang(payload.lang ?? "") ?? detectLang(payload.text, null)
         if (supertonicLang) {
           startSupertonic(payload, supertonicLang)
           return
         }
-        // Langue hors du modèle : un repli silencieux serait déroutant — dire
-        // pourquoi la voix système est utilisée à sa place.
+        // Langue hors du modèle même après détection : un repli silencieux
+        // serait déroutant — dire pourquoi la voix système est utilisée à sa
+        // place.
         void browser.runtime.sendMessage({
           type: NOTIFY,
           message: browser.i18n.getMessage("noticeSupertonicLangUnsupported"),
@@ -348,10 +355,14 @@ export default defineContentScript({
     }
 
     function startSupertonic(payload: ReadPagePayload, lang: SupportedLang) {
+      // `lang` est la langue résolue (déclaration ou détection), pas
+      // forcément `payload.lang` : l'annonce du titre doit sonner dans la
+      // langue qui va réellement être lue.
+      //
       // Même annonce de titre qu'en système (buildReadingIntro), composée ici
       // plutôt que par l'hôte : lib/tts-host.ts ne connaît ni onglets ni titres,
       // seulement du texte à synthétiser.
-      const intro = buildReadingIntro(payload.lang ?? "", payload.title ?? "")
+      const intro = buildReadingIntro(lang, payload.title ?? "")
       const text = intro ? `${intro} ${payload.text}` : payload.text
 
       // Sur `payload.text`, pas sur `text` : l'annonce du titre n'est écrite
@@ -392,21 +403,30 @@ export default defineContentScript({
       // plus bas ne retire jamais rien.
       follower.begin([...raw])
 
+      // La déclaration de la page l'emporte quand la détection ne la
+      // contredit pas — elle porte souvent une région (`en-US`) que la
+      // détection, elle, ne rend jamais. Ne s'en écarter que si le texte
+      // réel dit clairement autre chose : article entier mal étiqueté, ou
+      // page sans `lang` du tout.
+      const declared = toSupertonicLang(payload.lang ?? "")
+      const detected = detectLang(payload.text, declared)
+      const resolvedLang = detected && detected !== declared ? detected : payload.lang
+
       // Le titre n'est pas dans le texte extrait — Readability retire le h1 qui
       // le répète. L'annoncer en tête du premier bloc plutôt qu'en bloc à part :
       // il suit alors la même reprise que le reste, comme sur mobile.
-      const intro = buildReadingIntro(payload.lang ?? "", payload.title ?? "")
+      const intro = buildReadingIntro(resolvedLang ?? "", payload.title ?? "")
       if (intro && raw.length) raw[0] = `${intro} ${raw[0]}`
 
       // Texte à dire, jamais à afficher : sigles épelés, symboles verbalisés,
       // anglicismes réécrits pour les voix système. Ce sont les seules
       // disponibles ici, donc la couche phonétique s'applique toujours.
-      blocks = raw.map((block) => expandText(block, { language: payload.lang })).filter(Boolean)
+      blocks = raw.map((block) => expandText(block, { language: resolvedLang })).filter(Boolean)
       if (!blocks.length) return fold()
 
       blockIndex = 0
       charIndex = 0
-      lang = payload.lang
+      lang = resolvedLang
       reading = true
       paused = false
       stale = false

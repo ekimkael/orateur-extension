@@ -48,6 +48,7 @@ import {
 } from "./supertonic/engine.ts"
 import type { SupertonicVoice } from "./supertonic/types.ts"
 import type { SupportedLang } from "./supertonic-lang.ts"
+import { detectLang } from "./detect-lang.ts"
 import type { TtsControlAction, TtsState } from "./tts-messages.ts"
 
 export interface SpeakRequest {
@@ -76,6 +77,13 @@ export interface Unit {
    * chunk ne désigne rien de visible.
    */
   paragraph: number
+  /**
+   * Langue de CE paragraphe, pas forcément celle du document : un article
+   * français citant un paragraphe anglais entier doit lire ce paragraphe en
+   * anglais. Voir `detectLang` — un bloc trop court ou ambigu retombe sur la
+   * langue du document plutôt que de deviner.
+   */
+  lang: SupportedLang
 }
 
 /**
@@ -85,15 +93,28 @@ export interface Unit {
  * En sortant la découpe ici, l'ordonnanceur voit les chunks et joue le premier
  * dès qu'il est prêt. Mêmes bornes que le moteur pour que le texte donné à
  * `synthesize()` soit celui qu'il aurait produit lui-même.
+ *
+ * `docLang` est la langue déclarée/résolue pour tout le texte : un premier
+ * passage de `detectLang` sur le texte entier peut la corriger (article
+ * entièrement mal étiqueté), puis chaque paragraphe est détecté à son tour
+ * avec cette langue corrigée comme repli.
  */
 export function splitUnits(text: string, lang: SupportedLang): Unit[] {
-  const maxLen = lang === "ko" || lang === "ja" ? 120 : 300
+  const docLang = detectLang(text, lang) ?? lang
   const units: Unit[] = []
   const paragraphs = splitBlocks(text)
   for (let p = 0; p < paragraphs.length; p++) {
-    const chunks = chunkText(paragraphs[p]!, maxLen)
+    const paragraph = paragraphs[p]!
+    const paragraphLang = detectLang(paragraph, docLang) ?? docLang
+    const maxLen = paragraphLang === "ko" || paragraphLang === "ja" ? 120 : 300
+    const chunks = chunkText(paragraph, maxLen)
     for (let i = 0; i < chunks.length; i++) {
-      units.push({ text: chunks[i]!, endsParagraph: i === chunks.length - 1, paragraph: p })
+      units.push({
+        text: chunks[i]!,
+        endsParagraph: i === chunks.length - 1,
+        paragraph: p,
+        lang: paragraphLang,
+      })
     }
   }
   return units
@@ -138,7 +159,6 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   let units: Unit[] = []
   let index = 0
   let speed = 1
-  let currentLang: SupportedLang = "fr"
   let currentStyle: Style | null = null
   /**
    * Incrémenté à chaque `speak()`/`stop()` : une promesse d'une génération
@@ -274,7 +294,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       if (gen !== generation) return
       const t0 = performance.now()
       const pcm = await engine.synthesize(
-        unit.text, currentLang, currentStyle!, TOTAL_STEP, 1.0, abort?.signal
+        unit.text, unit.lang, currentStyle!, TOTAL_STEP, 1.0, abort?.signal
       )
       if (gen !== generation) return
       // Le seul chiffre qui dit si la lecture tiendra : au-dessus de 1, l'avance
@@ -424,7 +444,6 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     units = splitUnits(request.text, request.lang)
     index = 0
     speed = request.speed
-    currentLang = request.lang
     currentStyle = null
     paused = false
 
