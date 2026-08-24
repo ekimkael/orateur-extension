@@ -17,6 +17,7 @@ import {
   type ReaderPreferences,
 } from "../lib/reader-prefs"
 import { expandText } from "../lib/pronunciation/index.ts"
+import { createAnchorFinder } from "../lib/read-anchor.ts"
 import { buildReadingIntro } from "../lib/reading-intro"
 import { toSupertonicLang, type SupportedLang } from "../lib/supertonic-lang.ts"
 import {
@@ -138,6 +139,8 @@ export default defineContentScript({
     let prefs = await loadPrefs()
 
     const pill = createPill(onPrimary, onSecondary, prefs)
+    const follower = createFollower()
+    follower.setEnabled(prefs.follow)
 
     browser.runtime.onMessage.addListener(onMessage)
     browser.runtime.onMessage.addListener(onTtsEvent)
@@ -147,6 +150,7 @@ export default defineContentScript({
       const voiceChanged = newPrefs.voiceURI !== prefs.voiceURI
       prefs = newPrefs
       pill.updatePrefs(newPrefs)
+      follower.setEnabled(newPrefs.follow)
       if (!reading) return
 
       if (usingSupertonic) {
@@ -195,6 +199,7 @@ export default defineContentScript({
       browser.storage.onChanged.removeListener(onTokenChanged)
       unsubscribePrefs()
       cancelSpeech()
+      follower.end()
       pill.remove()
     })
 
@@ -233,6 +238,7 @@ export default defineContentScript({
           track({ name: "supertonic_download_completed" })
         }
         paused = false
+        follower.show(state.block)
         pill.setState("playing", supertonicTitle)
       } else if (state.phase === "paused") {
         paused = true
@@ -334,6 +340,11 @@ export default defineContentScript({
       const intro = buildReadingIntro(payload.lang ?? "", payload.title ?? "")
       const text = intro ? `${intro} ${payload.text}` : payload.text
 
+      // Sur `payload.text`, pas sur `text` : l'annonce du titre n'est écrite
+      // nulle part dans la page. L'hôte la recolle au premier paragraphe
+      // (`splitBlocks`), donc les index concordent quand même.
+      follower.begin(splitParagraphs(payload.text))
+
       usingSupertonic = true
       reading = true
       paused = false
@@ -358,10 +369,14 @@ export default defineContentScript({
       // Un bloc par paragraphe, pour éviter la limite de longueur de Chrome.
       // Le découpage passe avant `expandText`, qui écrase les blancs — les
       // frontières de paragraphes n'y survivraient pas.
-      const raw = payload.text
-        .split(/\n{2,}/)
-        .map((block) => block.trim())
-        .filter(Boolean)
+      const raw = splitParagraphs(payload.text)
+
+      // Texte des blocs tel qu'il est dans la page : ni l'annonce du titre ni
+      // `expandText` ne s'y appliquent — c'est sur lui que le suivi retrouve
+      // le paragraphe dans le DOM. Il reste aligné sur `blocks` : aucune règle
+      // de `expandText` ne remplace par du vide, donc son `filter(Boolean)`
+      // plus bas ne retire jamais rien.
+      follower.begin([...raw])
 
       // Le titre n'est pas dans le texte extrait — Readability retire le h1 qui
       // le répète. L'annoncer en tête du premier bloc plutôt qu'en bloc à part :
@@ -435,6 +450,7 @@ export default defineContentScript({
         if (mine !== generation) return
         blockIndex = block
         charIndex = from
+        follower.show(block)
       })
       // `charIndex` est compté depuis le début de l'énoncé, donc depuis le
       // reste du bloc : le rebaser sur le bloc entier, sinon une deuxième
@@ -479,6 +495,7 @@ export default defineContentScript({
       paused = false
       stale = false
       usingSupertonic = false
+      follower.end()
       // La file coupée ne nous appartient plus : un `end` en retard ne doit pas
       // replier une lecture relancée entre-temps.
       generation++
@@ -578,8 +595,12 @@ button[data-icon="sliders"] {
  * Au repos la pastille se replie sur ses deux boutons : le titre garde son
  * texte mais tombe à une largeur nulle. Une largeur n'a pas d'équivalent en
  * transform — même exception que pour un accordéon.
+ *
+ * Visé par sa classe, pas par le sélecteur span : le popover de réglages en
+ * contient d'autres, que la règle repliait avec le titre — intitulés et
+ * valeurs disparaissaient tant que la pastille n'était pas en train de lire.
  */
-span {
+.pill-title {
   max-width: 0;
   margin: 0;
   opacity: 0;
@@ -591,13 +612,13 @@ span {
     margin 200ms cubic-bezier(0.23, 1, 0.32, 1),
     opacity 200ms cubic-bezier(0.23, 1, 0.32, 1);
 }
-:host([data-expanded]) span {
+:host([data-expanded]) .pill-title {
   max-width: 220px;
   margin: 0 6px;
   opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {
-  span { transition: opacity 120ms ease-out }
+  .pill-title { transition: opacity 120ms ease-out }
 }
 .settings-popover {
   position: absolute;
@@ -720,6 +741,20 @@ span {
   background: var(--accent);
   transition: transform 150ms linear;
 }
+/*
+ * Une case à cocher se lit en ligne, intitulé à droite — pas dans la colonne
+ * de .settings-row, où le contrôle prend toute la largeur.
+ */
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.settings-toggle input { flex: none; margin: 0; cursor: pointer }
+.settings-toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .settings-row { display: flex; flex-direction: column; gap: 6px }
 .settings-row + .settings-row { margin-top: 12px }
 .settings-label {
@@ -810,6 +845,150 @@ function classifyTtsError(message: string): "http" | "network" | "unknown" {
   return "unknown"
 }
 
+/** Même découpe que `splitBlocks` côté hôte : un bloc par paragraphe. */
+const splitParagraphs = (text: string) =>
+  text.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean)
+
+/** Nom du surlignage dans le registre du document. */
+const HIGHLIGHT_NAME = "orateur-reading"
+
+/**
+ * Fond translucide, et rien d'autre : la couleur du texte reste celle de la
+ * page, donc son contraste aussi, et le même bleu tient sur fond clair comme
+ * sur fond sombre. Le bleu est celui de la pastille (--accent).
+ */
+const HIGHLIGHT_CSS = `::highlight(${HIGHLIGHT_NAME}){background-color:rgb(96 165 250 / 0.3)}`
+
+/**
+ * Silence du défilement automatique après un geste de l'utilisateur : le
+ * temps de deux ou trois paragraphes, de quoi relire un passage sans que la
+ * page reparte toute seule.
+ */
+const MANUAL_SCROLL_GRACE = 10_000
+
+/**
+ * Gestes qui valent reprise en main du défilement.
+ *
+ * Jamais `scroll` : l'événement ne dit pas qui a scrollé, nos propres
+ * `scrollIntoView` se prendraient donc eux-mêmes pour un geste de
+ * l'utilisateur et le suivi s'arrêterait au premier paragraphe.
+ */
+const SCROLL_GESTURES = ["wheel", "touchmove", "keydown"] as const
+
+/**
+ * Suit la lecture sur la page : surligne le paragraphe lu, et l'amène dans le
+ * champ de vision quand il n'y est pas.
+ *
+ * L'API CSS Custom Highlight plutôt que des `<span>` posés autour du texte :
+ * elle ne peut peindre que le fond, la couleur et la décoration — donc aucun
+ * recalcul de mise en page, aucune mutation du DOM de la page (rien à faire
+ * passer par Trusted Types, rien qu'un rendu React du site puisse effacer,
+ * aucun sélecteur CSS de la page cassé), et une seule repeinte par
+ * paragraphe.
+ */
+function createFollower() {
+  // Chrome 105, Safari 17.2, Firefox 140. Ailleurs on lit sans suivre, plutôt
+  // que d'embarquer un polyfill qui, lui, mutera la page.
+  const supported = typeof Highlight === "function" && typeof CSS !== "undefined" && "highlights" in CSS
+
+  let sheet: CSSStyleSheet | null = null
+  let highlight: Highlight | null = null
+  let findAnchor: ReturnType<typeof createAnchorFinder> | null = null
+  let blocks: string[] = []
+  /** Dernier paragraphe surligné : évite de rechercher deux fois le même. */
+  let current = -1
+  let anchor: Element | null = null
+  let enabled = true
+  let lastGesture = 0
+
+  const noteGesture = () => {
+    lastGesture = Date.now()
+  }
+
+  /** Ouvre le suivi sur les blocs d'une lecture. Idempotent. */
+  function begin(paragraphs: string[]) {
+    if (!supported) return
+    end()
+    blocks = paragraphs
+    findAnchor = createAnchorFinder(document)
+    if (!sheet) {
+      // Feuille construite plutôt qu'un `<style>` injecté : rien à soumettre à
+      // la directive `style-src` de la page, et rien à retirer de son DOM.
+      sheet = new CSSStyleSheet()
+      sheet.replaceSync(HIGHLIGHT_CSS)
+    }
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
+    highlight = new Highlight()
+    CSS.highlights.set(HIGHLIGHT_NAME, highlight)
+    for (const gesture of SCROLL_GESTURES) {
+      window.addEventListener(gesture, noteGesture, { passive: true })
+    }
+  }
+
+  /** Surligne le paragraphe `index`, et l'amène à l'écran s'il n'y est pas. */
+  function show(index: number) {
+    if (!findAnchor || index === current) return
+    current = index
+    const block = blocks[index]
+    // Bloc introuvable dans la page — un `<pre>`, dit « Extrait de code. » —
+    // le paragraphe précédent reste surligné plutôt que rien : la lecture est
+    // bien là, quelque part entre les deux.
+    anchor = block === undefined ? null : findAnchor(block)
+    if (anchor && enabled) paint(anchor)
+  }
+
+  function paint(element: Element) {
+    if (!highlight) return
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    highlight.clear()
+    highlight.add(range)
+    reveal(element)
+  }
+
+  function reveal(element: Element) {
+    if (Date.now() - lastGesture < MANUAL_SCROLL_GRACE) return
+    const box = element.getBoundingClientRect()
+    // Déjà en vue : le haut du bloc est à l'écran, dans les deux premiers
+    // tiers. Le haut plutôt que le bloc entier — un paragraphe plus haut que
+    // la fenêtre ne rentre jamais, et la page défilerait à chaque fois.
+    if (box.top >= 0 && box.top <= window.innerHeight * 0.66) return
+    element.scrollIntoView({
+      // `center` et pas `start` : un en-tête collant masque le haut de la
+      // fenêtre sur la moitié des sites.
+      block: "center",
+      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    })
+  }
+
+  /** Le réglage a changé pendant la lecture. */
+  function setEnabled(value: boolean) {
+    if (value === enabled) return
+    enabled = value
+    if (!enabled) highlight?.clear()
+    else if (anchor) paint(anchor)
+  }
+
+  /** Rend la page à elle-même : plus de surlignage, plus d'écouteur. */
+  function end() {
+    blocks = []
+    findAnchor = null
+    anchor = null
+    current = -1
+    if (highlight) {
+      highlight.clear()
+      CSS.highlights.delete(HIGHLIGHT_NAME)
+      highlight = null
+    }
+    if (sheet) {
+      document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet)
+    }
+    for (const gesture of SCROLL_GESTURES) window.removeEventListener(gesture, noteGesture)
+  }
+
+  return { begin, show, setEnabled, end }
+}
+
 /**
  * Pastille flottante, dans un shadow root fermé — même isolation que la bulle
  * de sélection, pour les mêmes raisons.
@@ -874,6 +1053,7 @@ function createPill(
   loadingGlyph.className = "loading-glyph"
   loadingGlyph.textContent = "…"
   const label = document.createElement("span")
+  label.className = "pill-title"
   const secondary = button(onSecondary)
   const settings = button(() => togglePopover())
   // Posé une fois : l'icône et son intitulé ne dépendent pas de l'état de
@@ -905,8 +1085,8 @@ function createPill(
   toast.className = "loading-toast"
   toast.setAttribute("role", "status")
   toast.setAttribute("aria-live", "polite")
-  // `div`, pas `span` : la règle `span { max-width: 0; opacity: 0 }` plus bas
-  // (le label replié de la pastille) écraserait silencieusement ces deux-là.
+  // `div` plutôt que `span` : sans conséquence ici, les deux sont mis en
+  // forme par leur classe.
   const toastSpinner = document.createElement("div")
   toastSpinner.className = "loading-toast-spinner"
   toastSpinner.setAttribute("aria-hidden", "true")
@@ -987,6 +1167,22 @@ function createPill(
       savePrefs({ voiceURI: voice.value || null })
     }
   })
+  /**
+   * Suivi de la lecture sur la page. En pied de popover : c'est le seul
+   * réglage qui ne parle pas de la voix.
+   */
+  const follow = document.createElement("input")
+  follow.type = "checkbox"
+  follow.id = "orateur-follow"
+  const followRow = document.createElement("label")
+  followRow.className = "settings-toggle"
+  followRow.htmlFor = follow.id
+  const followText = document.createElement("span")
+  followText.textContent = browser.i18n.getMessage("settingsFollowLabel")
+  followRow.append(follow, followText)
+  popover.append(followRow)
+  follow.addEventListener("change", () => savePrefs({ follow: follow.checked }))
+
   renderVoices()
   // Chrome charge ses voix après coup : sans cet événement la liste reste
   // réduite à « Par défaut » pendant les premières secondes de la page.
@@ -1043,6 +1239,7 @@ function createPill(
       // justement le défaut. Rien à rattraper.
       voice.value = currentPrefs.voiceURI ?? ""
     }
+    follow.checked = currentPrefs.follow
     supertonicNote.hidden = currentPrefs.engine !== "supertonic"
   }
 

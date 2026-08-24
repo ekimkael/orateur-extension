@@ -148,6 +148,18 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
               </select>
               <p className="help">{t("optionsLanguageHelp")}</p>
             </label>
+
+            <div className="row">
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={prefs.follow}
+                  onChange={(e) => updatePrefs({ follow: e.target.checked })}
+                />
+                <span className="toggle-text">{t("optionsFollowLabel")}</span>
+              </label>
+              <p className="help">{t("optionsFollowHelp")}</p>
+            </div>
           </section>
 
           <section className="section" id="voix">

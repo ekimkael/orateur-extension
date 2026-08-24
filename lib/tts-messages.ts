@@ -77,6 +77,9 @@ export type TtsLoadingReason =
 /** Reflète 1:1 les états de la pastille — voir PillState dans reader.content.ts. */
 export type TtsState =
   | { phase: "loading"; reason?: TtsLoadingReason; progress?: number }
+  // `block` est un index de PARAGRAPHE (celui de `splitBlocks`), pas d'unité
+  // de synthèse : c'est la seule position que la pastille puisse rapporter à
+  // la page pour surligner ce qui se dit. `total` compte les paragraphes.
   | { phase: "playing"; block: number; total: number }
   | { phase: "paused" }
   | { phase: "ended" }

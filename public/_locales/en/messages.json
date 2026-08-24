@@ -59,6 +59,9 @@
   "settingsVoiceLabel": {
     "message": "Voice"
   },
+  "settingsFollowLabel": {
+    "message": "Follow on page"
+  },
   "engineSystem": {
     "message": "System voice"
   },
@@ -166,6 +169,12 @@
   },
   "optionsThemeDark": {
     "message": "Dark"
+  },
+  "optionsFollowLabel": {
+    "message": "Follow along on the page"
+  },
+  "optionsFollowHelp": {
+    "message": "Highlights the paragraph being read and brings it into view. Auto-scrolling pauses as soon as you scroll yourself."
   },
   "optionsThemeHelp": {
     "message": "“System” follows your browser’s setting."

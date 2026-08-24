@@ -23,6 +23,15 @@ export interface ReaderPreferences {
    * navigateur choisir ».
    */
   supertonicVoice: SupertonicVoice
+  /**
+   * Suivre la lecture sur la page : surligner le paragraphe lu et l'amener
+   * dans le champ de vision.
+   *
+   * Un seul réglage pour les deux gestes — ils n'ont d'intérêt qu'ensemble,
+   * un surlignage hors écran ne se voit pas. À séparer le jour où quelqu'un
+   * veut l'un sans l'autre.
+   */
+  follow: boolean
 }
 
 const PREFS_KEY = "orateur:reader-prefs"
@@ -31,6 +40,7 @@ const DEFAULT_PREFS: ReaderPreferences = {
   speed: 1,
   voiceURI: null,
   supertonicVoice: "F1",
+  follow: true,
 }
 
 export async function loadPrefs(): Promise<ReaderPreferences> {

@@ -69,6 +69,13 @@ export function splitBlocks(text: string): string[] {
 export interface Unit {
   text: string
   endsParagraph: boolean
+  /**
+   * Index du paragraphe d'origine — celui de `splitBlocks`, donc celui des
+   * blocs du texte extrait. C'est la seule position que la pastille peut
+   * rapporter à la page pour la suivre (`lib/read-anchor.ts`) : un index de
+   * chunk ne désigne rien de visible.
+   */
+  paragraph: number
 }
 
 /**
@@ -82,10 +89,11 @@ export interface Unit {
 export function splitUnits(text: string, lang: SupportedLang): Unit[] {
   const maxLen = lang === "ko" || lang === "ja" ? 120 : 300
   const units: Unit[] = []
-  for (const paragraph of splitBlocks(text)) {
-    const chunks = chunkText(paragraph, maxLen)
+  const paragraphs = splitBlocks(text)
+  for (let p = 0; p < paragraphs.length; p++) {
+    const chunks = chunkText(paragraphs[p]!, maxLen)
     for (let i = 0; i < chunks.length; i++) {
-      units.push({ text: chunks[i]!, endsParagraph: i === chunks.length - 1 })
+      units.push({ text: chunks[i]!, endsParagraph: i === chunks.length - 1, paragraph: p })
     }
   }
   return units
@@ -341,6 +349,11 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     }
   }
 
+  /** Nombre de paragraphes de la lecture en cours — le dernier index, plus un. */
+  function paragraphCount() {
+    return (units[units.length - 1]?.paragraph ?? -1) + 1
+  }
+
   function load(slot: 0 | 1, i: number) {
     const head = heads[slot]
     if (head.unitIndex === i) return
@@ -372,7 +385,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       onState({ phase: "paused" })
       return
     }
-    onState({ phase: "playing", block: i, total: units.length })
+    onState({ phase: "playing", block: units[i]?.paragraph ?? 0, total: paragraphCount() })
     heads[slot].audio.play().catch((e: unknown) => {
       if (gen !== generation) return
       onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
@@ -474,7 +487,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
         if (gen !== generation) return
         onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
       })
-      onState({ phase: "playing", block: index, total: units.length })
+      onState({ phase: "playing", block: units[index]?.paragraph ?? 0, total: paragraphCount() })
       return
     }
     // "stop" : une nouvelle génération invalide toute promesse en vol, sans

@@ -59,6 +59,9 @@
   "settingsVoiceLabel": {
     "message": "Voix"
   },
+  "settingsFollowLabel": {
+    "message": "Suivre sur la page"
+  },
   "engineSystem": {
     "message": "Voix système"
   },
@@ -166,6 +169,12 @@
   },
   "optionsThemeDark": {
     "message": "Sombre"
+  },
+  "optionsFollowLabel": {
+    "message": "Suivre la lecture sur la page"
+  },
+  "optionsFollowHelp": {
+    "message": "Surligne le paragraphe lu et l'amène à l'écran. Le défilement se met en pause dès que vous reprenez la main."
   },
   "optionsThemeHelp": {
     "message": "« Système » suit le réglage de votre navigateur."

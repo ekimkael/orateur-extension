@@ -25,6 +25,7 @@ test("part sur les défauts quand rien n'est stocké", async () => {
     speed: 1,
     voiceURI: null,
     supertonicVoice: "F1",
+    follow: true,
   })
 })
 
@@ -47,6 +48,7 @@ test("savePrefs n'écrase que la clé fournie", async () => {
     speed: 0.8,
     voiceURI: "urn:voix",
     supertonicVoice: "F1",
+    follow: true,
   })
 })
 
@@ -84,5 +86,6 @@ test("deux écritures successives ne se perdent pas", async () => {
     speed: 1.2,
     voiceURI: "urn:voix",
     supertonicVoice: "F1",
+    follow: true,
   })
 })
