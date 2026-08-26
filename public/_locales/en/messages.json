@@ -246,7 +246,7 @@
     "message": "398 MB to download"
   },
   "optionsModelAlertPending": {
-    "message": " once. Start it now, or let the first reading trigger it. Everything then runs on your device, offline — no text is sent anywhere."
+    "message": " on the first reading, once. After that everything runs on your device, offline — no text is sent anywhere."
   },
   "optionsModelAlertReadyLead": {
     "message": "Model already downloaded."

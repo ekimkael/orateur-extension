@@ -246,7 +246,7 @@
     "message": "398 Mo à télécharger"
   },
   "optionsModelAlertPending": {
-    "message": " une seule fois. Lancez-le maintenant, ou laissez la première lecture s'en charger. Tout tourne ensuite sur votre appareil, hors ligne — aucun texte n'est envoyé nulle part."
+    "message": " à la première lecture, une seule fois. Ensuite tout tourne sur votre appareil, hors ligne — aucun texte n'est envoyé nulle part."
   },
   "optionsModelAlertReadyLead": {
     "message": "Modèle déjà téléchargé."
