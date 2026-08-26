@@ -231,6 +231,8 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
               value={prefs.engine}
               onChange={(engine) => updatePrefs({ engine })}
               modelCached={modelCached}
+              onModelDownloaded={refreshCacheSize}
+              locale={locale}
             />
 
             <VoicePicker
@@ -249,8 +251,9 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
             <p className="eyebrow">{t("optionsSectionModel")}</p>
 
             {cacheBytes != null ? (
+              // Pas de <progress> ici : une barre toujours à 100% est de la
+              // décoration, pas un état — le texte suffit.
               <div className="cache-body">
-                <progress max={cacheBytes} value={cacheBytes}></progress>
                 <p className="cache-note">{t("optionsCacheSize", [String(cacheMb)])}</p>
                 <div className="cache-actions">
                   <button
@@ -270,8 +273,14 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
                 </div>
               </div>
             ) : (
+              // Cul-de-sac évité : un seul CTA de téléchargement dans toute la
+              // page (section Voix) — cette section-ci n'y renvoie, sans en
+              // dupliquer un second.
               <div className="cache-body">
                 <p className="cache-note">{t("optionsModelEmpty")}</p>
+                <p className="cache-note">
+                  <a href="#voix">{t("optionsModelGoToVoice")}</a>
+                </p>
               </div>
             )}
           </section>

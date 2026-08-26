@@ -1,7 +1,7 @@
 // lib/supertonic/engine.ts
 //
-// Copié de web/app/lib/supertonic/engine.ts avec deux deltas, tous deux dans
-// `loadOrt` et `loadTextToSpeechEngine` :
+// Copié de web/app/lib/supertonic/engine.ts avec trois deltas, tous dans
+// `loadOrt`, `loadTextToSpeechEngine` et `loadVoiceStyle` :
 //
 // 1. `new Function("url", "return import(url)")` — le contournement anti-Vite
 //    du web app — est refusé ici : la CSP MV3 des pages d'extension interdit
@@ -11,6 +11,8 @@
 // 2. `ORT.env.wasm.wasmPaths` pointe sur `browser.runtime.getURL(...)` plutôt
 //    que sur `"/ort/"` en dur : en `wxt dev`, la page est servie par le
 //    serveur Vite, où une URL racine-relative est ambiguë.
+// 3. `loadVoiceStyle()` lit d'abord le cache OPFS (jalon 1d, model-cache.ts) —
+//    web/app n'a pas ce cache et fetch toujours le réseau.
 //
 // AVAILABLE_LANGS/SupportedLang ont été sortis dans `../supertonic-lang.ts`,
 // seule partie de ce fichier qui vaille la peine d'être testée sous
@@ -22,6 +24,7 @@ import type * as ort from "onnxruntime-web"
 import { AVAILABLE_LANGS, type SupportedLang } from "../supertonic-lang.ts"
 import type { SupertonicVoice } from "./types.ts"
 import { VOICE_STYLE_BASE } from "./types.ts"
+import { readCachedVoiceStyle } from "./model-cache.ts"
 
 export type { SupportedLang }
 
@@ -388,16 +391,26 @@ export class TextToSpeech {
 
 export async function loadVoiceStyle(voice: SupertonicVoice): Promise<Style> {
   const ORT = await loadOrt()
-  const url = `${VOICE_STYLE_BASE}/${voice}.json`
-  const response = await fetch(url)
-  if (!response.ok) throw new Error(`Failed to fetch voice style ${voice}: ${response.status}`)
-  const data = await response.json()
+  const data = await readVoiceStyleJson(voice)
 
   const ttlData = data.style_ttl.data.flat(Infinity) as number[]
   const dpData = data.style_dp.data.flat(Infinity) as number[]
   const ttlTensor = new ORT.Tensor("float32", new Float32Array(ttlData), data.style_ttl.dims)
   const dpTensor = new ORT.Tensor("float32", new Float32Array(dpData), data.style_dp.dims)
   return new Style(ttlTensor, dpTensor)
+}
+
+/** OPFS d'abord (téléchargée depuis les options ou une lecture précédente),
+ *  réseau sinon — un modèle mis en cache avant ce delta n'a aucun style sur
+ *  disque, et changer de voix ne doit pas casser pour autant. */
+/** Type `any`, comme l'ancien `response.json()` direct : jamais typé ici. */
+async function readVoiceStyleJson(voice: SupertonicVoice): Promise<any> {
+  const cached = await readCachedVoiceStyle(voice)
+  if (cached) return JSON.parse(new TextDecoder().decode(cached))
+  const url = `${VOICE_STYLE_BASE}/${voice}.json`
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`Failed to fetch voice style ${voice}: ${response.status}`)
+  return response.json()
 }
 
 export interface LoadProgress {

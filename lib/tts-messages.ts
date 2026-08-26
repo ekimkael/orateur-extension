@@ -114,3 +114,66 @@ export interface TtsSetSpeedMessage {
 export interface TtsCloseMessage {
   type: typeof TTS_CLOSE
 }
+
+/**
+ * Téléchargement explicite du modèle depuis la page d'options (jalon 1d) —
+ * même hôte que la synthèse (document offscreen / page de fond), pour les
+ * mêmes raisons : lui seul peut survivre à la fermeture de l'onglet options
+ * et éviter un double téléchargement avec une lecture en cours.
+ *
+ * REQUEST et START sont volontairement deux constantes distinctes : sur
+ * Chrome, `runtime.sendMessage` depuis la page d'options atteint TOUS les
+ * contextes de l'extension, document offscreen compris (aucun `sender.tab`
+ * pour les distinguer, contrairement à TTS_SPEAK depuis une pastille — voir
+ * plus haut). Si le document offscreen écoutait REQUEST directement, un
+ * appel arrivant alors qu'aucun document n'existe encore serait perdu, ET
+ * une fois le document créé, il verrait la même REQUEST une seconde fois.
+ * Seul le service worker (qui peut créer le document) écoute REQUEST ; seul
+ * le document offscreen écoute START, qu'il reçoit après coup.
+ *
+ * CANCEL et STATE_QUERY n'ont pas ce problème : la page d'options qui les
+ * envoie et le document offscreen qui les traite sont tous deux sans
+ * `sender.tab`, donc CANCEL/QUERY se reçoivent directement, sans relais —
+ * `entrypoints/background.ts` ne répond à STATE_QUERY que si aucun document
+ * offscreen n'existe (sinon c'est lui qui répond, pour ne jamais avoir deux
+ * `sendResponse()` sur le même message).
+ */
+export const MODEL_DOWNLOAD_REQUEST = "orateur:tts:model-download-request"
+export const MODEL_DOWNLOAD_START = "orateur:tts:model-download-start"
+export const MODEL_DOWNLOAD_CANCEL = "orateur:tts:model-download-cancel"
+export const MODEL_STATE_QUERY = "orateur:tts:model-state-query"
+/** Diffusé par l'hôte à chaque avancée — reçu directement par la page
+ *  d'options, contexte d'extension comme un autre, sans relais. */
+export const MODEL_PROGRESS = "orateur:tts:model-progress"
+
+export type ModelDownloadPhase = "idle" | "downloading" | "error" | "done"
+
+/** Octets, pas un pourcentage par fichier : six fichiers de tailles très
+ *  différentes feraient sauter une barre indexée sur `fileIndex`. */
+export interface ModelProgressState {
+  phase: ModelDownloadPhase
+  loaded?: number
+  total?: number
+  message?: string
+}
+
+export interface ModelDownloadRequestMessage {
+  type: typeof MODEL_DOWNLOAD_REQUEST
+}
+
+export interface ModelDownloadStartMessage {
+  type: typeof MODEL_DOWNLOAD_START
+}
+
+export interface ModelDownloadCancelMessage {
+  type: typeof MODEL_DOWNLOAD_CANCEL
+}
+
+export interface ModelStateQueryMessage {
+  type: typeof MODEL_STATE_QUERY
+}
+
+export interface ModelProgressMessage {
+  type: typeof MODEL_PROGRESS
+  state: ModelProgressState
+}

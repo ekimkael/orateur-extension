@@ -26,6 +26,11 @@ import {
   type SelectionError,
 } from "../lib/selection-text"
 import {
+  MODEL_DOWNLOAD_CANCEL,
+  MODEL_DOWNLOAD_REQUEST,
+  MODEL_DOWNLOAD_START,
+  MODEL_PROGRESS,
+  MODEL_STATE_QUERY,
   TTS_CLOSE,
   TTS_CONTROL,
   TTS_EVENT,
@@ -33,6 +38,7 @@ import {
   TTS_SPEAK,
   TTS_TAB_REMOVED,
   TTS_TOKEN_CHANGED,
+  type ModelProgressState,
   type TtsControlMessage,
   type TtsEventMessage,
   type TtsSetSpeedMessage,
@@ -45,6 +51,9 @@ import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessag
 // (entrypoints/offscreen/main.ts) — jamais ici, où il alourdirait le service
 // worker pour rien.
 import { createTtsHost } from "../lib/tts-host"
+// Même garde `import.meta.env.FIREFOX` : côté Chrome, c'est le document
+// offscreen qui appelle loadModelFiles(), jamais ce fichier.
+import { loadModelFiles } from "../lib/supertonic/model-cache"
 
 const MENU_ID = "save-to-orateur"
 const SELECTION_MENU_ID = "read-selection-with-orateur"
@@ -150,6 +159,69 @@ async function handleTtsFromPill(
     return
   }
   await browser.runtime.sendMessage({ ...message, tabId }).catch(() => {})
+}
+
+/**
+ * Téléchargement explicite du modèle depuis la page d'options (jalon 1d).
+ *
+ * Chrome : ce fichier ne fait que créer le document offscreen puis lui
+ * relayer START, exactement comme `handleTtsFromPill` — l'état du
+ * téléchargement (et la réponse à MODEL_STATE_QUERY) vit là-bas, pas ici,
+ * un service worker MV3 pouvant être redémarré en plein téléchargement.
+ * Firefox : ce fichier EST l'hôte, comme pour `ensureFirefoxHost` — l'état
+ * vit dans les variables `firefoxModel*` ci-dessous, à la même durée de vie
+ * que la page de fond persistante.
+ */
+let firefoxModelState: ModelProgressState = { phase: "idle" }
+let firefoxModelDownloading = false
+let firefoxModelAbort: AbortController | null = null
+
+function setFirefoxModelState(state: ModelProgressState) {
+  firefoxModelState = state
+  void browser.runtime.sendMessage({ type: MODEL_PROGRESS, state }).catch(() => {})
+}
+
+async function runFirefoxModelDownload() {
+  if (firefoxModelDownloading) return
+  firefoxModelDownloading = true
+  firefoxModelAbort = new AbortController()
+  setFirefoxModelState({ phase: "downloading", loaded: 0, total: 0 })
+  try {
+    await loadModelFiles((p) => {
+      if (p.phase === "checking" || p.phase === "cached") return
+      setFirefoxModelState({ phase: "downloading", loaded: p.bytesLoaded, total: p.bytesTotal })
+    }, firefoxModelAbort.signal)
+    setFirefoxModelState({ phase: "done" })
+    // "done" est un événement, pas un état de repos — voir la même ligne
+    // dans offscreen/main.ts.
+    firefoxModelState = { phase: "idle" }
+  } catch (e) {
+    if (firefoxModelAbort.signal.aborted) {
+      setFirefoxModelState({ phase: "idle" })
+    } else {
+      setFirefoxModelState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
+    }
+  } finally {
+    firefoxModelDownloading = false
+    firefoxModelAbort = null
+  }
+}
+
+async function handleModelDownloadRequest() {
+  if (import.meta.env.FIREFOX) {
+    void runFirefoxModelDownload()
+    return
+  }
+  if (!(await ensureOffscreen())) {
+    void browser.runtime
+      .sendMessage({
+        type: MODEL_PROGRESS,
+        state: { phase: "error", message: browser.i18n.getMessage("errorSupertonicStartFailed") },
+      })
+      .catch(() => {})
+    return
+  }
+  await browser.runtime.sendMessage({ type: MODEL_DOWNLOAD_START }).catch(() => {})
 }
 
 export default defineBackground({
@@ -264,6 +336,39 @@ export default defineBackground({
     ) => {
       if (message?.type !== TTS_SPEAK && message?.type !== TTS_CONTROL && message?.type !== TTS_SET_SPEED) return
       void handleTtsFromPill(message, sender.tab?.id)
+    }
+  )
+
+  // Téléchargement explicite du modèle, depuis la page d'options.
+  browser.runtime.onMessage.addListener((message: { type?: string }) => {
+    if (message?.type !== MODEL_DOWNLOAD_REQUEST) return
+    void handleModelDownloadRequest()
+  })
+
+  // CANCEL/STATE_QUERY : sur Chrome, le document offscreen (s'il existe) les
+  // reçoit déjà directement, sans relais (voir l'en-tête de tts-messages.ts)
+  // — ce fichier ne répond ici que pour Firefox, où il EST l'hôte, ou pour
+  // Chrome quand aucun document n'existe encore (donc rien n'est en cours).
+  browser.runtime.onMessage.addListener((message: { type?: string }) => {
+    if (message?.type !== MODEL_DOWNLOAD_CANCEL || !import.meta.env.FIREFOX) return
+    firefoxModelAbort?.abort()
+  })
+  browser.runtime.onMessage.addListener(
+    (message: { type?: string }, _sender, sendResponse) => {
+      if (message?.type !== MODEL_STATE_QUERY) return
+      if (import.meta.env.FIREFOX) {
+        sendResponse(firefoxModelState)
+        return
+      }
+      void (async () => {
+        const api = (globalThis as any).chrome?.offscreen
+        // Le document offscreen répond lui-même à cette même question quand
+        // il existe (voir offscreen/main.ts) — deux sendResponse() sur le
+        // même message ne sont pas garantis de coexister proprement.
+        if (await api?.hasDocument()) return
+        sendResponse({ phase: "idle" })
+      })()
+      return true
     }
   )
 
