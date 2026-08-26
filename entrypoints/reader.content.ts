@@ -37,6 +37,7 @@ import {
 // depuis lib/supertonic/* ferait entrer le moteur dans ce bundle. La petite
 // liste ci-dessous, plus bas dans ce fichier, est donc dupliquée à dessein.
 import type { SupertonicVoice } from "../lib/supertonic/types.ts"
+import { isModelCached } from "../lib/supertonic/model-cache.ts"
 import { track } from "../lib/telemetry.ts"
 import { isHidden, loadHiddenSites, addHiddenSite, onHiddenSitesChanged } from "../lib/site-rules.ts"
 import { charteTokens } from "../lib/charte.ts"
@@ -1301,18 +1302,14 @@ function createPill(
 
   // Le coût du premier ▶ : Supertonic ne télécharge rien tant qu'on ne lit
   // pas, mais le dire à l'avance rend ce coût acceptable plutôt que subi.
-  //
-  // ponytail: texte statique, pas d'état « déjà téléchargé » — la pastille
-  // n'a aucun moyen d'interroger l'OPFS de l'extension pour le savoir sans un
-  // aller-retour de plus. La progression réelle, elle, passe par le libellé
-  // de la pastille (setState("loading", "Téléchargement… 42%")) une fois la
-  // lecture lancée.
+  // Une fois le modèle en cache, le même message vire en confirmation — les
+  // libellés viennent de la page d'options, qui affiche déjà les deux états
+  // via isModelCached().
+  let modelCached = false
   const supertonicNote = document.createElement("div")
   supertonicNote.className = "settings-note"
   const noteLead = document.createElement("strong")
-  noteLead.textContent = browser.i18n.getMessage("supertonicNoteLead")
   const noteRest = document.createElement("div")
-  noteRest.textContent = browser.i18n.getMessage("supertonicNoteSize")
   supertonicNote.append(noteLead, noteRest)
   popover.append(supertonicNote)
 
@@ -1415,7 +1412,25 @@ function createPill(
       voice.value = currentPrefs.voiceURI ?? ""
     }
     follow.checked = currentPrefs.follow
+    updateSupertonicNote()
+    if (currentPrefs.engine === "supertonic") void refreshModelCached()
+  }
+
+  /** Reflète `modelCached` sur le texte et la visibilité de la note. */
+  function updateSupertonicNote() {
     supertonicNote.hidden = currentPrefs.engine !== "supertonic"
+    if (supertonicNote.hidden) return
+    noteLead.textContent = browser.i18n.getMessage(
+      modelCached ? "optionsModelAlertReadyLead" : "optionsModelAlertPendingLead"
+    )
+    noteRest.textContent = browser.i18n.getMessage(
+      modelCached ? "optionsModelAlertReady" : "optionsModelAlertPending"
+    )
+  }
+
+  async function refreshModelCached() {
+    modelCached = await isModelCached()
+    updateSupertonicNote()
   }
 
   function renderVoices() {
