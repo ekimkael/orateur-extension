@@ -1,6 +1,13 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { splitBlocks, splitUnits } from "./tts-host.ts"
+import { resolveBlockLangs, splitBlocks, splitUnits } from "./tts-host.ts"
+
+const EN_PARAGRAPH =
+  "The cat is sitting on the mat and watching the window with attention, " +
+  "while the rain falls gently on the roofs of the whole city outside."
+const FR_PARAGRAPH =
+  "Le chat est assis sur le tapis et regarde la fenêtre avec attention, " +
+  "pendant que la pluie tombe doucement sur les toits de la ville entière."
 
 test("splitBlocks découpe sur les paragraphes", () => {
   assert.deepEqual(splitBlocks("Un.\n\nDeux.\n\nTrois."), ["Un.", "Deux.", "Trois."])
@@ -37,6 +44,21 @@ test("splitUnits ne marque la fin de paragraphe que sur la dernière unité", ()
     units.map((u) => u.endsParagraph),
     [false, true, true]
   )
+})
+
+test("resolveBlockLangs : titre court hérite du paragraphe anglais qui le suit", () => {
+  assert.deepEqual(resolveBlockLangs(["Overview", EN_PARAGRAPH], "fr"), ["en", "en"])
+})
+
+test("resolveBlockLangs : liste d'items courts hérite du paragraphe anglais qui la précède", () => {
+  const blocks = [EN_PARAGRAPH, "First item", "Second item"]
+  assert.deepEqual(resolveBlockLangs(blocks, "fr"), ["en", "en", "en"])
+})
+
+test("resolveBlockLangs : bloc court isolé, hors de portée de tout voisin décidé, retombe sur docLang", () => {
+  // "c" est à distance 3 des deux extrémités décidées : hors de NEIGHBOR_RANGE (2).
+  const blocks = [FR_PARAGRAPH, "a", "b", "c", "d", "e", EN_PARAGRAPH]
+  assert.deepEqual(resolveBlockLangs(blocks, "de"), ["fr", "fr", "fr", "de", "en", "en", "en"])
 })
 
 test("splitUnits découpe plus court en japonais et en coréen", () => {

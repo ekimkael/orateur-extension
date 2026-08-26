@@ -108,3 +108,23 @@ test("une langue sans table de score reste le repli si elle l'est déjà", () =>
 test("paragraphe anglais isolé dans un contexte français bascule bien", () => {
   assert.equal(detectLang(EN, "fr"), "en")
 })
+
+test("titre court d'une autre langue bascule si le signal est net", () => {
+  assert.equal(detectLang("Getting started with the basics", "fr"), "en")
+})
+
+test("signatures orthographiques tranchent un texte court que la table ne départage pas", () => {
+  assert.equal(detectLang("¿Cómo empezar?", "fr"), "es")
+  assert.equal(detectLang("Configuração inicial", "fr"), "pt")
+  assert.equal(detectLang("Größe ändern", "fr"), "de")
+})
+
+test("signatures contradictoires dans un même texte renvoient le repli", () => {
+  // « größe » (de) et « configuração » (pt) dans la même phrase : aucune ne l'emporte.
+  assert.equal(detectLang("Größe und configuração", "fr"), "fr")
+})
+
+test("trop peu de mots distincts renvoie le repli, dans les deux sens", () => {
+  assert.equal(detectLang("Voir plus", "fr"), "fr")
+  assert.equal(detectLang("Voir plus", "en"), "en")
+})
