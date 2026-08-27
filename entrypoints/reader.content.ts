@@ -22,6 +22,7 @@ import { createAnchorFinder } from "../lib/read-anchor.ts"
 import { buildReadingIntro } from "../lib/reading-intro"
 import { toSupertonicLang, type SupportedLang } from "../lib/supertonic-lang.ts"
 import { detectLang } from "../lib/detect-lang.ts"
+import { markTab } from "../lib/tab-title.ts"
 import {
   TTS_CONTROL,
   TTS_EVENT,
@@ -206,6 +207,10 @@ export default defineContentScript({
       } else {
         cancelSpeech()
       }
+      // The page can come back from bfcache with this same document.title frozen:
+      // without this, navigating back would resurrect the mark on a page
+      // that isn't reading anymore.
+      markTab(false)
     })
     ctx.onInvalidated(() => {
       browser.runtime.onMessage.removeListener(onMessage)
@@ -217,6 +222,9 @@ export default defineContentScript({
       cancelSpeech()
       follower.end()
       pill.remove()
+      // Extension reload or update while reading: `fold()` isn't called,
+      // so the title would stay marked without this.
+      markTab(false)
     })
 
     function onMessage(message: Partial<StartReadingMessage>) {
@@ -374,6 +382,7 @@ export default defineContentScript({
       usingSupertonic = true
       reading = true
       paused = false
+      markTab(true)
       sawSupertonicDownload = false
       supertonicTitle = payload.title ?? ""
       track({ name: "read_started", properties: { engine: "supertonic" } })
@@ -431,6 +440,7 @@ export default defineContentScript({
       reading = true
       paused = false
       stale = false
+      markTab(true)
       track({ name: "read_started", properties: { engine: "system" } })
       // Prendre la parole : les pastilles des autres onglets s'en déduisent.
       void browser.storage.local.set({ [READER_TOKEN]: token })
@@ -530,6 +540,7 @@ export default defineContentScript({
       paused = false
       stale = false
       usingSupertonic = false
+      markTab(false)
       follower.end()
       // La file coupée ne nous appartient plus : un `end` en retard ne doit pas
       // replier une lecture relancée entre-temps.
