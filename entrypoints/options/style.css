@@ -554,6 +554,19 @@ input[type="range"] {
   font-weight: 600;
 }
 
+/* Variante avec bouton (téléchargement, erreur) : la ligne de texte garde
+   la même mise en page que les alertes simples, le bouton suit dessous. */
+.engine-alert-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  flex: 1;
+}
+
+.engine-alert-body progress {
+  margin: 0.125rem 0;
+}
+
 /* ── Boutons ─────────────────────────────────────────────────────────── */
 button {
   font: inherit;
@@ -605,6 +618,33 @@ button:active {
   color: #fff;
 }
 
+/* Seul bouton "primaire" (fond plein) de la page : le téléchargement du
+   modèle est la seule action que cette page capture au moment de
+   l'intention plutôt que de se contenter de refléter un état. */
+.btn-primary {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0 1.125rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border: 1px solid transparent;
+  font-weight: 500;
+}
+
+/* Annuler un téléchargement ne perd rien sur disque (reprise par fichier) —
+   pas la gravité visuelle de .btn-danger, qui reste pour la suppression
+   réelle. Même chose pour "Réessayer" : ni destructif, ni l'action première. */
+.btn-text {
+  min-height: 44px;
+  padding: 0 0.25rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  border: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  align-self: flex-start;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .btn-icon:hover {
     border-color: color-mix(in srgb, var(--primary) 45%, transparent);
@@ -613,6 +653,14 @@ button:active {
 
   .btn-danger:hover {
     background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  }
+
+  .btn-primary:hover {
+    background: color-mix(in srgb, var(--primary) 88%, black);
+  }
+
+  .btn-text:hover {
+    color: var(--foreground);
   }
 }
 
@@ -665,6 +713,12 @@ progress::-moz-progress-bar {
   margin: 0;
   font-size: 0.8125rem;
   color: var(--muted-foreground);
+}
+
+.cache-note a {
+  color: var(--primary);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 45%, transparent);
 }
 
 .cache-actions {

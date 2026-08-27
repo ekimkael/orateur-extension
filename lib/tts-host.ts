@@ -87,6 +87,47 @@ export interface Unit {
 }
 
 /**
+ * Distance en blocs au-delà de laquelle un bloc indécis n'hérite plus de rien
+ * et retombe sur `docLang` — un titre court hérite de l'article qui le suit,
+ * mais pas d'un paragraphe à l'autre bout du document.
+ */
+const NEIGHBOR_RANGE = 2
+
+/**
+ * Langue par bloc. Passe 1 : `detectLang` isolément sur chaque bloc, repli
+ * `null` (pas `docLang`) pour distinguer « indécis » de « décidé comme
+ * `docLang` ». Passe 2 : un bloc indécis prend la langue du voisin décidé le
+ * plus proche — le paragraphe qui suit un titre, les frères d'un même item de
+ * liste — et `docLang` seulement faute de voisin décidé à moins de
+ * `NEIGHBOR_RANGE` blocs. À égale distance, le voisin suivant l'emporte : un
+ * titre appartient à ce qu'il introduit, pas à ce qui précède.
+ */
+export function resolveBlockLangs(blocks: string[], docLang: SupportedLang): SupportedLang[] {
+  const decided = blocks.map((block) => detectLang(block, null))
+  // Un bloc indécis qui n'a AUCUN voisin indécis (isolé entre deux blocs déjà
+  // tranchés, ou en bord de document) n'est pas un fragment de titre ou de
+  // liste : c'est une phrase de flux ordinaire, juste trop courte pour se
+  // prouver elle-même. Ex. un article français cite un paragraphe anglais
+  // puis reprend par une phrase courte : cette phrase ne doit pas hériter de
+  // la citation qui la précède. Un titre suivi de son contenu (les deux à
+  // distance 1) n'a pas ce problème : l'inheritance vers l'AVANT reste donc
+  // sans condition, seule celle vers l'ARRIÈRE l'exige.
+  const isIndecisive = (i: number) => i >= 0 && i < decided.length && decided[i] === null
+  return decided.map((lang, i) => {
+    if (lang) return lang
+    for (let d = 1; d <= NEIGHBOR_RANGE; d++) {
+      if (decided[i + d]) return decided[i + d]!
+    }
+    if (isIndecisive(i - 1) || isIndecisive(i + 1)) {
+      for (let d = 1; d <= NEIGHBOR_RANGE; d++) {
+        if (decided[i - d]) return decided[i - d]!
+      }
+    }
+    return docLang
+  })
+}
+
+/**
  * Découpe en unités de synthèse. `engine.synthesize()` appliquait déjà
  * `chunkText` en interne et enchaînait les chunks d'un même paragraphe en un
  * seul WAV : le premier son attendait donc la synthèse du paragraphe entier.
@@ -96,16 +137,18 @@ export interface Unit {
  *
  * `docLang` est la langue déclarée/résolue pour tout le texte : un premier
  * passage de `detectLang` sur le texte entier peut la corriger (article
- * entièrement mal étiqueté), puis chaque paragraphe est détecté à son tour
- * avec cette langue corrigée comme repli.
+ * entièrement mal étiqueté), puis chaque paragraphe reçoit sa langue de
+ * `resolveBlockLangs`, qui hérite du voisinage plutôt que de retomber tout de
+ * suite sur `docLang`.
  */
 export function splitUnits(text: string, lang: SupportedLang): Unit[] {
   const docLang = detectLang(text, lang) ?? lang
   const units: Unit[] = []
   const paragraphs = splitBlocks(text)
+  const paragraphLangs = resolveBlockLangs(paragraphs, docLang)
   for (let p = 0; p < paragraphs.length; p++) {
     const paragraph = paragraphs[p]!
-    const paragraphLang = detectLang(paragraph, docLang) ?? docLang
+    const paragraphLang = paragraphLangs[p]!
     const maxLen = paragraphLang === "ko" || paragraphLang === "ja" ? 120 : 300
     const chunks = chunkText(paragraph, maxLen)
     for (let i = 0; i < chunks.length; i++) {

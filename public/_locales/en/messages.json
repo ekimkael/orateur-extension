@@ -74,12 +74,6 @@
   "voiceDefault": {
     "message": "Default"
   },
-  "supertonicNoteLead": {
-    "message": "Natural voices, generated on your device."
-  },
-  "supertonicNoteSize": {
-    "message": "398 MB to download on first use, once."
-  },
   "voiceFemale1": {
     "message": "Female 1"
   },
@@ -252,13 +246,34 @@
     "message": "398 MB to download"
   },
   "optionsModelAlertPending": {
-    "message": " on the first reading, once. After that everything runs on your device, offline — no text is sent anywhere. Supertonic model."
+    "message": " on the first reading, once. After that everything runs on your device, offline — no text is sent anywhere."
   },
   "optionsModelAlertReadyLead": {
     "message": "Model already downloaded."
   },
   "optionsModelAlertReady": {
     "message": " Everything runs on your device, offline — no text is sent anywhere."
+  },
+  "optionsModelDownloadCta": {
+    "message": "Download the voices — 398 MB"
+  },
+  "optionsModelDownloading": {
+    "message": "Downloading — $1 MB of $2 MB"
+  },
+  "optionsModelDownloadingNote": {
+    "message": "You can close this page. The download continues."
+  },
+  "optionsModelCancel": {
+    "message": "Cancel"
+  },
+  "optionsModelError": {
+    "message": "The download stopped. Nothing already downloaded is lost."
+  },
+  "optionsModelRetry": {
+    "message": "Try again"
+  },
+  "optionsModelUnavailable": {
+    "message": "Private browsing can't store the model. Open the extension in a normal window to download it."
   },
   "optionsSpeedHelp": {
     "message": "The sample plays at this speed."
@@ -279,7 +294,10 @@
     "message": "Ready offline"
   },
   "optionsModelEmpty": {
-    "message": "Nothing downloaded yet. 398 MB on the first reading with natural voices, once."
+    "message": "Nothing downloaded yet."
+  },
+  "optionsModelGoToVoice": {
+    "message": "Pick the natural voices to download them →"
   },
   "optionsClearCacheConfirm": {
     "message": "Confirm"

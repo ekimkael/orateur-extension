@@ -74,12 +74,6 @@
   "voiceDefault": {
     "message": "Par défaut"
   },
-  "supertonicNoteLead": {
-    "message": "Voix naturelles, générées sur votre appareil."
-  },
-  "supertonicNoteSize": {
-    "message": "398 Mo à télécharger à la première lecture, une seule fois."
-  },
   "voiceFemale1": {
     "message": "Femme 1"
   },
@@ -252,13 +246,34 @@
     "message": "398 Mo à télécharger"
   },
   "optionsModelAlertPending": {
-    "message": " à la première lecture, une seule fois. Ensuite tout tourne sur votre appareil, hors ligne — aucun texte n'est envoyé nulle part. Modèle Supertonic."
+    "message": " à la première lecture, une seule fois. Ensuite tout tourne sur votre appareil, hors ligne — aucun texte n'est envoyé nulle part."
   },
   "optionsModelAlertReadyLead": {
     "message": "Modèle déjà téléchargé."
   },
   "optionsModelAlertReady": {
     "message": " Tout tourne sur votre appareil, hors ligne — aucun texte n'est envoyé nulle part."
+  },
+  "optionsModelDownloadCta": {
+    "message": "Télécharger les voix — 398 Mo"
+  },
+  "optionsModelDownloading": {
+    "message": "Téléchargement — $1 Mo sur $2 Mo"
+  },
+  "optionsModelDownloadingNote": {
+    "message": "Vous pouvez fermer cette page. Le téléchargement continue."
+  },
+  "optionsModelCancel": {
+    "message": "Annuler"
+  },
+  "optionsModelError": {
+    "message": "Le téléchargement s'est interrompu. Rien de ce qui est déjà téléchargé n'est perdu."
+  },
+  "optionsModelRetry": {
+    "message": "Réessayer"
+  },
+  "optionsModelUnavailable": {
+    "message": "La navigation privée ne peut pas stocker le modèle. Ouvrez l'extension dans une fenêtre normale pour le télécharger."
   },
   "optionsSpeedHelp": {
     "message": "L'extrait se joue à cette vitesse."
@@ -279,7 +294,10 @@
     "message": "Prêt hors ligne"
   },
   "optionsModelEmpty": {
-    "message": "Rien de téléchargé pour l'instant. 398 Mo à la première lecture en voix naturelles, une seule fois."
+    "message": "Rien de téléchargé pour l'instant."
+  },
+  "optionsModelGoToVoice": {
+    "message": "Choisissez les voix naturelles pour les télécharger →"
   },
   "optionsClearCacheConfirm": {
     "message": "Confirmer"

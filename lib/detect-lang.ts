@@ -26,10 +26,54 @@
  */
 import type { SupportedLang } from "./supertonic-lang.ts"
 
-const MIN_CHARS = 20
+const MIN_CHARS = 8
 const MIN_TOKENS = 12
 const MIN_SCORE = 0.12
 const MIN_MARGIN = 0.04
+/** Sous ce nombre de mots distincts, la table de mots ne prouve plus rien : seule une signature peut trancher. */
+const HARD_MIN_TOKENS = 4
+
+/**
+ * Score et marge exigés pour un texte de `distinct` mots distincts. Ce qu'un
+ * texte court perd en volume de preuve, il doit le rendre en netteté : un titre
+ * de quatre mots ne passe que si presque tous sont des mots-outils d'une seule
+ * table.
+ *
+ * ponytail : interpolation linéaire, pas de calibration statistique. Les pentes
+ * sont réglées pour qu'à quatre mots il faille ~1 mot-outil exclusif sur 3 ;
+ * à recalibrer sur des vrais textes si le repli devient trop (ou pas assez)
+ * fréquent.
+ */
+function floors(distinct: number): { score: number; margin: number } {
+  if (distinct >= MIN_TOKENS) return { score: MIN_SCORE, margin: MIN_MARGIN }
+  const short = (MIN_TOKENS - distinct) / MIN_TOKENS
+  return { score: MIN_SCORE + short * 0.28, margin: MIN_MARGIN + short * 0.16 }
+}
+
+/**
+ * Signes propres à une seule langue du modèle — dans l'esprit d'`UKRAINIAN_ONLY`
+ * plus bas. Assez pour trancher un titre de trois mots que la table de mots
+ * laisse indécis.
+ *
+ * Rien pour `fr`, `it`, `nl`, `en` : leurs diacritiques sont tous partagés avec
+ * une autre langue de la liste, une signature y serait un faux ami. Ne pas en
+ * inventer.
+ */
+const SIGNATURES: [SupportedLang, RegExp][] = [
+  ["es", /[ñ¿¡]/u],
+  ["pt", /[ãõ]/u],
+  // ä/ö/ü seuls ne suffisent pas : le finnois et le suédois les partagent, et
+  // ne sont eux-mêmes candidats nulle part dans `LATIN_CANDIDATES` — un texte
+  // finnois traverserait quand même cette branche. `ß` seul est réellement
+  // exclusif à l'allemand.
+  ["de", /ß/u],
+]
+
+/** L'unique langue signée par le texte, ou `null` si aucune — ou si plusieurs se contredisent. */
+function bySignature(text: string): SupportedLang | null {
+  const hits = SIGNATURES.filter(([, pattern]) => pattern.test(text))
+  return hits.length === 1 ? hits[0]![0] : null
+}
 
 /** Mots grammaticaux fréquents, assez pour distinguer un texte de l'autre sans prétendre à l'exhaustivité. */
 const WORD_TABLES: Partial<Record<SupportedLang, Set<string>>> = {
@@ -170,6 +214,7 @@ function bestByWordTable(
   // sinon un seul faux ami répété fait gagner sa table (vu sur le finnois,
   // où « on » — mot outil anglais — revenait trois fois dans une phrase).
   const distinct = [...new Set(tokens)]
+  if (distinct.length < HARD_MIN_TOKENS) return null
   const scored = candidates
     .map((lang) => {
       const table = WORD_TABLES[lang]
@@ -180,10 +225,11 @@ function bestByWordTable(
     .filter((s): s is { lang: SupportedLang; score: number } => s !== null)
     .sort((a, b) => b.score - a.score)
 
+  const { score: minScore, margin: minMargin } = floors(distinct.length)
   const top = scored[0]
-  if (!top || top.score < MIN_SCORE) return null
+  if (!top || top.score < minScore) return null
   const second = scored[1]
-  if (second && top.score - second.score < MIN_MARGIN) return null
+  if (second && top.score - second.score < minMargin) return null
   return top.lang
 }
 
@@ -212,13 +258,18 @@ export function detectLang(text: string, fallback: SupportedLang | null): Suppor
     case "cyrillic": {
       if (UKRAINIAN_ONLY.test(text)) return "uk"
       const tokens = tokenize(text)
-      if (tokens.length < MIN_TOKENS) return fallback
+      // Pas de table de signatures côté cyrillique (§ ci-dessus) : la table de
+      // mots dit tout ce qu'il y a à dire.
       return bestByWordTable(tokens, CYRILLIC_CANDIDATES, CYRILLIC_WEIGHTS) ?? fallback
     }
     case "latin": {
       const tokens = tokenize(text)
-      if (tokens.length < MIN_TOKENS) return fallback
-      return bestByWordTable(tokens, LATIN_CANDIDATES, LATIN_WEIGHTS) ?? fallback
+      const byTable = bestByWordTable(tokens, LATIN_CANDIDATES, LATIN_WEIGHTS)
+      const bySign = bySignature(text)
+      // Un verdict par table qu'une signature contredit est plus suspect que
+      // les deux pris isolément — sur un texte aussi court, mieux vaut douter.
+      if (byTable && bySign && byTable !== bySign) return fallback
+      return byTable ?? bySign ?? fallback
     }
     default:
       return fallback
