@@ -31,7 +31,9 @@
     --background: #0d0d0d;
     --foreground: #e8e8e8;
     --card: #161616;
-    --muted-foreground: #7a7a7a;
+    /* #7a7a7a only cleared 4.2:1 against --card, short of the 4.5:1 needed
+       for help/eyebrow/nav text — #838383 clears ~4.8:1. */
+    --muted-foreground: #838383;
     --secondary: #1e1e1e;
     --border: #2a2a2a;
     --grid-line: rgba(255, 255, 255, 0.018);
@@ -42,7 +44,7 @@
   --background: #0d0d0d;
   --foreground: #e8e8e8;
   --card: #161616;
-  --muted-foreground: #7a7a7a;
+  --muted-foreground: #838383;
   --secondary: #1e1e1e;
   --border: #2a2a2a;
   --grid-line: rgba(255, 255, 255, 0.018);
@@ -132,6 +134,7 @@ h1 {
   margin: 0 0 2rem;
   color: var(--muted-foreground);
   max-width: 34rem;
+  text-wrap: pretty;
 }
 
 /* ── Grille sidebar + contenu ────────────────────────────────────────── */
@@ -356,6 +359,11 @@ input[type="range"] {
 }
 
 /* ── Sites exclus ────────────────────────────────────────────────────── */
+.site-add-label {
+  display: block;
+  margin: 1rem 0 0.5rem;
+}
+
 .site-add {
   display: flex;
   gap: 0.5rem;
@@ -580,7 +588,7 @@ button {
 }
 
 button:active {
-  transform: scale(0.97);
+  transform: scale(0.96);
 }
 
 .btn-icon {
@@ -625,7 +633,9 @@ button:active {
   align-self: flex-start;
   min-height: 44px;
   padding: 0 1.125rem;
-  background: var(--primary);
+  /* Darkened from the raw --primary token: white text directly on #f54e00
+     only clears 3.5:1, short of the 4.5:1 required for this button label. */
+  background: color-mix(in srgb, var(--primary) 80%, black);
   color: var(--primary-foreground);
   border: 1px solid transparent;
   font-weight: 500;
@@ -656,7 +666,7 @@ button:active {
   }
 
   .btn-primary:hover {
-    background: color-mix(in srgb, var(--primary) 88%, black);
+    background: color-mix(in srgb, var(--primary) 70%, black);
   }
 
   .btn-text:hover {
@@ -764,8 +774,8 @@ progress::-moz-progress-bar {
   margin: 0.5rem 0 0;
   font-size: 0.8125rem;
   color: var(--foreground);
-  padding-left: 0.75rem;
-  border-left: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  padding-inline-start: 0.75rem;
+  border-inline-start: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
 }
 
 /* ── Pied ────────────────────────────────────────────────────────────── */

@@ -127,7 +127,7 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
 
         <div className="card">
           <section className="section" id="general">
-            <p className="eyebrow">{t("optionsSectionGeneral")}</p>
+            <h2 className="eyebrow">{t("optionsSectionGeneral")}</h2>
 
             <div className="row">
               <span className="row-head">
@@ -177,9 +177,12 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
           </section>
 
           <section className="section" id="sites">
-            <p className="eyebrow">{t("optionsSectionSites")}</p>
+            <h2 className="eyebrow">{t("optionsSectionSites")}</h2>
             <p className="help">{t("optionsSitesHelp")}</p>
 
+            <label className="row-label site-add-label" htmlFor="site-input">
+              {t("optionsSitesLabel")}
+            </label>
             <form
               className="site-add"
               onSubmit={(e) => {
@@ -190,11 +193,11 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
               }}
             >
               <input
+                id="site-input"
                 type="text"
                 value={siteInput}
                 onChange={(e) => setSiteInput(e.target.value)}
                 placeholder={t("optionsSitesPlaceholder")}
-                aria-label={t("optionsSitesPlaceholder")}
               />
               <button type="submit" disabled={!normalizeSite(siteInput)}>
                 {t("optionsSitesAdd")}
@@ -225,7 +228,7 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
           </section>
 
           <section className="section" id="voix">
-            <p className="eyebrow">{t("optionsSectionVoice")}</p>
+            <h2 className="eyebrow">{t("optionsSectionVoice")}</h2>
 
             <EngineSelect
               value={prefs.engine}
@@ -248,14 +251,14 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
           </section>
 
           <section className="section" id="modele">
-            <p className="eyebrow">{t("optionsSectionModel")}</p>
+            <h2 className="eyebrow">{t("optionsSectionModel")}</h2>
 
             {cacheBytes != null ? (
               // Pas de <progress> ici : une barre toujours à 100% est de la
               // décoration, pas un état — le texte suffit.
               <div className="cache-body">
                 <p className="cache-note">{t("optionsCacheSize", [String(cacheMb)])}</p>
-                <div className="cache-actions">
+                <div className="cache-actions" aria-live="polite" aria-atomic="true">
                   <button
                     type="button"
                     className="btn-danger"
@@ -286,7 +289,7 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
           </section>
 
           <section className="section" id="confidentialite">
-            <p className="eyebrow">{t("optionsSectionPrivacy")}</p>
+            <h2 className="eyebrow">{t("optionsSectionPrivacy")}</h2>
 
             <label className="toggle">
               <input

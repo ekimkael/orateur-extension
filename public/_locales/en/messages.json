@@ -207,16 +207,19 @@
     "message": "Language"
   },
   "optionsLanguageAuto": {
-    "message": "Automatic"
+    "message": "System"
   },
   "optionsLanguageHelp": {
-    "message": "“Automatic” follows your browser’s language."
+    "message": "“System” follows your browser’s language."
   },
   "optionsSectionSites": {
     "message": "Sites"
   },
   "optionsSitesHelp": {
     "message": "Orateur stays hidden on the sites listed here — no pill, no selection bubble."
+  },
+  "optionsSitesLabel": {
+    "message": "Site to hide Orateur on"
   },
   "optionsSitesPlaceholder": {
     "message": "example.com"
@@ -300,10 +303,10 @@
     "message": "Pick the natural voices to download them →"
   },
   "optionsClearCacheConfirm": {
-    "message": "Confirm"
+    "message": "Confirm deletion"
   },
   "optionsClearCacheHint": {
-    "message": "This click deletes everything. Cancels in 4 s without confirmation."
+    "message": "Click again within 4 s to confirm. Otherwise this cancels on its own."
   },
   "optionsSectionPrivacy": {
     "message": "Privacy"

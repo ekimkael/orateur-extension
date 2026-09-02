@@ -26,6 +26,8 @@ scratchpad
 
 # Outillage local : config d'agent et notes de travail
 .claude
+.agents
+skills-lock.json
 plans
 graphify-out
 
