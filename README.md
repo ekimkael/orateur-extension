@@ -27,6 +27,19 @@ OPFS, after which it works offline.
 
 Works on Chrome (MV3) and Firefox (MV2), via [WXT](https://wxt.dev).
 
+## Architecture
+
+Three always-injected surfaces (reading pill, selection bubble, options page)
+talk to a stateless background service worker, which relays to a TTS host
+living in an offscreen document (Chrome) or the persistent background page
+(Firefox). That host owns chunk scheduling and dual-`<audio>` playback, and
+delegates inference to the Supertonic engine (ONNX Runtime, WASM/WebGPU).
+Shared prefs live in `storage.local`; the Supertonic model cache lives in
+OPFS.
+
+See [docs/architecture.html](docs/architecture.html) for the full interactive
+diagram (open it directly in a browser, no server needed).
+
 ## Development
 
 ```bash
