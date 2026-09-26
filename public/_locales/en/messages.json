@@ -224,6 +224,12 @@
   "optionsSitesPlaceholder": {
     "message": "example.com"
   },
+  "optionsSitesHint": {
+    "message": "Enter a domain or URL, such as example.com."
+  },
+  "optionsSitesInvalid": {
+    "message": "Invalid address. Enter a domain or URL, such as example.com."
+  },
   "optionsSitesAdd": {
     "message": "Add"
   },
@@ -270,7 +276,7 @@
     "message": "Cancel"
   },
   "optionsModelError": {
-    "message": "The download stopped. Nothing already downloaded is lost."
+    "message": "Unable to start or continue the download. Try again. Files already downloaded are kept."
   },
   "optionsModelRetry": {
     "message": "Try again"
@@ -283,6 +289,12 @@
   },
   "optionsPreviewVoice": {
     "message": "Hear a sample"
+  },
+  "optionsPreviewRetry": {
+    "message": "Retry the sample"
+  },
+  "optionsPreviewError": {
+    "message": "Unable to play this sample. Try again using the play button or choose another voice."
   },
   "optionsStopPreview": {
     "message": "Stop the sample"

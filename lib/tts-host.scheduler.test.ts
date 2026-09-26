@@ -8,6 +8,8 @@
  */
 import assert from "node:assert/strict"
 import test, { beforeEach, mock } from "node:test"
+import { JSDOM } from "jsdom"
+import { extractSelectionText } from "./selection-text.ts"
 // Import statique, donc évalué AVANT le `mock.module` du corps : capture le
 // vrai `chunkText`, que le double doit continuer d'exposer tel quel.
 import { chunkText } from "./supertonic/engine.ts"
@@ -51,6 +53,7 @@ let synthesized: string[] = []
 let created: string[] = []
 let revoked: string[] = []
 let urlCount = 0
+let encodedPcm: Float32Array[] = []
 
 const g = globalThis as unknown as Record<string, unknown>
 g.Audio = FakeAudio
@@ -70,13 +73,16 @@ mock.module(new URL("./supertonic/engine.ts", import.meta.url).href, {
   namedExports: {
     chunkText,
     loadVoiceStyle: async () => ({}),
-    writeWavFile: () => new ArrayBuffer(8),
+    writeWavFile: (pcm: Float32Array) => {
+      encodedPcm.push(pcm.slice())
+      return new ArrayBuffer(8)
+    },
     loadTextToSpeechEngine: async () => ({
       sampleRate: 44100,
       synthesize: async (text: string) => {
         synthesized.push(text)
         await new Promise((r) => setTimeout(r, 0))
-        return new Float32Array(4)
+        return new Float32Array(4).fill(0.5)
       },
     }),
   },
@@ -111,6 +117,21 @@ beforeEach(() => {
   synthesized = []
   created = []
   revoked = []
+  encodedPcm = []
+})
+
+test("un titre de mail a son audio et son silence avant la prose avec la voix IA", async () => {
+  const doc = new JSDOM("<div><b>Prochaine étape</b><br>Nous préparons maintenant la suite du projet.</div>").window.document
+  const host = createTtsHost(() => {})
+  host.speak({ text: extractSelectionText(doc.body), lang: "fr", voice: "F1", speed: 1 })
+  await settle()
+  assert.deepEqual(contentSynths(), ["Prochaine étape.", "Nous préparons maintenant la suite du projet."])
+  assert.equal(encodedPcm.length, 2)
+  const titleAudio = encodedPcm[0]!
+  assert.equal(titleAudio.length, 4 + Math.floor(0.3 * 44100))
+  assert.ok(titleAudio.subarray(0, 4).every((value) => value === 0.5))
+  assert.ok(titleAudio.subarray(4).every((value) => value === 0))
+  host.control("stop")
 })
 
 test("l'avance précharge LOOKAHEAD unités devant la lecture, pas plus", async () => {

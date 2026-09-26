@@ -224,6 +224,12 @@
   "optionsSitesPlaceholder": {
     "message": "exemple.com"
   },
+  "optionsSitesHint": {
+    "message": "Saisissez un domaine ou une URL, par exemple exemple.fr."
+  },
+  "optionsSitesInvalid": {
+    "message": "Adresse non valide. Saisissez un domaine ou une URL, par exemple exemple.fr."
+  },
   "optionsSitesAdd": {
     "message": "Ajouter"
   },
@@ -270,7 +276,7 @@
     "message": "Annuler"
   },
   "optionsModelError": {
-    "message": "Le téléchargement s'est interrompu. Rien de ce qui est déjà téléchargé n'est perdu."
+    "message": "Impossible de démarrer ou de poursuivre le téléchargement. Réessayez. Les fichiers déjà téléchargés sont conservés."
   },
   "optionsModelRetry": {
     "message": "Réessayer"
@@ -283,6 +289,12 @@
   },
   "optionsPreviewVoice": {
     "message": "Écouter un extrait"
+  },
+  "optionsPreviewRetry": {
+    "message": "Réessayer l'extrait"
+  },
+  "optionsPreviewError": {
+    "message": "Impossible de lire cet extrait. Réessayez avec le bouton de lecture ou choisissez une autre voix."
   },
   "optionsStopPreview": {
     "message": "Arrêter l'extrait"

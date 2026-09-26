@@ -66,8 +66,8 @@ test("ignore les éléments sans prose", () => {
   )
 })
 
-test("un <br> coupe la ligne sans ouvrir un paragraphe", () => {
-  assert.equal(textOf("<p>Ligne 1<br>Ligne 2</p>"), "Ligne 1\nLigne 2")
+test("un <br> sépare les blocs vocaux, notamment titre et prose dans un mail", () => {
+  assert.equal(textOf("<p><b>Titre</b><br>Explication</p>"), "Titre\n\nExplication")
 })
 
 test("normalise les blancs sans toucher au texte", () => {

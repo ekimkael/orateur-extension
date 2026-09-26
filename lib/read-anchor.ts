@@ -14,13 +14,10 @@
  * est appelé par reader.content.ts, chargé sur toutes les pages, et
  * extract-article.ts tire Readability derrière lui.
  *
- * Le filtre des blocs imbriqués de l'extracteur (un `<p>` dans un
- * `<blockquote>`) n'est pas repris : l'ordre du document présente le parent en
- * premier, et son texte commence par celui de l'enfant — c'est donc lui qui
- * gagne la comparaison, comme à l'extraction. L'enfant, lui, est simplement
- * dépassé par le curseur.
+ * Les conteneurs des mails sont inclus : leur prose n'est pas toujours dans
+ * un p. Parmi les correspondances imbriquées, préférer le bloc le plus précis.
  */
-const TEXT_BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,pre"
+const TEXT_BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,pre,div,section,td,th"
 
 /** Même normalisation que l'extracteur, sinon rien ne se compare. */
 const normalize = (text: string) => text.replace(/\s+/g, " ").trim()
@@ -79,6 +76,18 @@ export function createAnchorFinder(root: ParentNode) {
     for (let i = cursor; i < candidates.length; i++) {
       const element = candidates[i]!
       if (!textOf(element).startsWith(mark)) continue
+      let match = i
+      for (let j = i + 1; j < candidates.length && element.contains(candidates[j]!); j++) {
+        if (textOf(candidates[j]!).startsWith(mark)) {
+          match = j
+          break
+        }
+      }
+      // Repartir du descendant pour descendre encore si nécessaire.
+      if (match !== i) {
+        i = match - 1
+        continue
+      }
       cursor = i + 1
       return element
     }

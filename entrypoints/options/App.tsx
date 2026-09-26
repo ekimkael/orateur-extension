@@ -53,6 +53,8 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
 
   const { sites: hiddenSites, add: addSite, remove: removeSite } = useHiddenSites()
   const [siteInput, setSiteInput] = useState("")
+  const [siteInvalid, setSiteInvalid] = useState(false)
+  const siteInputRef = useRef<HTMLInputElement>(null)
 
   const [cacheBytes, setCacheBytes] = useState<number | null>(null)
   const [clearing, setClearing] = useState(false)
@@ -187,22 +189,35 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
               className="site-add"
               onSubmit={(e) => {
                 e.preventDefault()
-                if (!normalizeSite(siteInput)) return
+                if (!normalizeSite(siteInput)) {
+                  setSiteInvalid(true)
+                  siteInputRef.current?.focus()
+                  return
+                }
                 addSite(siteInput)
                 setSiteInput("")
               }}
             >
               <input
                 id="site-input"
+                ref={siteInputRef}
                 type="text"
+                aria-invalid={siteInvalid || undefined}
+                aria-describedby="site-input-hint"
                 value={siteInput}
-                onChange={(e) => setSiteInput(e.target.value)}
+                onChange={(e) => {
+                  setSiteInput(e.target.value)
+                  setSiteInvalid(false)
+                }}
                 placeholder={t("optionsSitesPlaceholder")}
               />
-              <button type="submit" disabled={!normalizeSite(siteInput)}>
+              <button type="submit">
                 {t("optionsSitesAdd")}
               </button>
             </form>
+            <p id="site-input-hint" className="help" role={siteInvalid ? "alert" : undefined}>
+              {t(siteInvalid ? "optionsSitesInvalid" : "optionsSitesHint")}
+            </p>
 
             {hiddenSites.length > 0 ? (
               <ul className="site-list">
