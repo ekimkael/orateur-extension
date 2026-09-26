@@ -141,7 +141,13 @@ browser.runtime.onMessage.addListener((message: IncomingMessage, sender) => {
     if (message.tabId == null || !message.text || !message.lang || !message.voice) return
     currentTabId = message.tabId
     currentToken = message.token ?? null
-    host.speak({ text: message.text, lang: message.lang, voice: message.voice, speed: message.speed ?? 1 })
+    host.speak({
+      text: message.text,
+      lang: message.lang,
+      voice: message.voice,
+      speed: message.speed ?? 1,
+      startBlock: message.startBlock,
+    })
     return
   }
   if (message?.type === TTS_CONTROL && message.action) {

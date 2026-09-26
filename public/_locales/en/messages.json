@@ -316,5 +316,8 @@
   },
   "optionsOpenApp": {
     "message": "Open Orateur"
+  },
+  "readerResumePrompt": {
+    "message": "Resume where you stopped? Choose Cancel to restart from the beginning."
   }
 }

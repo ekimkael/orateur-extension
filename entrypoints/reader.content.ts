@@ -44,6 +44,11 @@ import { isHidden, loadHiddenSites, addHiddenSite, onHiddenSitesChanged } from "
 import { charteTokens } from "../lib/charte.ts"
 import { applyTheme } from "../lib/theme.ts"
 import { loadUiPrefs, onUiPrefsChanged, type ColorTheme } from "../lib/ui-prefs.ts"
+import {
+  clearReadingProgress,
+  loadReadingProgress,
+  saveReadingProgress,
+} from "../lib/reading-progress.ts"
 
 export interface ReadPagePayload {
   text: string
@@ -134,6 +139,9 @@ export default defineContentScript({
     /** Réinjecté à chaque `playing` : un état de chargement y écrit la
      *  progression du téléchargement par-dessus, il faut de quoi le restaurer. */
     let supertonicTitle = ""
+    let readingUrl = ""
+    let readingTitle = ""
+    let readingTotal = 0
     /**
      * Vrai dès qu'un `reason: "downloading-model"` est vu pendant la session
      * Supertonic en cours — sert à ne compter `supertonic_download_completed`/
@@ -262,6 +270,7 @@ export default defineContentScript({
           track({ name: "supertonic_download_completed" })
         }
         paused = false
+        void persistProgress(state.block)
         follower.show(state.block)
         pill.setState("playing", supertonicTitle)
       } else if (state.phase === "paused") {
@@ -269,6 +278,7 @@ export default defineContentScript({
         pill.setState("paused")
       } else if (state.phase === "ended") {
         track({ name: "read_completed" })
+        void clearReadingProgress(readingUrl)
         fold()
       } else if (state.phase === "error") {
         if (sawSupertonicDownload) {
@@ -341,7 +351,19 @@ export default defineContentScript({
     }
 
     /** Choisit le moteur, puis démarre — le reste ne se recroise plus. */
-    function start(payload: ReadPagePayload) {
+    async function start(payload: ReadPagePayload) {
+      const total = splitParagraphs(payload.text).length
+      if (!total) return fold()
+      const url = canonicalUrl()
+      const title = payload.title ?? ""
+      const saved = await loadReadingProgress(url, total)
+      const resume = !!saved && confirm(browser.i18n.getMessage("readerResumePrompt"))
+      const startBlock = resume ? saved.block : 0
+      if (saved && !resume) await clearReadingProgress(url)
+      readingUrl = url
+      readingTitle = title
+      readingTotal = total
+
       if (prefs.engine === "supertonic") {
         // La déclaration de la page d'abord ; si elle manque ou sort du
         // modèle, une détection sur le texte réel avant d'abandonner —
@@ -349,7 +371,7 @@ export default defineContentScript({
         const supertonicLang =
           toSupertonicLang(payload.lang ?? "") ?? detectLang(payload.text, null)
         if (supertonicLang) {
-          startSupertonic(payload, supertonicLang)
+          startSupertonic(payload, supertonicLang, startBlock)
           return
         }
         // Langue hors du modèle même après détection : un repli silencieux
@@ -360,10 +382,10 @@ export default defineContentScript({
           message: browser.i18n.getMessage("noticeSupertonicLangUnsupported"),
         } satisfies NotifyMessage)
       }
-      startSystem(payload)
+      startSystem(payload, startBlock)
     }
 
-    function startSupertonic(payload: ReadPagePayload, lang: SupportedLang) {
+    function startSupertonic(payload: ReadPagePayload, lang: SupportedLang, startBlock: number) {
       // `lang` est la langue résolue (déclaration ou détection), pas
       // forcément `payload.lang` : l'annonce du titre doit sonner dans la
       // langue qui va réellement être lue.
@@ -389,6 +411,7 @@ export default defineContentScript({
       void browser.storage.local.set({ [READER_TOKEN]: token })
       pill.attach()
       pill.setState("loading", supertonicTitle, true)
+      void persistProgress(startBlock)
       void browser.runtime.sendMessage({
         type: TTS_SPEAK,
         text,
@@ -396,11 +419,12 @@ export default defineContentScript({
         lang,
         voice: prefs.supertonicVoice,
         speed: prefs.speed,
+        startBlock,
         token,
       } satisfies Partial<TtsSpeakMessage>)
     }
 
-    function startSystem(payload: ReadPagePayload) {
+    function startSystem(payload: ReadPagePayload, startBlock: number) {
       // Un bloc par paragraphe, pour éviter la limite de longueur de Chrome.
       // Le découpage passe avant `expandText`, qui écrase les blancs — les
       // frontières de paragraphes n'y survivraient pas.
@@ -434,7 +458,7 @@ export default defineContentScript({
       blocks = raw.map((block) => expandText(block, { language: resolvedLang })).filter(Boolean)
       if (!blocks.length) return fold()
 
-      blockIndex = 0
+      blockIndex = startBlock
       charIndex = 0
       lang = resolvedLang
       reading = true
@@ -448,6 +472,7 @@ export default defineContentScript({
       // contextuel doit quand même offrir de quoi l'arrêter.
       pill.attach()
       pill.setState("playing", payload.title ?? "")
+      void persistProgress(startBlock)
       speak()
     }
 
@@ -475,6 +500,7 @@ export default defineContentScript({
       const text = blocks[block]
       if (text === undefined) {
         track({ name: "read_completed" })
+        void clearReadingProgress(readingUrl)
         fold()
         return
       }
@@ -495,6 +521,7 @@ export default defineContentScript({
         if (mine !== generation) return
         blockIndex = block
         charIndex = from
+        void persistProgress(block)
         follower.show(block)
       })
       // `charIndex` est compté depuis le début de l'énoncé, donc depuis le
@@ -547,8 +574,26 @@ export default defineContentScript({
       generation++
       pill.setState("idle")
     }
+
+    function persistProgress(block: number) {
+      if (!readingUrl || readingTotal <= 0 || block < 0 || block >= readingTotal) return
+      return saveReadingProgress({
+        url: readingUrl,
+        title: readingTitle,
+        block,
+        total: readingTotal,
+        updatedAt: Date.now(),
+      })
+    }
   },
 })
+
+function canonicalUrl() {
+  const href = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href || location.href
+  const url = new URL(href, location.href)
+  url.hash = ""
+  return url.href
+}
 
 /**
  * Annule la synthèse en cours.

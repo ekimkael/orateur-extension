@@ -43,6 +43,8 @@ export interface TtsSpeakMessage {
   lang: SupportedLang
   voice: SupertonicVoice
   speed: number
+  /** Premier paragraphe à synthétiser lors d'une reprise. */
+  startBlock?: number
   /** Le jeton de la pastille émettrice — même mécanisme que READER_TOKEN. */
   token: string
   /**

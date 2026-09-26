@@ -180,3 +180,13 @@ test("une nouvelle lecture ne réutilise pas le cache de la précédente", async
   assert.equal(contentSynths().filter((t) => t === "Paragraphe 0.").length, 2)
   host.control("stop")
 })
+
+test("une reprise Supertonic commence au paragraphe demandé", async () => {
+  const states: Array<{ phase: string; block?: number }> = []
+  const host = createTtsHost((state) => states.push(state))
+  host.speak({ text: article(5), lang: "fr", voice: "F1", speed: 1, startBlock: 3 })
+  await settle()
+  assert.equal(contentSynths()[0], "Paragraphe 3.")
+  assert.equal(states.find((state) => state.phase === "playing")?.block, 3)
+  host.control("stop")
+})

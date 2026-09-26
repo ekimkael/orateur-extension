@@ -316,5 +316,8 @@
   },
   "optionsOpenApp": {
     "message": "Ouvrir Orateur"
+  },
+  "readerResumePrompt": {
+    "message": "Reprendre la lecture là où vous l’avez arrêtée ? Choisissez Annuler pour recommencer au début."
   }
 }

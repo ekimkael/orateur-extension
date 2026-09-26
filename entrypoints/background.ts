@@ -136,7 +136,13 @@ async function handleTtsFromPill(
       if (tabId == null || !message.text || !message.lang || !message.voice) return
       firefoxTabId = tabId
       firefoxToken = message.token ?? null
-      host.speak({ text: message.text, lang: message.lang, voice: message.voice, speed: message.speed ?? 1 })
+      host.speak({
+        text: message.text,
+        lang: message.lang,
+        voice: message.voice,
+        speed: message.speed ?? 1,
+        startBlock: message.startBlock,
+      })
     } else if (message.type === TTS_CONTROL && message.action) {
       host.control(message.action)
     } else if (message.type === TTS_SET_SPEED && message.speed != null) {

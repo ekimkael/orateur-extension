@@ -56,6 +56,7 @@ export interface SpeakRequest {
   lang: SupportedLang
   voice: SupertonicVoice
   speed: number
+  startBlock?: number
 }
 
 /** Un bloc par paragraphe — même découpe que le chemin système (reader.content.ts). */
@@ -484,7 +485,9 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     const gen = ++generation
     abort?.abort()
     abort = new AbortController()
-    units = splitUnits(request.text, request.lang)
+    units = splitUnits(request.text, request.lang).filter(
+      (unit) => unit.paragraph >= (request.startBlock ?? 0)
+    )
     index = 0
     speed = request.speed
     currentStyle = null
