@@ -15,6 +15,7 @@ import {
   TTS_CLOSE,
   TTS_CONTROL,
   TTS_EVENT,
+  TTS_SEEK,
   TTS_SET_SPEED,
   TTS_SPEAK,
   TTS_TAB_REMOVED,
@@ -22,6 +23,7 @@ import {
   type ModelProgressState,
   type TtsControlMessage,
   type TtsEventMessage,
+  type TtsSeekMessage,
   type TtsSetSpeedMessage,
   type TtsSpeakMessage,
   type TtsTabRemovedMessage,
@@ -126,6 +128,7 @@ type IncomingMessage =
   | Partial<TtsSpeakMessage>
   | Partial<TtsControlMessage>
   | Partial<TtsSetSpeedMessage>
+  | Partial<TtsSeekMessage>
   | Partial<TtsTokenChangedMessage>
   | Partial<TtsTabRemovedMessage>
 
@@ -156,6 +159,10 @@ browser.runtime.onMessage.addListener((message: IncomingMessage, sender) => {
   }
   if (message?.type === TTS_SET_SPEED && message.speed != null) {
     host.setSpeed(message.speed)
+    return
+  }
+  if (message?.type === TTS_SEEK && Number.isInteger(message.block) && message.block! >= 0 && typeof message.paused === "boolean") {
+    host.seek(message.block!, message.paused)
     return
   }
   if (message?.type === TTS_TOKEN_CHANGED) {

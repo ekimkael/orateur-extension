@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { JSDOM } from "jsdom"
-import { createAnchorFinder } from "./read-anchor.ts"
+import { createAnchorFinder, findBlockIndex } from "./read-anchor.ts"
 
 function docFrom(html: string) {
   return new JSDOM(html).window.document
@@ -81,4 +81,10 @@ test("un bloc vide ne renvoie rien", () => {
   const find = createAnchorFinder(doc)
 
   assert.equal(find("   "), null)
+})
+
+test("retrouve le paragraphe ciblé par Lire à partir d'ici", () => {
+  const doc = docFrom("<article><p>Premier passage.</p><p><span>Passage ciblé.</span></p><p>Dernier passage.</p></article>")
+  const target = doc.querySelector("span")!
+  assert.equal(findBlockIndex(doc, ["Premier passage.", "Passage ciblé.", "Dernier passage."], target), 1)
 })

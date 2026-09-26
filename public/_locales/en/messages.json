@@ -17,6 +17,9 @@
   "menuReadPageTitle": {
     "message": "Read this page"
   },
+  "menuReadFromHereTitle": {
+    "message": "Read from here"
+  },
   "errorSelectionEmpty": {
     "message": "No text selected."
   },
@@ -52,6 +55,12 @@
   },
   "ariaResume": {
     "message": "Resume reading"
+  },
+  "ariaPreviousParagraph": {
+    "message": "Previous paragraph"
+  },
+  "ariaNextParagraph": {
+    "message": "Next paragraph"
   },
   "ariaReadingSettings": {
     "message": "Reading settings"

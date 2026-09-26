@@ -35,6 +35,7 @@ export const TTS_TAB_REMOVED = "orateur:tts:tab-removed"
  * sans passer par la file pause/reprise/arrêt.
  */
 export const TTS_SET_SPEED = "orateur:tts:set-speed"
+export const TTS_SEEK = "orateur:tts:seek"
 
 export interface TtsSpeakMessage {
   type: typeof TTS_SPEAK
@@ -111,6 +112,12 @@ export interface TtsTabRemovedMessage {
 export interface TtsSetSpeedMessage {
   type: typeof TTS_SET_SPEED
   speed: number
+}
+
+export interface TtsSeekMessage {
+  type: typeof TTS_SEEK
+  block: number
+  paused: boolean
 }
 
 export interface TtsCloseMessage {

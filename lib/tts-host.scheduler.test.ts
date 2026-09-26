@@ -31,6 +31,8 @@ class FakeAudio {
   }
   removeAttribute() {
     this.src = ""
+    for (const fn of this.listeners.get("ended") ?? []) fn()
+    for (const fn of this.listeners.get("error") ?? []) fn()
   }
   play() {
     this.paused = false
@@ -45,6 +47,9 @@ class FakeAudio {
     this.ended = true
     this.paused = true
     for (const fn of this.listeners.get("ended") ?? []) fn()
+  }
+  fail() {
+    for (const fn of this.listeners.get("error") ?? []) fn()
   }
 }
 
@@ -209,5 +214,51 @@ test("une reprise Supertonic commence au paragraphe demandé", async () => {
   await settle()
   assert.equal(contentSynths()[0], "Paragraphe 3.")
   assert.equal(states.find((state) => state.phase === "playing")?.block, 3)
+  host.control("stop")
+})
+
+test("un déplacement en pause reste en pause puis reprend au paragraphe demandé", async () => {
+  const states: Array<{ phase: string; block?: number }> = []
+  const host = createTtsHost((state) => states.push(state))
+  host.speak({ text: article(5), lang: "fr", voice: "F1", speed: 1 })
+  await settle()
+  host.control("pause")
+  host.seek(3, true)
+  await settle()
+  assert.equal(audios.some((audio) => !audio.paused), false)
+  host.control("resume")
+  assert.equal(states.at(-1)?.block, 3)
+  assert.equal(audios.some((audio) => !audio.paused), true)
+  host.control("stop")
+})
+
+test("deux déplacements rapides ne jouent que le dernier", async () => {
+  const playing: number[] = []
+  let errors = 0
+  const host = createTtsHost((state) => {
+    if (state.phase === "playing") playing.push(state.block)
+    if (state.phase === "error") errors++
+  })
+  host.speak({ text: article(6), lang: "fr", voice: "F1", speed: 1 })
+  await settle()
+  host.seek(2, false)
+  host.seek(4, false)
+  await settle()
+  assert.equal(playing.at(-1), 4)
+  assert.equal(errors, 0)
+  host.control("stop")
+})
+
+test("une erreur tardive de l'ancienne tête n'arrête pas le déplacement", async () => {
+  const phases: string[] = []
+  const host = createTtsHost((state) => phases.push(state.phase))
+  host.speak({ text: article(5), lang: "fr", voice: "F1", speed: 1 })
+  await settle()
+  const staleHead = audios[0]!
+  host.seek(2, false)
+  await settle()
+  staleHead.fail()
+  assert.equal(phases.at(-1), "playing")
+  assert.equal(phases.includes("error"), false)
   host.control("stop")
 })

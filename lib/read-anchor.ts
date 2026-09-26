@@ -94,3 +94,13 @@ export function createAnchorFinder(root: ParentNode) {
     return null
   }
 }
+
+export function findBlockIndex(root: ParentNode, blocks: string[], target: Element | null) {
+  if (!target) return -1
+  const findAnchor = createAnchorFinder(root)
+  for (let index = 0; index < blocks.length; index++) {
+    const anchor = findAnchor(blocks[index]!)
+    if (anchor && (anchor === target || anchor.contains(target) || target.contains(anchor))) return index
+  }
+  return -1
+}

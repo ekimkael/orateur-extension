@@ -18,7 +18,7 @@ import {
   type PillPosition,
 } from "../lib/reader-prefs"
 import { expandText } from "../lib/pronunciation/index.ts"
-import { createAnchorFinder } from "../lib/read-anchor.ts"
+import { createAnchorFinder, findBlockIndex } from "../lib/read-anchor.ts"
 import { buildReadingIntro } from "../lib/reading-intro"
 import { toSupertonicLang, type SupportedLang } from "../lib/supertonic-lang.ts"
 import { detectLang } from "../lib/detect-lang.ts"
@@ -26,11 +26,13 @@ import { markTab } from "../lib/tab-title.ts"
 import {
   TTS_CONTROL,
   TTS_EVENT,
+  TTS_SEEK,
   TTS_SET_SPEED,
   TTS_SPEAK,
   type TtsControlMessage,
   type TtsEventMessage,
   type TtsLoadingReason,
+  type TtsSeekMessage,
   type TtsSetSpeedMessage,
   type TtsSpeakMessage,
 } from "../lib/tts-messages"
@@ -44,6 +46,7 @@ import { isHidden, loadHiddenSites, addHiddenSite, onHiddenSitesChanged } from "
 import { charteTokens } from "../lib/charte.ts"
 import { applyTheme } from "../lib/theme.ts"
 import { loadUiPrefs, onUiPrefsChanged, type ColorTheme } from "../lib/ui-prefs.ts"
+import { moveReadingBlock } from "../lib/reading-navigation.ts"
 import {
   clearReadingProgress,
   loadReadingProgress,
@@ -58,6 +61,7 @@ export interface ReadPagePayload {
 
 export interface StartReadingMessage extends ReadPagePayload {
   type: typeof START_READING
+  fromHere?: boolean
 }
 
 export const START_READING = "orateur:start-reading"
@@ -155,14 +159,16 @@ export default defineContentScript({
     let prefs = await loadPrefs()
     const hiddenSites = await loadHiddenSites()
     const uiPrefs = await loadUiPrefs()
+    let contextTarget: Element | null = null
 
-    const pill = createPill(onPrimary, onSecondary, prefs, !isHidden(location.hostname, hiddenSites), uiPrefs.theme)
+    const pill = createPill(onPrimary, onSecondary, () => navigate(-1), () => navigate(1), prefs, !isHidden(location.hostname, hiddenSites), uiPrefs.theme)
     const follower = createFollower()
     follower.setEnabled(prefs.follow)
 
     browser.runtime.onMessage.addListener(onMessage)
     browser.runtime.onMessage.addListener(onTtsEvent)
     browser.storage.onChanged.addListener(onTokenChanged)
+    document.addEventListener("contextmenu", rememberContextTarget, true)
     const unsubscribeHiddenSites = onHiddenSitesChanged((sites) => {
       if (isHidden(location.hostname, sites)) pill.detach()
       else pill.attach()
@@ -224,6 +230,7 @@ export default defineContentScript({
       browser.runtime.onMessage.removeListener(onMessage)
       browser.runtime.onMessage.removeListener(onTtsEvent)
       browser.storage.onChanged.removeListener(onTokenChanged)
+      document.removeEventListener("contextmenu", rememberContextTarget, true)
       unsubscribePrefs()
       unsubscribeHiddenSites()
       unsubscribeUiPrefs()
@@ -237,7 +244,11 @@ export default defineContentScript({
 
     function onMessage(message: Partial<StartReadingMessage>) {
       if (message?.type !== START_READING || !message.text) return
-      start(message as ReadPagePayload)
+      start(message as ReadPagePayload, message.fromHere)
+    }
+
+    function rememberContextTarget(event: Event) {
+      contextTarget = event.target instanceof Element ? event.target : null
     }
 
     /** Événements de l'hôte Supertonic : pilotent directement la pastille. */
@@ -270,8 +281,10 @@ export default defineContentScript({
           track({ name: "supertonic_download_completed" })
         }
         paused = false
+        blockIndex = state.block
         void persistProgress(state.block)
         follower.show(state.block)
+        pill.setPosition(state.block, state.total)
         pill.setState("playing", supertonicTitle)
       } else if (state.phase === "paused") {
         paused = true
@@ -350,15 +363,49 @@ export default defineContentScript({
       void addHiddenSite(location.hostname)
     }
 
+    /** Précédent vise toujours le paragraphe précédent ; suivant, le suivant. */
+    function navigate(delta: -1 | 1) {
+      if (!reading) return
+      const target = moveReadingBlock(blockIndex, readingTotal, delta)
+      if (target != null) seekTo(target)
+    }
+
+    function seekTo(block: number) {
+      if (block < 0 || block >= readingTotal) return
+      blockIndex = block
+      charIndex = 0
+      follower.show(block)
+      pill.setPosition(block, readingTotal)
+      void persistProgress(block)
+
+      if (usingSupertonic) {
+        void browser.runtime.sendMessage({
+          type: TTS_SEEK,
+          block,
+          paused,
+        } satisfies TtsSeekMessage)
+        return
+      }
+
+      if (paused) {
+        generation++
+        cancelSpeech()
+        stale = true
+      }
+      else speak()
+    }
+
     /** Choisit le moteur, puis démarre — le reste ne se recroise plus. */
-    async function start(payload: ReadPagePayload) {
-      const total = splitParagraphs(payload.text).length
+    async function start(payload: ReadPagePayload, fromHere = false) {
+      const paragraphs = splitParagraphs(payload.text)
+      const total = paragraphs.length
       if (!total) return fold()
       const url = canonicalUrl()
       const title = payload.title ?? ""
-      const saved = await loadReadingProgress(url, total)
+      const targetBlock = fromHere ? findBlockIndex(document, paragraphs, contextTarget) : -1
+      const saved = fromHere ? null : await loadReadingProgress(url, total)
       const resume = !!saved && confirm(browser.i18n.getMessage("readerResumePrompt"))
-      const startBlock = resume ? saved.block : 0
+      const startBlock = targetBlock >= 0 ? targetBlock : resume ? saved.block : 0
       if (saved && !resume) await clearReadingProgress(url)
       readingUrl = url
       readingTitle = title
@@ -402,6 +449,7 @@ export default defineContentScript({
       follower.begin(splitParagraphs(payload.text))
 
       usingSupertonic = true
+      blockIndex = startBlock
       reading = true
       paused = false
       markTab(true)
@@ -411,6 +459,7 @@ export default defineContentScript({
       void browser.storage.local.set({ [READER_TOKEN]: token })
       pill.attach()
       pill.setState("loading", supertonicTitle, true)
+      pill.setPosition(startBlock, readingTotal)
       void persistProgress(startBlock)
       void browser.runtime.sendMessage({
         type: TTS_SPEAK,
@@ -472,6 +521,7 @@ export default defineContentScript({
       // contextuel doit quand même offrir de quoi l'arrêter.
       pill.attach()
       pill.setState("playing", payload.title ?? "")
+      pill.setPosition(startBlock, readingTotal)
       void persistProgress(startBlock)
       speak()
     }
@@ -729,6 +779,12 @@ button[data-icon="square"] {
 }
 button[data-icon="x"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E");
+}
+button[data-icon="previous"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E");
+}
+button[data-icon="next"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
 }
 /* Anneau tournant : le "loader-circle" de lucide, déjà utilisé par le spinner
    du toast — même geste, même icône. */
@@ -1232,10 +1288,16 @@ function createFollower() {
 function createPill(
   onPrimary: () => void,
   onSecondary: () => void,
+  onPrevious: () => void,
+  onNext: () => void,
   initialPrefs: ReaderPreferences,
   attached: boolean,
   initialTheme: ColorTheme
 ) {
+  // Une extension rechargée ne peut plus exécuter le nettoyage de son ancien
+  // content script. Retirer sa pastille orpheline avant de monter la nouvelle.
+  document.querySelectorAll("orateur-reader-pill").forEach((element) => element.remove())
+
   // Résolu ici, pas en haut du module : WXT importe ce fichier sous un faux
   // `browser` (sans `i18n`) pour en lire la config au build, et createPill ne
   // tourne qu'au vrai runtime du content script, appelé depuis main().
@@ -1282,8 +1344,14 @@ function createPill(
 
   const row = document.createElement("div")
   row.className = "pill-row"
+  const previous = button(onPrevious)
+  previous.dataset.icon = "previous"
+  previous.setAttribute("aria-label", browser.i18n.getMessage("ariaPreviousParagraph"))
   const primary = button(onPrimary)
   primary.className = "pill-primary"
+  const next = button(onNext)
+  next.dataset.icon = "next"
+  next.setAttribute("aria-label", browser.i18n.getMessage("ariaNextParagraph"))
   const label = document.createElement("span")
   label.className = "pill-title"
   const secondary = button(onSecondary)
@@ -1295,7 +1363,7 @@ function createPill(
   settings.setAttribute("aria-expanded", "false")
   // Replié : ▶ ⚙ ✕. Le titre s'ouvre entre ▶ et ⚙ pendant la lecture, donc les
   // deux boutons de bord ne bougent pas quand la pastille se déplie.
-  row.append(primary, label, settings, secondary)
+  row.append(previous, primary, next, label, settings, secondary)
   root.append(row)
 
   // Construit une fois, jamais réécrit : `innerHTML` est refusé par les pages
@@ -1334,6 +1402,9 @@ function createPill(
 
   let currentPrefs = initialPrefs
   let isPopoverOpen = false
+  let currentBlock = 0
+  let totalBlocks = 0
+  let navigationActive = false
 
   const engine = document.createElement("select")
   settingsRow(browser.i18n.getMessage("settingsEngineLabel"), engine)
@@ -1548,7 +1619,11 @@ function createPill(
     // Le titre n'est réécrit que quand on en fournit un : une pause ne doit
     // pas le perdre — donc pas replier la pastille — juste changer l'icône.
     if (title !== undefined) label.textContent = title
-    host.toggleAttribute("data-expanded", state === "playing" || state === "paused")
+    const expanded = state === "playing" || state === "paused" || (state === "loading" && interruptible)
+    host.toggleAttribute("data-expanded", expanded)
+    previous.hidden = next.hidden = !expanded
+    navigationActive = state === "playing" || state === "paused"
+    updateNavigation()
 
     toast.toggleAttribute("data-open", toastInfo !== undefined)
     if (toastInfo) {
@@ -1556,6 +1631,17 @@ function createPill(
       toast.dataset.mode = toastInfo.percent === undefined ? "indeterminate" : "determinate"
       if (toastInfo.percent !== undefined) toastFill.style.transform = `scaleX(${toastInfo.percent / 100})`
     }
+  }
+
+  function updateNavigation() {
+    previous.disabled = !navigationActive || totalBlocks <= 0 || currentBlock <= 0
+    next.disabled = !navigationActive || totalBlocks <= 0 || currentBlock >= totalBlocks - 1
+  }
+
+  function setPosition(block: number, total: number) {
+    currentBlock = block
+    totalBlocks = total
+    updateNavigation()
   }
 
   return {
@@ -1567,6 +1653,7 @@ function createPill(
     // toute la session, `remove` ne devant jouer qu'une fois, au déchargement.
     detach: () => host.remove(),
     setState,
+    setPosition,
     remove: () => {
       document.removeEventListener("click", onDocumentClick, true)
       document.removeEventListener("keydown", onDocumentKeydown, true)
