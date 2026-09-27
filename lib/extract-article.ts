@@ -68,16 +68,9 @@ function desarmHeadings(scope: Document | Element) {
 }
 
 /** Blocs dont le texte est prononcé, dans l'ordre du document. */
-const TEXT_BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,pre"
-
-/**
- * Mêmes blocs, plus les `<div>` feuilles — pour le repli `visibleText` (jalon 5)
- * uniquement. Gmail, Substack et consorts ne posent pas de `<p>` : sans cet
- * ajout, aucun bloc ne matcherait et `toSpeakableText` retomberait sur
- * `root.textContent`, un pavé d'un seul tenant sans découpe, donc sans
- * surlignage ni reprise de position possibles.
- */
-const FALLBACK_BLOCKS = `${TEXT_BLOCKS},div:not(:has(p,div,li,blockquote,pre,h1,h2,h3,h4,h5,h6))`
+// Les mails utilisent aussi des div et des cellules, parfois avec du texte
+// directement après un titre : ne pas se limiter aux conteneurs feuilles.
+const TEXT_BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,pre,div,section,td,th"
 
 /**
  * Sous ce volume de texte, le repli n'a plus de sens : un dashboard ou une
@@ -218,7 +211,7 @@ export function visibleText(doc: Document): { text: string; lang: string | null 
   const lang = doc.documentElement.lang || null
   if (!root) return { text: "", lang }
 
-  const text = toSpeakableText(root, lang ?? "", FALLBACK_BLOCKS)
+  const text = toSpeakableText(root, lang ?? "")
   return { text: text.length >= MIN_FALLBACK_LENGTH ? text : "", lang }
 }
 
@@ -267,18 +260,47 @@ function clean(root: Element) {
  * `textContent` seul collerait la fin d'un titre au début du paragraphe suivant.
  * Les espaces internes sont normalisés pour éviter les coupures artificielles.
  */
-function toSpeakableText(root: Element, lang: string, blockSelector = TEXT_BLOCKS) {
+function toSpeakableText(root: Element, lang: string) {
   const notice = CODE_NOTICE_BY_LANGUAGE[lang.slice(0, 2)] ?? CODE_NOTICE
-  const blocks = Array.from(root.querySelectorAll(blockSelector))
-    // Un <p> dans un <blockquote>, un <li> dans un <li> : déjà couvert par le
-    // parent, qui est lui-même dans la sélection.
-    .filter((el) => !el.parentElement?.closest("li,blockquote,pre"))
-    .map((el) => {
-      const text = normalize(el.textContent ?? "")
-      // Le code est annoncé, pas prononcé. Un <pre> vide n'annonce rien : le
-      // filtre suivant emporte la chaîne vide.
-      return { el, text: el.tagName === "PRE" ? text && notice : text }
-    })
+  const collected: Array<{ el: Element; text: string }> = []
+  let buffer = ""
+  let owner = root
+
+  function flush() {
+    const text = normalize(buffer)
+    if (text) collected.push({ el: owner, text })
+    buffer = ""
+  }
+
+  // Lire les nœuds dans l'ordre, sans aplatir un conteneur avant ses enfants.
+  // Un li/blockquote peut contenir titre, prose et code ; chacun garde sa
+  // frontière, ainsi que le texte libre placé entre deux éléments.
+  function collect(node: Node, parent: Element) {
+    if (node.nodeType === 3) {
+      owner = parent
+      buffer += node.textContent ?? ""
+      return
+    }
+    if (node.nodeType !== 1) return
+    const el = node as Element
+    if (el.tagName === "BR") {
+      flush()
+      return
+    }
+    const block = el.matches(TEXT_BLOCKS)
+    if (block) flush()
+    if (el.tagName === "PRE") {
+      if (el.textContent?.trim()) collected.push({ el, text: notice })
+      return
+    }
+    for (const child of el.childNodes) collect(child, block ? el : parent)
+    if (block) flush()
+  }
+
+  for (const child of root.childNodes) collect(child, root)
+  flush()
+
+  const blocks = collected
     .filter(
       ({ text }) =>
         text && !(text.length <= MAX_READING_TIME_LENGTH && READING_TIME.test(text))

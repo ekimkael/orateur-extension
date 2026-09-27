@@ -34,6 +34,7 @@ import {
   TTS_CLOSE,
   TTS_CONTROL,
   TTS_EVENT,
+  TTS_SEEK,
   TTS_SET_SPEED,
   TTS_SPEAK,
   TTS_TAB_REMOVED,
@@ -41,6 +42,7 @@ import {
   type ModelProgressState,
   type TtsControlMessage,
   type TtsEventMessage,
+  type TtsSeekMessage,
   type TtsSetSpeedMessage,
   type TtsSpeakMessage,
 } from "../lib/tts-messages"
@@ -59,6 +61,7 @@ const MENU_ID = "save-to-orateur"
 const SELECTION_MENU_ID = "read-selection-with-orateur"
 const SAVE_SELECTION_MENU_ID = "save-selection-with-orateur"
 const READ_PAGE_MENU_ID = "read-page-with-orateur"
+const READ_FROM_HERE_MENU_ID = "read-from-here-with-orateur"
 const EXTRACT_SCRIPT = "/content-scripts/extract.js"
 
 // Clés, pas les messages résolus : WXT importe ce module dans un faux
@@ -127,7 +130,7 @@ function ensureFirefoxHost() {
 
 /** TTS_SPEAK / TTS_CONTROL / TTS_SET_SPEED envoyés par une pastille — toujours reçus ici avec `sender.tab`. */
 async function handleTtsFromPill(
-  message: Partial<TtsSpeakMessage> | Partial<TtsControlMessage> | Partial<TtsSetSpeedMessage>,
+  message: Partial<TtsSpeakMessage> | Partial<TtsControlMessage> | Partial<TtsSetSpeedMessage> | Partial<TtsSeekMessage>,
   tabId: number | undefined
 ) {
   if (import.meta.env.FIREFOX) {
@@ -136,11 +139,19 @@ async function handleTtsFromPill(
       if (tabId == null || !message.text || !message.lang || !message.voice) return
       firefoxTabId = tabId
       firefoxToken = message.token ?? null
-      host.speak({ text: message.text, lang: message.lang, voice: message.voice, speed: message.speed ?? 1 })
+      host.speak({
+        text: message.text,
+        lang: message.lang,
+        voice: message.voice,
+        speed: message.speed ?? 1,
+        startBlock: message.startBlock,
+      })
     } else if (message.type === TTS_CONTROL && message.action) {
       host.control(message.action)
     } else if (message.type === TTS_SET_SPEED && message.speed != null) {
       host.setSpeed(message.speed)
+    } else if (message.type === TTS_SEEK && Number.isInteger(message.block) && message.block! >= 0 && typeof message.paused === "boolean") {
+      host.seek(message.block!, message.paused)
     }
     return
   }
@@ -261,6 +272,11 @@ export default defineBackground({
       // cible d'un lien.
       contexts: ["page"],
     })
+    browser.contextMenus.create({
+      id: READ_FROM_HERE_MENU_ID,
+      title: browser.i18n.getMessage("menuReadFromHereTitle"),
+      contexts: ["page", "link"],
+    })
 
     if (details.reason === "install") {
       track({ name: "installed" })
@@ -281,6 +297,10 @@ export default defineBackground({
     }
     if (info.menuItemId === READ_PAGE_MENU_ID) {
       void readPageInPlace(tab)
+      return
+    }
+    if (info.menuItemId === READ_FROM_HERE_MENU_ID) {
+      void readPageInPlace(tab, true)
       return
     }
     if (info.menuItemId !== MENU_ID) return
@@ -331,10 +351,10 @@ export default defineBackground({
   // reçoit la même diffusion en double — voir offscreen/main.ts).
   browser.runtime.onMessage.addListener(
     (
-      message: Partial<TtsSpeakMessage> | Partial<TtsControlMessage> | Partial<TtsSetSpeedMessage>,
+      message: Partial<TtsSpeakMessage> | Partial<TtsControlMessage> | Partial<TtsSetSpeedMessage> | Partial<TtsSeekMessage>,
       sender
     ) => {
-      if (message?.type !== TTS_SPEAK && message?.type !== TTS_CONTROL && message?.type !== TTS_SET_SPEED) return
+      if (message?.type !== TTS_SPEAK && message?.type !== TTS_CONTROL && message?.type !== TTS_SET_SPEED && message?.type !== TTS_SEEK) return
       void handleTtsFromPill(message, sender.tab?.id)
     }
   )
@@ -555,7 +575,7 @@ async function saveSelection(payload: SelectionPayload, url?: string) {
  * partout où l'extracteur peut s'injecter. Le booléen renvoyé sert à la
  * pastille, qui attend de savoir si la lecture a démarré.
  */
-async function readPageInPlace(tab: { id?: number; url?: string } | undefined) {
+async function readPageInPlace(tab: { id?: number; url?: string } | undefined, fromHere = false) {
   if (tab?.id == null) return false
 
   const result = await extractFromTab(tab.id)
@@ -566,7 +586,7 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined) {
     // sélection (voir `read()` ci-dessous).
     if (result.text) {
       track({ name: "extraction_failed", properties: { reason: "fallback_text" } })
-      return startReading(tab.id, { text: result.text, lang: result.lang })
+      return startReading(tab.id, { text: result.text, lang: result.lang }, fromHere)
     }
     track({ name: "extraction_failed", properties: { reason: "not_article" } })
     await notify(result.error)
@@ -586,14 +606,15 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined) {
     text: result.article.textContent,
     title: result.article.title ?? undefined,
     lang: result.article.lang ?? undefined,
-  })
+  }, fromHere)
 }
 
 /** Faux si aucun content script ne répond dans l'onglet. */
-async function startReading(tabId: number, payload: ReadPagePayload) {
+async function startReading(tabId: number, payload: ReadPagePayload, fromHere = false) {
   try {
     await browser.tabs.sendMessage(tabId, {
       type: START_READING,
+      fromHere,
       ...payload,
     } satisfies StartReadingMessage)
     return true

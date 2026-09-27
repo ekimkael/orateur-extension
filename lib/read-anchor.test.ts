@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { JSDOM } from "jsdom"
-import { createAnchorFinder } from "./read-anchor.ts"
+import { createAnchorFinder, findBlockIndex } from "./read-anchor.ts"
 
 function docFrom(html: string) {
   return new JSDOM(html).window.document
@@ -59,12 +59,21 @@ test("les blocs de navigation qui précèdent l'article sont dépassés", () => 
   assert.equal(find("Le vrai contenu.")?.closest("article")?.tagName, "ARTICLE")
 })
 
-test("une citation l'emporte sur le paragraphe qu'elle contient", () => {
+test("le suivi cible le paragraphe précis dans une citation", () => {
   const doc = docFrom("<article><blockquote><p>Une citation célèbre.</p></blockquote><p>La suite.</p></article>")
   const find = createAnchorFinder(doc)
 
-  assert.equal(find("Une citation célèbre.")?.tagName, "BLOCKQUOTE")
+  assert.equal(find("Une citation célèbre.")?.tagName, "P")
   assert.equal(find("La suite.")?.tagName, "P")
+})
+
+test("le titre et sa prose ont des ancres distinctes dans une citation ou liste", () => {
+  for (const wrapper of ["blockquote", "li", "div"]) {
+    const doc = docFrom(`<${wrapper}><h2>Le sous-titre</h2><div>La prose du message.</div></${wrapper}>`)
+    const find = createAnchorFinder(doc)
+    assert.equal(find("Le sous-titre.")?.tagName, "H2")
+    assert.equal(find("La prose du message.")?.textContent, "La prose du message.")
+  }
 })
 
 test("un bloc vide ne renvoie rien", () => {
@@ -72,4 +81,10 @@ test("un bloc vide ne renvoie rien", () => {
   const find = createAnchorFinder(doc)
 
   assert.equal(find("   "), null)
+})
+
+test("retrouve le paragraphe ciblé par Lire à partir d'ici", () => {
+  const doc = docFrom("<article><p>Premier passage.</p><p><span>Passage ciblé.</span></p><p>Dernier passage.</p></article>")
+  const target = doc.querySelector("span")!
+  assert.equal(findBlockIndex(doc, ["Premier passage.", "Passage ciblé.", "Dernier passage."], target), 1)
 })

@@ -56,6 +56,7 @@ export interface SpeakRequest {
   lang: SupportedLang
   voice: SupertonicVoice
   speed: number
+  startBlock?: number
 }
 
 /** Un bloc par paragraphe — même découpe que le chemin système (reader.content.ts). */
@@ -192,6 +193,7 @@ interface Head {
 export interface TtsHost {
   speak(request: SpeakRequest): void
   control(action: TtsControlAction): void
+  seek(block: number, paused: boolean): void
   setSpeed(speed: number): void
 }
 
@@ -203,6 +205,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   let index = 0
   let speed = 1
   let currentStyle: Style | null = null
+  let currentVoice: SupertonicVoice = "F1"
   /**
    * Incrémenté à chaque `speak()`/`stop()` : une promesse d'une génération
    * révolue devient un no-op à son retour, plutôt que d'agir sur l'état de
@@ -225,14 +228,17 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   const pending = new Map<number, Promise<void>>()
   let pumping = false
 
+  let heads: [Head, Head]
+
   function makeHead(slot: 0 | 1): Head {
     const audio = new Audio()
     audio.preservesPitch = true
     const head: Head = { audio, unitIndex: -1 }
     audio.addEventListener("ended", () => {
       // Un `ended` d'une tête qui n'est plus l'active est le résidu d'une
-      // lecture arrêtée entre-temps — rien à avancer sur son compte.
-      if (slot !== active) return
+      // lecture arrêtée entre-temps. `removeAttribute("src")` peut aussi
+      // émettre `ended` après un déplacement : la tête est déjà invalidée.
+      if (heads[slot] !== head || slot !== active || head.unitIndex < 0) return
       void advance(generation)
     })
     audio.addEventListener("error", () => {
@@ -241,13 +247,24 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       // `error` — mais `unitIndex` est déjà remis à -1 avant, synchrone, donc
       // toujours vu par cette poignée avant l'événement (mis en file par le
       // navigateur, jamais immédiat).
-      if (slot !== active || head.unitIndex < 0) return
+      if (heads[slot] !== head || slot !== active || head.unitIndex < 0) return
       onState({ phase: "error", message: "Erreur de lecture audio.", reason: "audio-playback" })
     })
     return head
   }
 
-  const heads: readonly [Head, Head] = [makeHead(0), makeHead(1)]
+  heads = [makeHead(0), makeHead(1)]
+
+  function resetHeads() {
+    const previous = heads
+    heads = [makeHead(0), makeHead(1)]
+    active = 0
+    for (const head of previous) {
+      head.unitIndex = -1
+      head.audio.pause()
+      head.audio.removeAttribute("src")
+    }
+  }
 
   function ensureEngine(): Promise<TextToSpeech> {
     if (!enginePromise) {
@@ -482,12 +499,15 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
 
   function speak(request: SpeakRequest) {
     const gen = ++generation
+    const staleSyntheses = [...pending.values()]
     abort?.abort()
     abort = new AbortController()
     units = splitUnits(request.text, request.lang)
-    index = 0
+    const start = units.findIndex((unit) => unit.paragraph >= (request.startBlock ?? 0))
+    index = start < 0 ? units.length : start
     speed = request.speed
     currentStyle = null
+    currentVoice = request.voice
     paused = false
 
     // Une nouvelle lecture ne doit jamais hériter de l'audio d'une lecture
@@ -495,15 +515,14 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     // même session — l'unité 0 d'un article n'a rien à voir avec l'unité 0
     // d'un autre. Sans cette purge, le cache servirait le mauvais audio, à la
     // mauvaise vitesse.
+    resetHeads()
     clearCache()
-    for (const h of heads) {
-      h.audio.pause()
-      h.unitIndex = -1
-    }
 
     void (async () => {
       try {
-        if (units.length === 0) {
+        await Promise.allSettled(staleSyntheses)
+        if (gen !== generation) return
+        if (index >= units.length) {
           onState({ phase: "ended" })
           return
         }
@@ -514,12 +533,41 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
         void pump(gen)
         // Dédoublonné avec la première cible de `pump()` : c'est la même
         // promesse, pas une seconde synthèse.
-        await synth(gen, 0)
+        await synth(gen, index)
         if (gen !== generation) return
-        playUnit(gen, 0)
+        playUnit(gen, index)
       } catch (e) {
         if (gen !== generation) return
         onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
+      }
+    })()
+  }
+
+  function seek(block: number, stayPaused: boolean) {
+    const target = units.findIndex((unit) => unit.paragraph >= block)
+    if (target < 0) return
+    const gen = ++generation
+    const staleSyntheses = [...pending.values()]
+    abort?.abort()
+    abort = new AbortController()
+    paused = stayPaused
+    index = target
+    resetHeads()
+    clearCache()
+
+    void (async () => {
+      try {
+        await Promise.allSettled(staleSyntheses)
+        if (gen !== generation) return
+        if (!currentStyle) currentStyle = await ensureStyle(currentVoice)
+        if (gen !== generation) return
+        await synth(gen, target)
+        if (gen !== generation) return
+        playUnit(gen, target)
+        void pump(gen)
+      } catch (error) {
+        if (gen !== generation) return
+        onState({ phase: "error", message: error instanceof Error ? error.message : String(error) })
       }
     })()
   }
@@ -558,11 +606,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     generation++
     abort?.abort()
     paused = false
-    for (const h of heads) {
-      h.unitIndex = -1
-      h.audio.pause()
-      h.audio.removeAttribute("src")
-    }
+    resetHeads()
     clearCache()
     units = []
     index = 0
@@ -573,5 +617,5 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     for (const h of heads) h.audio.playbackRate = newSpeed
   }
 
-  return { speak, control, setSpeed }
+  return { speak, control, seek, setSpeed }
 }

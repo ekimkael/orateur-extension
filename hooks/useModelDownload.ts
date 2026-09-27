@@ -83,13 +83,19 @@ export function useModelDownload(onDone?: () => void): UseModelDownload {
     // (App.tsx re-rendu) ne doit pas réabonner ce listener.
   }, [])
 
+  function start() {
+    void browser.runtime.sendMessage({ type: MODEL_DOWNLOAD_REQUEST }).catch(() => {
+      setState((current) => ({ ...current, phase: "error" }))
+    })
+  }
+
   return {
     phase: writable === false ? "unavailable" : state.phase,
     loaded: state.loaded ?? 0,
     total: state.total ?? 0,
     message: state.message,
-    start: () => void browser.runtime.sendMessage({ type: MODEL_DOWNLOAD_REQUEST }).catch(() => {}),
-    retry: () => void browser.runtime.sendMessage({ type: MODEL_DOWNLOAD_REQUEST }).catch(() => {}),
+    start,
+    retry: start,
     cancel: () => void browser.runtime.sendMessage({ type: MODEL_DOWNLOAD_CANCEL }).catch(() => {}),
   }
 }

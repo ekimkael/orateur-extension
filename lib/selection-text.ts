@@ -115,7 +115,9 @@ function collect(node: Node, out: string[]) {
   if (tag) {
     if (INERT_TAGS.has(tag) || isHidden(node as Element)) return
     if (tag === "BR") {
-      out.push("\n")
+      // La synthèse découpe sur les doubles sauts. Un saut simple serait
+      // aplati en espace, collant notamment le titre d'un mail à sa prose.
+      out.push("\n\n")
       return
     }
   }

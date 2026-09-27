@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { JSDOM } from "jsdom"
 import { extractArticle, visibleText } from "./extract-article.ts"
+import { splitUnits } from "./tts-host.ts"
 
 /**
  * Readability n'accorde de score qu'aux blocs de plus de 140 caractères : les
@@ -172,6 +173,46 @@ test("préserve titres, listes et citations dans le texte TTS", () => {
   assert.ok(textContent.includes("\n\n"))
   assert.doesNotMatch(textContent, / {2}|\n{3}/)
   assert.doesNotMatch(textContent, /^\s|\s$/)
+})
+
+test("la voix IA reçoit chaque sous-titre séparément, même dans une liste ou citation", () => {
+  for (const level of [2, 3, 4, 5, 6]) {
+    for (const wrapper of ["div", "li", "blockquote"]) {
+      const heading = `Une section de niveau ${level}`
+      const paragraph = "Cette explication développe le sujet annoncé dans le titre précédent."
+      const html = `<${wrapper}><h${level}>${heading}</h${level}><p>${paragraph}</p></${wrapper}>`
+      const doc = docFrom(withinArticle(html))
+      for (const text of [extractArticle(doc).textContent, visibleText(doc).text]) {
+        const units = splitUnits(text, "fr")
+        const index = units.findIndex((unit) => unit.text === `${heading}.`)
+        assert.ok(index >= 0, `${wrapper}/h${level} : titre isolé`)
+        assert.equal(units[index]!.endsParagraph, true)
+        assert.equal(units[index + 1]!.text, paragraph)
+        assert.equal(units[index + 1]!.paragraph, units[index]!.paragraph + 1)
+      }
+    }
+  }
+})
+
+test("visibleText sépare les lignes des mails sans perdre la prose directe des div", () => {
+  const paragraph = "Les informations qui suivent précisent le calendrier et les étapes du projet. ".repeat(6).trim()
+  for (const title of ["<h2>Calendrier du projet</h2>", "<b>Calendrier du projet</b><br>"]) {
+    const doc = docFrom(`<body><div>${title}${paragraph}</div><p>Une conclusion suffisamment détaillée pour terminer ce message.</p></body>`)
+    const before = doc.body.innerHTML
+    const { text } = visibleText(doc)
+    assert.deepEqual(text.split("\n\n"), [
+      "Calendrier du projet.", paragraph,
+      "Une conclusion suffisamment détaillée pour terminer ce message.",
+    ])
+    assert.equal(doc.body.innerHTML, before)
+  }
+})
+
+test("les blocs imbriqués gardent leur texte inline et annoncent le code une seule fois", () => {
+  const html = '<blockquote>Avant <strong>le titre</strong><h3>Une étape</h3><p>La première explication.</p><pre>const secret = 1</pre>Après le code.</blockquote>'
+  const { textContent } = extractArticle(docFrom(withinArticle(html)))
+  assert.match(textContent, /Avant le titre\.\n\nUne étape\.\n\nLa première explication\.\n\nExtrait de code\.\n\nAprès le code\./)
+  assert.doesNotMatch(textContent, /const secret/)
 })
 
 test("supprime scripts, styles, navigation et attributs de présentation", () => {

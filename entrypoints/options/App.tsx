@@ -53,6 +53,8 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
 
   const { sites: hiddenSites, add: addSite, remove: removeSite } = useHiddenSites()
   const [siteInput, setSiteInput] = useState("")
+  const [siteInvalid, setSiteInvalid] = useState(false)
+  const siteInputRef = useRef<HTMLInputElement>(null)
 
   const [cacheBytes, setCacheBytes] = useState<number | null>(null)
   const [clearing, setClearing] = useState(false)
@@ -127,7 +129,7 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
 
         <div className="card">
           <section className="section" id="general">
-            <p className="eyebrow">{t("optionsSectionGeneral")}</p>
+            <h2 className="eyebrow">{t("optionsSectionGeneral")}</h2>
 
             <div className="row">
               <span className="row-head">
@@ -177,29 +179,45 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
           </section>
 
           <section className="section" id="sites">
-            <p className="eyebrow">{t("optionsSectionSites")}</p>
+            <h2 className="eyebrow">{t("optionsSectionSites")}</h2>
             <p className="help">{t("optionsSitesHelp")}</p>
 
+            <label className="row-label site-add-label" htmlFor="site-input">
+              {t("optionsSitesLabel")}
+            </label>
             <form
               className="site-add"
               onSubmit={(e) => {
                 e.preventDefault()
-                if (!normalizeSite(siteInput)) return
+                if (!normalizeSite(siteInput)) {
+                  setSiteInvalid(true)
+                  siteInputRef.current?.focus()
+                  return
+                }
                 addSite(siteInput)
                 setSiteInput("")
               }}
             >
               <input
+                id="site-input"
+                ref={siteInputRef}
                 type="text"
+                aria-invalid={siteInvalid || undefined}
+                aria-describedby="site-input-hint"
                 value={siteInput}
-                onChange={(e) => setSiteInput(e.target.value)}
+                onChange={(e) => {
+                  setSiteInput(e.target.value)
+                  setSiteInvalid(false)
+                }}
                 placeholder={t("optionsSitesPlaceholder")}
-                aria-label={t("optionsSitesPlaceholder")}
               />
-              <button type="submit" disabled={!normalizeSite(siteInput)}>
+              <button type="submit">
                 {t("optionsSitesAdd")}
               </button>
             </form>
+            <p id="site-input-hint" className="help" role={siteInvalid ? "alert" : undefined}>
+              {t(siteInvalid ? "optionsSitesInvalid" : "optionsSitesHint")}
+            </p>
 
             {hiddenSites.length > 0 ? (
               <ul className="site-list">
@@ -225,7 +243,7 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
           </section>
 
           <section className="section" id="voix">
-            <p className="eyebrow">{t("optionsSectionVoice")}</p>
+            <h2 className="eyebrow">{t("optionsSectionVoice")}</h2>
 
             <EngineSelect
               value={prefs.engine}
@@ -248,14 +266,14 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
           </section>
 
           <section className="section" id="modele">
-            <p className="eyebrow">{t("optionsSectionModel")}</p>
+            <h2 className="eyebrow">{t("optionsSectionModel")}</h2>
 
             {cacheBytes != null ? (
               // Pas de <progress> ici : une barre toujours à 100% est de la
               // décoration, pas un état — le texte suffit.
               <div className="cache-body">
                 <p className="cache-note">{t("optionsCacheSize", [String(cacheMb)])}</p>
-                <div className="cache-actions">
+                <div className="cache-actions" aria-live="polite" aria-atomic="true">
                   <button
                     type="button"
                     className="btn-danger"
@@ -286,7 +304,7 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
           </section>
 
           <section className="section" id="confidentialite">
-            <p className="eyebrow">{t("optionsSectionPrivacy")}</p>
+            <h2 className="eyebrow">{t("optionsSectionPrivacy")}</h2>
 
             <label className="toggle">
               <input

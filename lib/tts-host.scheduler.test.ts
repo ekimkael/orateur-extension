@@ -8,6 +8,8 @@
  */
 import assert from "node:assert/strict"
 import test, { beforeEach, mock } from "node:test"
+import { JSDOM } from "jsdom"
+import { extractSelectionText } from "./selection-text.ts"
 // Import statique, donc évalué AVANT le `mock.module` du corps : capture le
 // vrai `chunkText`, que le double doit continuer d'exposer tel quel.
 import { chunkText } from "./supertonic/engine.ts"
@@ -29,6 +31,8 @@ class FakeAudio {
   }
   removeAttribute() {
     this.src = ""
+    for (const fn of this.listeners.get("ended") ?? []) fn()
+    for (const fn of this.listeners.get("error") ?? []) fn()
   }
   play() {
     this.paused = false
@@ -44,6 +48,9 @@ class FakeAudio {
     this.paused = true
     for (const fn of this.listeners.get("ended") ?? []) fn()
   }
+  fail() {
+    for (const fn of this.listeners.get("error") ?? []) fn()
+  }
 }
 
 let audios: FakeAudio[] = []
@@ -51,6 +58,7 @@ let synthesized: string[] = []
 let created: string[] = []
 let revoked: string[] = []
 let urlCount = 0
+let encodedPcm: Float32Array[] = []
 
 const g = globalThis as unknown as Record<string, unknown>
 g.Audio = FakeAudio
@@ -70,13 +78,16 @@ mock.module(new URL("./supertonic/engine.ts", import.meta.url).href, {
   namedExports: {
     chunkText,
     loadVoiceStyle: async () => ({}),
-    writeWavFile: () => new ArrayBuffer(8),
+    writeWavFile: (pcm: Float32Array) => {
+      encodedPcm.push(pcm.slice())
+      return new ArrayBuffer(8)
+    },
     loadTextToSpeechEngine: async () => ({
       sampleRate: 44100,
       synthesize: async (text: string) => {
         synthesized.push(text)
         await new Promise((r) => setTimeout(r, 0))
-        return new Float32Array(4)
+        return new Float32Array(4).fill(0.5)
       },
     }),
   },
@@ -111,6 +122,21 @@ beforeEach(() => {
   synthesized = []
   created = []
   revoked = []
+  encodedPcm = []
+})
+
+test("un titre de mail a son audio et son silence avant la prose avec la voix IA", async () => {
+  const doc = new JSDOM("<div><b>Prochaine étape</b><br>Nous préparons maintenant la suite du projet.</div>").window.document
+  const host = createTtsHost(() => {})
+  host.speak({ text: extractSelectionText(doc.body), lang: "fr", voice: "F1", speed: 1 })
+  await settle()
+  assert.deepEqual(contentSynths(), ["Prochaine étape.", "Nous préparons maintenant la suite du projet."])
+  assert.equal(encodedPcm.length, 2)
+  const titleAudio = encodedPcm[0]!
+  assert.equal(titleAudio.length, 4 + Math.floor(0.3 * 44100))
+  assert.ok(titleAudio.subarray(0, 4).every((value) => value === 0.5))
+  assert.ok(titleAudio.subarray(4).every((value) => value === 0))
+  host.control("stop")
 })
 
 test("l'avance précharge LOOKAHEAD unités devant la lecture, pas plus", async () => {
@@ -178,5 +204,61 @@ test("une nouvelle lecture ne réutilise pas le cache de la précédente", async
   await settle()
   assert.ok(revoked.length > revokedBefore, "le cache de la lecture précédente survit")
   assert.equal(contentSynths().filter((t) => t === "Paragraphe 0.").length, 2)
+  host.control("stop")
+})
+
+test("une reprise Supertonic commence au paragraphe demandé", async () => {
+  const states: Array<{ phase: string; block?: number }> = []
+  const host = createTtsHost((state) => states.push(state))
+  host.speak({ text: article(5), lang: "fr", voice: "F1", speed: 1, startBlock: 3 })
+  await settle()
+  assert.equal(contentSynths()[0], "Paragraphe 3.")
+  assert.equal(states.find((state) => state.phase === "playing")?.block, 3)
+  host.control("stop")
+})
+
+test("un déplacement en pause reste en pause puis reprend au paragraphe demandé", async () => {
+  const states: Array<{ phase: string; block?: number }> = []
+  const host = createTtsHost((state) => states.push(state))
+  host.speak({ text: article(5), lang: "fr", voice: "F1", speed: 1 })
+  await settle()
+  host.control("pause")
+  host.seek(3, true)
+  await settle()
+  assert.equal(audios.some((audio) => !audio.paused), false)
+  host.control("resume")
+  assert.equal(states.at(-1)?.block, 3)
+  assert.equal(audios.some((audio) => !audio.paused), true)
+  host.control("stop")
+})
+
+test("deux déplacements rapides ne jouent que le dernier", async () => {
+  const playing: number[] = []
+  let errors = 0
+  const host = createTtsHost((state) => {
+    if (state.phase === "playing") playing.push(state.block)
+    if (state.phase === "error") errors++
+  })
+  host.speak({ text: article(6), lang: "fr", voice: "F1", speed: 1 })
+  await settle()
+  host.seek(2, false)
+  host.seek(4, false)
+  await settle()
+  assert.equal(playing.at(-1), 4)
+  assert.equal(errors, 0)
+  host.control("stop")
+})
+
+test("une erreur tardive de l'ancienne tête n'arrête pas le déplacement", async () => {
+  const phases: string[] = []
+  const host = createTtsHost((state) => phases.push(state.phase))
+  host.speak({ text: article(5), lang: "fr", voice: "F1", speed: 1 })
+  await settle()
+  const staleHead = audios[0]!
+  host.seek(2, false)
+  await settle()
+  staleHead.fail()
+  assert.equal(phases.at(-1), "playing")
+  assert.equal(phases.includes("error"), false)
   host.control("stop")
 })

@@ -36,7 +36,11 @@ export function VoicePicker({
 
   const select =
     engine === "supertonic" ? (
-      <select value={supertonicVoice} onChange={(e) => onChangeSupertonicVoice(e.target.value as SupertonicVoice)}>
+      <select
+        aria-labelledby="voice-picker-label"
+        value={supertonicVoice}
+        onChange={(e) => onChangeSupertonicVoice(e.target.value as SupertonicVoice)}
+      >
         {SUPERTONIC_VOICES.map((id) => (
           <option key={id} value={id}>
             {t(SUPERTONIC_VOICE_LABEL_KEYS[id])}
@@ -44,7 +48,11 @@ export function VoicePicker({
         ))}
       </select>
     ) : (
-      <select value={voiceURI ?? ""} onChange={(e) => onChangeSystemVoice(e.target.value || null)}>
+      <select
+        aria-labelledby="voice-picker-label"
+        value={voiceURI ?? ""}
+        onChange={(e) => onChangeSystemVoice(e.target.value || null)}
+      >
         <option value="">{t("voiceDefault")}</option>
         {systemVoices.map((v) => (
           <option key={v.voiceURI} value={v.voiceURI}>
@@ -57,7 +65,9 @@ export function VoicePicker({
   return (
     <div className="row">
       <span className="row-head">
-        <span className="row-label">{t("settingsVoiceLabel")}</span>
+        <span className="row-label" id="voice-picker-label">
+          {t("settingsVoiceLabel")}
+        </span>
       </span>
       <div className="voice-row">
         {select}
