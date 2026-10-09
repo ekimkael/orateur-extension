@@ -1,3 +1,4 @@
+import { pruneReadingProgress, READING_PROGRESS_ALARM } from "../lib/reading-progress.ts"
 import type { ExtractResult } from "./extract.content"
 import {
   NOTIFY,
@@ -242,6 +243,11 @@ export default defineBackground({
   // lectures, pas être rechargées à chaque réveil de la page de fond.
   persistent: true,
   main() {
+  void pruneReadingProgress().catch(() => {})
+  void browser.alarms.create(READING_PROGRESS_ALARM, { periodInMinutes: 60 })
+  browser.alarms.onAlarm.addListener(alarm => {
+    if (alarm.name === READING_PROGRESS_ALARM) void pruneReadingProgress().catch(() => {})
+  })
   // Le service worker MV3 redémarre à volonté ; créer le menu ici plutôt que
   // dans main() évite l'erreur "duplicate id" à chaque réveil. `onInstalled`
   // se déclenche aussi sur une mise à jour — `details.reason` isole la
