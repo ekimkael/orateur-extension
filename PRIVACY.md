@@ -83,6 +83,14 @@ nouveau, sans lien avec le précédent.
 
 L'extension n'émet aucune autre requête réseau.
 
+## Reading progress
+
+Reading progress stores a SHA-256 hash of the page URL, paragraph position,
+and timestamp. It does not store the raw URL or page title. Private windows
+neither read nor write progress. Legacy records are discarded. Records older
+than 30 days are removed on startup, during progress access, and by an hourly
+alarm while the browser runs.
+
 ## Ce qui est stocké sur votre machine
 
 - Vos préférences de lecture (moteur, vitesse, voix), via l'API `storage` du
