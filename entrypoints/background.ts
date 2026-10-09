@@ -26,6 +26,7 @@ import {
   type SelectionError,
 } from "../lib/selection-text"
 import {
+  MODEL_CACHE_QUERY,
   MODEL_DOWNLOAD_CANCEL,
   MODEL_DOWNLOAD_REQUEST,
   MODEL_DOWNLOAD_START,
@@ -55,7 +56,7 @@ import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessag
 import { createTtsHost } from "../lib/tts-host"
 // Même garde `import.meta.env.FIREFOX` : côté Chrome, c'est le document
 // offscreen qui appelle loadModelFiles(), jamais ce fichier.
-import { loadModelFiles } from "../lib/supertonic/model-cache"
+import { isModelCached, loadModelFiles } from "../lib/supertonic/model-cache"
 
 const MENU_ID = "save-to-orateur"
 const SELECTION_MENU_ID = "read-selection-with-orateur"
@@ -356,6 +357,15 @@ export default defineBackground({
     ) => {
       if (message?.type !== TTS_SPEAK && message?.type !== TTS_CONTROL && message?.type !== TTS_SET_SPEED && message?.type !== TTS_SEEK) return
       void handleTtsFromPill(message, sender.tab?.id)
+    }
+  )
+
+  // Content scripts share the page's OPFS; only extension contexts can inspect this cache.
+  browser.runtime.onMessage.addListener(
+    (message: { type?: string }, _sender, sendResponse) => {
+      if (message?.type !== MODEL_CACHE_QUERY) return
+      void isModelCached().then(sendResponse)
+      return true
     }
   )
 

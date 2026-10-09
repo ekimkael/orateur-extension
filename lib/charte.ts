@@ -33,7 +33,7 @@ const DARK = `
   --background: #0d0d0d;
   --foreground: #e8e8e8;
   --card: #161616;
-  --muted-foreground: #7a7a7a;
+  --muted-foreground: #838383;
   --border: #2a2a2a;
   --shadow: 0 4px 24px rgb(0 0 0 / 0.32);`
 

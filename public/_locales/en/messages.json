@@ -41,6 +41,24 @@
   "ariaReadPage": {
     "message": "Read this page with Orateur"
   },
+  "ariaRetryReading": {
+    "message": "Retry reading"
+  },
+  "readerUntitled": {
+    "message": "Reading with Orateur"
+  },
+  "readerPlaying": {
+    "message": "Reading"
+  },
+  "readerPaused": {
+    "message": "Paused"
+  },
+  "readerProgress": {
+    "message": "$1 / $2 · $3"
+  },
+  "readerErrorRecovery": {
+    "message": "Unable to read. Try again, change the voice in settings or select text to read."
+  },
   "ariaHidePill": {
     "message": "Stop showing Orateur on this site"
   },
