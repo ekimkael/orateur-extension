@@ -1,3 +1,4 @@
+import { verifyModelFile } from "./model-integrity.ts"
 // lib/supertonic/model-cache.ts
 //
 // Copié de web/app/lib/supertonic/model-cache.ts, à plusieurs deltas près.
@@ -48,7 +49,7 @@ async function getCacheRoot(): Promise<FileSystemDirectoryHandle> {
 
 async function isCached(dir: FileSystemDirectoryHandle, name: string): Promise<boolean> {
   try {
-    await dir.getFileHandle(name)
+    await readCached(dir, name)
     return true
   } catch {
     return false
@@ -58,7 +59,9 @@ async function isCached(dir: FileSystemDirectoryHandle, name: string): Promise<b
 async function readCached(dir: FileSystemDirectoryHandle, name: string): Promise<ArrayBuffer> {
   const handle = await dir.getFileHandle(name)
   const file = await handle.getFile()
-  return file.arrayBuffer()
+  const bytes = await file.arrayBuffer()
+  await verifyModelFile(name, bytes)
+  return bytes
 }
 
 async function writeCache(
@@ -149,6 +152,7 @@ async function fetchFile(
     merged.set(chunk, offset)
     offset += chunk.byteLength
   }
+  await verifyModelFile(file.name, merged.buffer)
   return merged
 }
 
@@ -241,9 +245,7 @@ export function loadModelFiles(
       const mem = memFallback.get(name)
       if (mem) return mem
       if (!dir) throw new Error(`Model file not found: ${name}`)
-      const handle = await dir.getFileHandle(name)
-      const file = await handle.getFile()
-      return file.arrayBuffer()
+      return readCached(dir, name)
     }
   })()
 
@@ -263,8 +265,10 @@ export async function clearModelCache(): Promise<void> {
 export async function isModelCached(): Promise<boolean> {
   try {
     const dir = await getCacheRoot()
-    const results = await Promise.all(ALL_FILES.map(({ name }) => isCached(dir, name)))
-    return results.every(Boolean)
+    for (const { name } of ALL_FILES) {
+      if (!await isCached(dir, name)) return false
+    }
+    return true
   } catch {
     return false
   }
@@ -278,6 +282,7 @@ export async function getModelCacheSize(): Promise<number | null> {
     for (const { name } of ALL_FILES) {
       const handle = await dir.getFileHandle(name)
       const file = await handle.getFile()
+      await verifyModelFile(name, await file.arrayBuffer())
       total += file.size
     }
     return total
@@ -316,4 +321,15 @@ export async function readCachedVoiceStyle(voice: SupertonicVoice): Promise<Arra
   } catch {
     return null
   }
+}
+
+
+export async function loadVoiceStyleBytes(voice: SupertonicVoice): Promise<ArrayBuffer> {
+  const cached = await readCachedVoiceStyle(voice)
+  if (cached) return cached
+  const response = await fetch(`${VOICE_STYLE_BASE}/${voice}.json`)
+  if (!response.ok) throw new Error(`Failed to fetch voice style ${voice}: ${response.status}`)
+  const bytes = await response.arrayBuffer()
+  await verifyModelFile(voiceStyleFileName(voice), bytes)
+  return bytes
 }

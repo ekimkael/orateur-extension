@@ -1,3 +1,4 @@
+import { MODEL_REVISION } from "./model-integrity.ts"
 // lib/supertonic/types.ts
 //
 // Copié de web/app/lib/supertonic/types.ts, à un delta près — trois dépôts
@@ -45,7 +46,7 @@ export interface DownloadProgress {
   bytesTotal: number
 }
 
-const HF_BASE ="https://huggingface.co/Supertone/supertonic-3/resolve/main"
+const HF_BASE = `https://huggingface.co/Supertone/supertonic-3/resolve/${MODEL_REVISION}`
 
 export const ONNX_FILES = [
   { name: "tts.json", path: `${HF_BASE}/onnx/tts.json` },

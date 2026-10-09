@@ -6,6 +6,7 @@ import ts from "typescript"
 import * as messages from "./tts-messages.ts"
 import { isModelCached } from "./supertonic/model-cache.ts"
 import { ONNX_FILES, SUPERTONIC_VOICES } from "./supertonic/types.ts"
+import { MODEL_HASHES, MODEL_SIZES } from "./supertonic/model-integrity.ts"
 
 type Listener = (message: { type: string }, sender: { tab: { id: number } }, respond: (cached: boolean) => void) => unknown
 
@@ -42,6 +43,12 @@ function backgroundListeners(firefox: boolean): Listener[] {
 
 for (const firefox of [false, true]) {
   test(`MODEL_CACHE_QUERY reads extension cache without starting a host (${firefox ? "Firefox" : "Chrome"})`, async () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    const digest = await crypto.subtle.digest("SHA-256", bytes)
+    for (const name of Object.keys(MODEL_HASHES)) {
+      (MODEL_HASHES as Record<string, string>)[name] = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")
+      ;(MODEL_SIZES as Record<string, number>)[name] = 3
+    }
     const listeners = backgroundListeners(firefox)
     const files = new Set<string>()
     const originalStorage = (navigator as any).storage
@@ -50,7 +57,7 @@ for (const firefox of [false, true]) {
         getDirectoryHandle: async () => ({
           getFileHandle: async (name: string) => {
             if (!files.has(name)) throw new DOMException("Not found", "NotFoundError")
-            return {}
+            return { getFile: async () => ({ arrayBuffer: async () => bytes.buffer }) }
           },
         }),
       }),

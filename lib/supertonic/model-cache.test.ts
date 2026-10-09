@@ -12,6 +12,7 @@
 import assert from "node:assert/strict"
 import test, { beforeEach } from "node:test"
 import { ONNX_FILES, SUPERTONIC_VOICES } from "./types.ts"
+import { MODEL_HASHES, MODEL_SIZES } from "./model-integrity.ts"
 
 /** Répertoire OPFS en mémoire — assez pour getFileHandle/createWritable/getFile. */
 class FakeDir {
@@ -20,7 +21,7 @@ class FakeDir {
   async getFileHandle(name: string, opts?: { create?: boolean }) {
     if (!this.files.has(name)) {
       if (!opts?.create) throw new DOMException("Not found", "NotFoundError")
-      this.files.set(name, new ArrayBuffer(0))
+      this.files.set(name, new Uint8Array([1, 2, 3]).buffer)
     }
     const files = this.files
     return {
@@ -45,7 +46,14 @@ class FakeDir {
 
 let dir: FakeDir
 
-beforeEach(() => {
+beforeEach(async () => {
+  const bytes = new Uint8Array([1, 2, 3])
+  const digest = await crypto.subtle.digest("SHA-256", bytes)
+  const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")
+  for (const name of Object.keys(MODEL_HASHES)) {
+    (MODEL_HASHES as Record<string, string>)[name] = hash
+    ;(MODEL_SIZES as Record<string, number>)[name] = bytes.byteLength
+  }
   dir = new FakeDir()
   ;(globalThis as any).navigator.storage = {
     getDirectory: async () => ({
@@ -119,6 +127,9 @@ test("loadModelFiles(signal) : une annulation en cours de fichier rejette, et le
 test("readCachedVoiceStyle() : renvoie les octets en cache sans indication d'un réseau à faire", async () => {
   const { readCachedVoiceStyle } = await import("./model-cache.ts?voice-cached")
   const bytes = new TextEncoder().encode('{"style_ttl":1}').buffer
+  const digest = await crypto.subtle.digest("SHA-256", bytes)
+  ;(MODEL_HASHES as Record<string, string>)["voice-F1.json"] = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")
+  ;(MODEL_SIZES as Record<string, number>)["voice-F1.json"] = bytes.byteLength
   dir.files.set("voice-F1.json", bytes)
   const result = await readCachedVoiceStyle("F1")
   assert.ok(result)
@@ -133,10 +144,61 @@ test("readCachedVoiceStyle() : renvoie null quand le style n'est pas en cache", 
 
 test("isModelCached() : faux si un style de voix manque, même avec tous les fichiers ONNX présents", async () => {
   const { isModelCached } = await import("./model-cache.ts?manifest")
-  for (const { name } of ONNX_FILES) dir.files.set(name, new ArrayBuffer(0))
-  for (const voice of SUPERTONIC_VOICES) dir.files.set(`voice-${voice}.json`, new ArrayBuffer(0))
+  for (const { name } of ONNX_FILES) dir.files.set(name, new Uint8Array([1, 2, 3]).buffer)
+  for (const voice of SUPERTONIC_VOICES) dir.files.set(`voice-${voice}.json`, new Uint8Array([1, 2, 3]).buffer)
   assert.equal(await isModelCached(), true, "tout présent → vrai")
 
   dir.files.delete("voice-F1.json")
   assert.equal(await isModelCached(), false, "un style manquant → faux, malgré les ONNX complets")
+})
+
+
+test("corrupt cached voices are rejected", async () => {
+  const { readCachedVoiceStyle } = await import("./model-cache.ts?corrupt")
+  dir.files.set("voice-F1.json", new Uint8Array([3, 2, 1]).buffer)
+  assert.equal(await readCachedVoiceStyle("F1"), null)
+})
+
+test("corrupt downloads are never written to cache", async () => {
+  const { loadModelFiles } = await import("./model-cache.ts?bad-download")
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => fakeResponse(new Uint8Array([3, 2, 1])) as unknown as Response) as typeof fetch
+  try {
+    await assert.rejects(loadModelFiles(), /integrity check failed/)
+    assert.equal(dir.files.size, 0)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test("corrupt cache is replaced by verified downloads", async () => {
+  const { loadModelFiles } = await import("./model-cache.ts?repair")
+  for (const name of Object.keys(MODEL_HASHES)) dir.files.set(name, new Uint8Array([3, 2, 1]).buffer)
+  const originalFetch = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = (async () => {
+    calls++
+    return fakeResponse(new Uint8Array([1, 2, 3])) as unknown as Response
+  }) as typeof fetch
+  try {
+    const read = await loadModelFiles()
+    assert.equal(calls, TOTAL_FILES)
+    assert.deepEqual(new Uint8Array(await read(ONNX_FILES[0].name)), new Uint8Array([1, 2, 3]))
+    dir.files.set(ONNX_FILES[0].name, new Uint8Array([3, 2, 1]).buffer)
+    await assert.rejects(read(ONNX_FILES[0].name), /integrity check failed/)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+
+test("voice fallback verifies bytes and uses the pinned revision", async () => {
+  const { loadVoiceStyleBytes } = await import("./model-cache.ts?voice-fallback")
+  const originalFetch = globalThis.fetch
+  let corrupt = true
+  globalThis.fetch = (async (url: string) => {
+    assert.ok(!url.includes("/resolve/main/"))
+    return { ok: true, arrayBuffer: async () => new Uint8Array(corrupt ? [3, 2, 1] : [1, 2, 3]).buffer } as Response
+  }) as typeof fetch
+  try {
+    await assert.rejects(loadVoiceStyleBytes("F1"), /integrity check failed/)
+    corrupt = false
+    assert.deepEqual(new Uint8Array(await loadVoiceStyleBytes("F1")), new Uint8Array([1, 2, 3]))
+  } finally { globalThis.fetch = originalFetch }
 })
