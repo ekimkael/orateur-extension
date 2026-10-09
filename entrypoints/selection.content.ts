@@ -1,3 +1,4 @@
+import { isPasswordField, selectedFieldText } from "../lib/selection-field.ts"
 import { placeBubble } from "../lib/bubble-position"
 import { rangesToText, validateSelectionText } from "../lib/selection-text"
 import { isHidden, loadHiddenSites } from "../lib/site-rules.ts"
@@ -179,6 +180,7 @@ function message(
  * la page ne doit jamais casser à cause de l'extension.
  */
 function capture() {
+  if (isPasswordField(document.activeElement)) return null
   const field = captureField()
   const raw = field ? field.text : captureDocument()
   const result = validateSelectionText(raw)
@@ -226,10 +228,10 @@ function captureField() {
     return null
 
   try {
-    const { selectionStart, selectionEnd, value } = element
-    if (selectionStart == null || selectionStart === selectionEnd) return null
+    const text = selectedFieldText(element)
+    if (text === null) return null
     return {
-      text: value.slice(selectionStart, selectionEnd ?? undefined),
+      text,
       rect: element.getBoundingClientRect(),
     }
   } catch {
