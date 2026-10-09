@@ -24,6 +24,7 @@ import { toSupertonicLang, type SupportedLang } from "../lib/supertonic-lang.ts"
 import { detectLang } from "../lib/detect-lang.ts"
 import { markTab } from "../lib/tab-title.ts"
 import {
+  MODEL_CACHE_QUERY,
   TTS_CONTROL,
   TTS_EVENT,
   TTS_SEEK,
@@ -40,7 +41,6 @@ import {
 // depuis lib/supertonic/* ferait entrer le moteur dans ce bundle. La petite
 // liste ci-dessous, plus bas dans ce fichier, est donc dupliquée à dessein.
 import type { SupertonicVoice } from "../lib/supertonic/types.ts"
-import { isModelCached } from "../lib/supertonic/model-cache.ts"
 import { track } from "../lib/telemetry.ts"
 import { isHidden, loadHiddenSites, addHiddenSite, onHiddenSitesChanged } from "../lib/site-rules.ts"
 import { charteTokens } from "../lib/charte.ts"
@@ -102,7 +102,7 @@ export interface NotifyMessage {
  */
 export const READER_TOKEN = "orateur:reading-tab"
 
-type PillState = "idle" | "loading" | "playing" | "paused"
+type PillState = "idle" | "loading" | "playing" | "paused" | "error"
 
 export default defineContentScript({
   // Déclaré dans le manifest, contrairement à l'extracteur : la pastille doit
@@ -253,14 +253,10 @@ export default defineContentScript({
 
     /** Événements de l'hôte Supertonic : pilotent directement la pastille. */
     function onTtsEvent(message: Partial<TtsEventMessage>) {
-      if (message?.type !== TTS_EVENT || !message.state) return
+      if (message?.type !== TTS_EVENT || !message.state || !reading || !usingSupertonic) return
       const state = message.state
       if (state.phase === "loading") {
-        // Le toast ne sort que pour une attente étiquetée : téléchargement du
-        // modèle, chargement du moteur ou de la voix, et — pendant la lecture
-        // — le hoquet où l'unité suivante n'a pas fini de se synthétiser (RTF
-        // > 1, voir tts-host.ts). Les transitions déjà prêtes, elles, sont
-        // instantanées et n'émettent jamais cet état.
+        // Keep preparation and download feedback inside the compact pill.
         const label = state.reason ? browser.i18n.getMessage(LOADING_REASON_KEY[state.reason]) : undefined
         // Télémétrie (jalon 1c) : une seule fois par session, au tout premier
         // "downloading-model" — les ticks de progression suivants repassent
@@ -271,9 +267,9 @@ export default defineContentScript({
         }
         pill.setState(
           "loading",
-          label ?? supertonicTitle,
+          supertonicTitle,
           true,
-          label ? { label, percent: state.progress } : undefined
+          label ? { label, percent: state.progress, reason: state.reason } : undefined
         )
       } else if (state.phase === "playing") {
         if (sawSupertonicDownload) {
@@ -308,6 +304,7 @@ export default defineContentScript({
               : state.message,
         } satisfies NotifyMessage)
         fold()
+        pill.setState("error", readingTitle)
       }
     }
 
@@ -353,7 +350,7 @@ export default defineContentScript({
         .catch(() => false)
       // La réponse peut arriver après START_READING : ne redescendre à l'état
       // replié que si rien n'a démarré.
-      if (!started && !reading) pill.setState("idle")
+      if (!started && !reading) pill.setState("error", document.title)
     }
 
     /** ⏹ pendant la lecture, ✕ au repos : ne plus afficher Orateur sur ce domaine. */
@@ -687,33 +684,17 @@ function applyPosition(position: PillPosition, host: HTMLElement) {
 }
 
 const PILL_CSS = charteTokens(".pill-row") + `
+* { box-sizing: border-box }
+[hidden] { display: none !important }
 .pill-row {
-  /*
-   * Tokens posés ici et pas sur :host — le style inline posé par
-   * applyPosition() porte un all:initial!important qui écraserait tout ce
-   * qu'on y déclarerait. Le popover en hérite : une seule matière pour les deux.
-   */
   accent-color: var(--primary);
-
-  /*
-   * Les deux calques flottants (toast, popover) suivent la position de la
-   * pastille. Leur transform mélange trois rôles — centrage, échelle,
-   * glissement d'entrée : en sortir le centrage et le glissement permet aux
-   * variantes plus bas de n'en réécrire qu'une part, sans jamais redéclarer
-   * transform. C'est ce qui garde les règles prefers-reduced-motion
-   * gagnantes : elles ont une spécificité plus faible que les variantes.
-   */
-  --toast-center: translateY(-50%);
-  --toast-slide: translateX(12px);
   --pop-slide: translateY(4px);
-  --pop-origin-x: right;
-  --pop-origin-y: bottom;
-
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 48px);
   padding: 6px;
   border-radius: 999px;
-  font: 500 13px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 400 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   color: var(--foreground);
   background: var(--card);
@@ -721,12 +702,69 @@ const PILL_CSS = charteTokens(".pill-row") + `
   box-shadow: var(--shadow);
   position: relative;
 }
+.pill-row[data-active] { width: min(336px, calc(100vw - 48px)) }
+:host([data-expanded]) .pill-row {
+  padding: 12px;
+  border-radius: 20px;
+}
+.pill-content { padding: 2px 4px 12px; min-width: 0 }
+.pill-row[data-settings-open]:not([data-loading]) .pill-content {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.pill-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.pill-status-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 4px }
+.pill-status { flex: 1; min-width: 0; color: var(--muted-foreground); overflow-wrap: anywhere }
+.pill-percent { font-variant-numeric: tabular-nums; color: var(--muted-foreground) }
+.pill-controls { display: flex; align-items: center; gap: 4px }
+.pill-transport { display: flex; align-items: center; gap: 4px }
+.pill-meta { flex: 1; text-align: center; font-size: 12px; color: var(--muted-foreground); font-variant-numeric: tabular-nums }
+.pill-spacer { flex: 1 }
+.pill-row[data-loading] {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+.pill-row[data-loading] .pill-controls { display: contents }
+.pill-row[data-loading] .pill-transport { order: 1 }
+.pill-row[data-loading] .pill-content {
+  order: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  padding: 0 4px;
+}
+.pill-row[data-loading] .pill-settings { order: 3 }
+.pill-row[data-loading] .pill-secondary { order: 4 }
+.pill-row[data-loading] .pill-status-row { flex: 1; min-width: 0; margin: 0 }
+.pill-row[data-loading] .pill-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.pill-row[data-loading] .pill-primary:disabled { opacity: 1; cursor: wait }
+.pill-row[data-loading] .pill-progress { flex: 1; height: 6px; margin: 0 }
+.pill-row[data-downloading] .pill-status-row {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
 button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
+  flex: none;
   margin: 0;
   padding: 0;
   border: 0;
@@ -736,19 +774,19 @@ button {
   font-size: 15px;
   cursor: pointer;
 }
-button:hover:not(:disabled) { background: color-mix(in srgb, var(--foreground) 8%, transparent) }
+button:hover:not(:disabled), .pill-settings[aria-expanded="true"] { background: color-mix(in srgb, var(--foreground) 8%, transparent) }
 button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 button:disabled { opacity: 0.55; cursor: default }
-/* Le pressé doit s'entendre tout de suite : le retour est sur l'appui, pas au
-   relâchement. */
-button:active:not(:disabled) { transform: scale(0.97) }
-button { transition: transform 160ms var(--ease-out) }
+@media (prefers-reduced-motion: no-preference) {
+  button { transition: transform 160ms var(--ease-out) }
+  button:active:not(:disabled):not(:focus-visible) { transform: scale(0.97); transition-duration: 100ms }
+}
 /*
  * Bouton principal (▶/⏸) : seul rempli de la pastille, à la couleur de marque
  * — c'est lui qui lance ou suspend la lecture, les deux autres ne font
  * qu'accompagner ou interrompre.
  */
-.pill-primary { background: var(--primary); color: var(--primary-foreground) }
+.pill-primary { width: 40px; height: 40px; background: var(--primary); color: var(--primary-foreground) }
 .pill-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 88%, black) }
 .pill-primary:focus-visible { outline-color: var(--foreground) }
 /*
@@ -765,8 +803,11 @@ button[data-icon]::before {
   -webkit-mask: var(--icon) center / contain no-repeat;
   mask: var(--icon) center / contain no-repeat;
 }
-button[data-icon="sliders"] {
-  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M4 7h5M15 7h5M4 12h9M19 12h1M4 17h3M13 17h7'/%3E%3Ccircle cx='12' cy='7' r='2.5'/%3E%3Ccircle cx='16' cy='12' r='2.5'/%3E%3Ccircle cx='10' cy='17' r='2.5'/%3E%3C/svg%3E");
+button[data-icon="settings"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+}
+button[data-icon="cloud-download"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 13v8l-4-4m4 4 4-4M4.393 15.269A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.436 8.284'/%3E%3C/svg%3E");
 }
 button[data-icon="play"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z'/%3E%3C/svg%3E");
@@ -786,64 +827,33 @@ button[data-icon="previous"] {
 button[data-icon="next"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
 }
-/* Anneau tournant : le "loader-circle" de lucide, déjà utilisé par le spinner
-   du toast — même geste, même icône. */
+/* Rotate the loading icon only; the button itself remains stationary. */
 button[data-icon="loader-circle"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-6.219-8.56'/%3E%3C/svg%3E");
-  animation: loading-spin 700ms linear infinite;
 }
-@media (prefers-reduced-motion: reduce) {
-  button[data-icon="loader-circle"] { animation-duration: 1400ms }
-}
-/*
- * Au repos la pastille se replie sur ses deux boutons : le titre garde son
- * texte mais tombe à une largeur nulle. Une largeur n'a pas d'équivalent en
- * transform — même exception que pour un accordéon.
- *
- * Visé par sa classe, pas par le sélecteur span : le popover de réglages en
- * contient d'autres, que la règle repliait avec le titre — intitulés et
- * valeurs disparaissaient tant que la pastille n'était pas en train de lire.
- */
-.pill-title {
-  max-width: 0;
-  margin: 0;
-  opacity: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition:
-    max-width 200ms var(--ease-out),
-    margin 200ms var(--ease-out),
-    opacity 200ms var(--ease-out);
-}
-:host([data-expanded]) .pill-title {
-  max-width: 220px;
-  margin: 0 6px;
-  opacity: 1;
-}
-@media (prefers-reduced-motion: reduce) {
-  .pill-title { transition: opacity 120ms ease-out }
+@media (prefers-reduced-motion: no-preference) {
+  button[data-icon="loader-circle"]::before { animation: loading-spin 700ms linear infinite }
 }
 .settings-popover {
   position: absolute;
   bottom: 100%;
-  right: 0;
+  right: -1px;
   /* Même fond que la pastille : le popover en est le prolongement, pas une
      surface étrangère posée dessus. Le liseré fait l'arête. */
   background: var(--card);
-  border-radius: var(--radius-2xl);
+  border-radius: 16px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
-  padding: 12px;
-  min-width: 210px;
+  padding: 16px;
+  width: min(336px, calc(100vw - 48px));
+  max-height: calc(100dvh - 200px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   color: var(--foreground);
-  font-size: 12px;
+  font-size: 13px;
   opacity: 0;
   pointer-events: none;
-  transform: scale(0.95) var(--pop-slide);
-  /* Un popover s'ouvre depuis ce qui l'a ouvert : sans ça il grandit depuis son
-     centre et le lien avec le bouton se perd. */
-  transform-origin: var(--pop-origin-x) var(--pop-origin-y);
+  transform: var(--pop-slide);
   transition:
     opacity 150ms var(--ease-out),
     transform 150ms var(--ease-out);
@@ -858,77 +868,13 @@ button[data-icon="loader-circle"] {
 .settings-popover[data-open] {
   opacity: 1;
   pointer-events: auto;
-  transform: scale(1);
+  transform: translateY(0);
 }
-/*
- * Pastille jumelle, pas un popover : même hauteur de ligne que .pill-row,
- * mêmes bouts entièrement arrondis. Dockée à gauche par défaut — c'est là qu'il
- * reste de la place quand la pastille est plaquée contre le bord droit. Les
- * variantes plus bas la redockent selon la position choisie.
- */
-.loading-toast {
-  position: absolute;
-  top: 50%;
-  right: 100%;
-  margin-right: 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--card);
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
-  padding: 6px 14px 6px 10px;
-  max-width: 220px;
-  color: var(--foreground);
-  font-size: 12px;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transform: var(--toast-center) scale(0.95) var(--toast-slide);
-  transform-origin: center right;
-  transition:
-    opacity 150ms var(--ease-out),
-    transform 150ms var(--ease-out);
-  z-index: 10000;
-}
-.loading-toast[data-open] {
-  opacity: 1;
-  pointer-events: auto;
-  transform: var(--toast-center) scale(1);
-}
-@media (prefers-reduced-motion: reduce) {
-  /* --toast-center et pas translateY(-50%) en dur : aux positions *-center le
-     toast est centré horizontalement, pas verticalement. */
-  .loading-toast { transform: var(--toast-center); transition: opacity 120ms ease-out }
-  .loading-toast[data-open] { transform: var(--toast-center) }
-}
-
-/* ── Le toast et le popover suivent la position de la pastille ───────────
- *
- * Deux axes indépendants lus sur l'attribut posé par applyPosition() :
- * ^="top" bascule le popover vers le bas, $="left" renvoie le toast à
- * droite de la pastille et aligne le popover à gauche. Sans ça les deux
- * calques sortent de l'écran sur 4 des 6 positions.
- */
-:host([data-orateur-position$="left"]) .pill-row {
-  --toast-slide: translateX(-12px);
-  --pop-origin-x: left;
-}
-:host([data-orateur-position$="left"]) .loading-toast {
-  right: auto;
-  left: 100%;
-  margin-right: 0;
-  margin-left: 8px;
-  transform-origin: center left;
-}
-:host([data-orateur-position$="left"]) .settings-popover {
-  right: auto;
-  left: 0;
-}
+.settings-popover[data-instant] { transition: none }
+/* Keep settings inside the viewport at all six dock positions. */
+:host([data-orateur-position$="left"]) .settings-popover { right: auto; left: -1px }
 :host([data-orateur-position^="top"]) .pill-row {
   --pop-slide: translateY(-4px);
-  --pop-origin-y: top;
 }
 :host([data-orateur-position^="top"]) .settings-popover {
   bottom: auto;
@@ -936,98 +882,28 @@ button[data-icon="loader-circle"] {
   margin-bottom: 0;
   margin-top: 8px;
 }
-/*
- * Au centre, le toast s'empile au-dessus de la pastille au lieu de se poser à
- * côté : il n'y a plus qu'un demi-écran à sa gauche, et sous ~420px de large il
- * rognait.
- */
-:host([data-orateur-position$="center"]) .pill-row {
-  --toast-center: translateX(-50%);
-  --toast-slide: translateY(4px);
-}
-:host([data-orateur-position$="center"]) .loading-toast {
-  top: auto;
+:host([data-orateur-position$="center"]) .settings-popover {
   right: auto;
-  bottom: 100%;
   left: 50%;
-  margin: 0 0 8px;
-  transform-origin: bottom center;
+  translate: -50% 0;
 }
-/* Après le bloc $="center" : même spécificité, seul l'ordre départage. */
-:host([data-orateur-position="top-center"]) .pill-row {
-  --toast-slide: translateY(-4px);
+@media (prefers-reduced-motion: no-preference) {
+  .pill-progress-fill { transition: transform 150ms linear }
 }
-:host([data-orateur-position="top-center"]) .loading-toast {
-  bottom: auto;
-  top: 100%;
-  margin: 8px 0 0;
-  transform-origin: top center;
-}
-/*
- * Empilé, le toast occupe la place où s'ouvre le popover — et il est justement
- * visible pendant le téléchargement du modèle, l'instant où l'on ouvre les
- * réglages pour changer de moteur. Popover ouvert, le toast reprend donc sa
- * place latérale. Le combinateur frère fonctionne parce que le popover est
- * inséré avant le toast dans .pill-row. Redéclarer les variables sur l'élément
- * lui-même écrase celles héritées de .pill-row : le bloc est autonome.
- *
- * ponytail: seuls opacity et transform sont en transition — le retour latéral
- * fait donc glisser le transform pendant que top/right/margin sautent.
- * Transitoire et rare ; poser transition:none ici si ça pique.
- */
-:host([data-orateur-position$="center"]) .settings-popover[data-open] ~ .loading-toast {
-  --toast-center: translateY(-50%);
-  --toast-slide: translateX(12px);
-  top: 50%;
-  bottom: auto;
-  right: 100%;
-  left: auto;
-  margin: 0 8px 0 0;
-  transform-origin: center right;
-}
-.loading-toast-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Anneau tournant : attente sans pourcentage connu (moteur, voix). */
-.loading-toast-spinner {
-  display: none;
-  width: 14px;
-  height: 14px;
-  flex: none;
-  border-radius: 999px;
-  border: 2px solid var(--border);
-  border-top-color: var(--primary);
-  animation: loading-spin 700ms linear infinite;
-}
-.loading-toast[data-mode="indeterminate"] .loading-toast-spinner { display: block }
-@media (prefers-reduced-motion: reduce) {
-  .loading-toast-spinner { animation-duration: 1400ms }
-}
-@keyframes loading-spin {
-  to { transform: rotate(360deg) }
-}
-/* Barre déterminée : pourcentage connu (téléchargement du modèle). */
-.loading-toast-bar {
-  display: none;
-  width: 48px;
-  height: 4px;
-  flex: none;
+@keyframes loading-spin { to { transform: rotate(360deg) } }
+.pill-progress {
+  height: 3px;
+  margin-top: 10px;
   border-radius: 999px;
   background: var(--border);
   overflow: hidden;
 }
-.loading-toast[data-mode="determinate"] .loading-toast-bar { display: block }
-.loading-toast-bar-fill {
+.pill-progress-fill {
   width: 100%;
   height: 100%;
   transform: scaleX(0);
   transform-origin: left;
   background: var(--primary);
-  transition: transform 150ms linear;
 }
 /*
  * Une case à cocher se lit en ligne, intitulé à droite — pas dans la colonne
@@ -1045,15 +921,13 @@ button[data-icon="loader-circle"] {
 .settings-toggle input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 .settings-row { display: flex; flex-direction: column; gap: 6px }
 .settings-row + .settings-row { margin-top: 12px }
+.settings-note + .settings-row { margin-top: 12px }
 .settings-label {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  font-size: 12px;
   color: var(--muted-foreground);
   font-weight: 600;
   cursor: pointer;
@@ -1072,7 +946,8 @@ button[data-icon="loader-circle"] {
 .settings-control {
   width: 100%;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
+  min-height: 36px;
   color: var(--foreground);
   cursor: pointer;
 }
@@ -1093,8 +968,8 @@ input.settings-control { margin: 2px 0 }
    coûte moins qu'un état de plus dans syncControls(). */
 .settings-note {
   margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted-foreground);
 }
 .settings-note strong { color: var(--foreground); font-weight: 600 }
@@ -1106,6 +981,7 @@ const LABELS: Record<PillState, { primary: string; secondary: string }> = {
   loading: { primary: "loader-circle", secondary: "x" },
   playing: { primary: "pause", secondary: "square" },
   paused: { primary: "play", secondary: "square" },
+  error: { primary: "play", secondary: "x" },
 }
 
 /**
@@ -1306,6 +1182,7 @@ function createPill(
     loading: { primary: browser.i18n.getMessage("ariaExtracting"), secondary: browser.i18n.getMessage("ariaHidePill") },
     playing: { primary: browser.i18n.getMessage("ariaPause"), secondary: browser.i18n.getMessage("ariaStopReading") },
     paused: { primary: browser.i18n.getMessage("ariaResume"), secondary: browser.i18n.getMessage("ariaStopReading") },
+    error: { primary: browser.i18n.getMessage("ariaRetryReading"), secondary: browser.i18n.getMessage("ariaHidePill") },
   }
   const ENGINES: Array<[ReaderEngine, string]> = [
     ["system", browser.i18n.getMessage("engineSystem")],
@@ -1334,6 +1211,7 @@ function createPill(
   ]
 
   const host = document.createElement("orateur-reader-pill")
+  host.lang = browser.i18n.getUILanguage()
   applyPosition(initialPrefs.position, host)
   applyTheme(initialTheme, host)
 
@@ -1344,26 +1222,63 @@ function createPill(
 
   const row = document.createElement("div")
   row.className = "pill-row"
+  const content = document.createElement("div")
+  content.className = "pill-content"
+  const label = document.createElement("span")
+  label.className = "pill-title"
+  label.dir = "auto"
+  const statusRow = document.createElement("div")
+  statusRow.className = "pill-status-row"
+  const status = document.createElement("span")
+  status.className = "pill-status"
+  status.setAttribute("role", "status")
+  const percent = document.createElement("span")
+  percent.className = "pill-percent"
+  percent.setAttribute("aria-hidden", "true")
+  statusRow.append(status)
+  const progress = document.createElement("div")
+  progress.className = "pill-progress"
+  progress.setAttribute("role", "progressbar")
+  progress.setAttribute("aria-valuemin", "0")
+  progress.setAttribute("aria-valuemax", "100")
+  progress.setAttribute("aria-label", browser.i18n.getMessage("ttsDownloadingModel"))
+  const progressFill = document.createElement("div")
+  progressFill.className = "pill-progress-fill"
+  progress.append(progressFill)
+  content.append(label, statusRow, progress, percent)
+
+  const controls = document.createElement("div")
+  controls.className = "pill-controls"
+  const transport = document.createElement("div")
+  transport.className = "pill-transport"
   const previous = button(onPrevious)
   previous.dataset.icon = "previous"
   previous.setAttribute("aria-label", browser.i18n.getMessage("ariaPreviousParagraph"))
+  previous.title = previous.getAttribute("aria-label")!
   const primary = button(onPrimary)
   primary.className = "pill-primary"
   const next = button(onNext)
   next.dataset.icon = "next"
   next.setAttribute("aria-label", browser.i18n.getMessage("ariaNextParagraph"))
-  const label = document.createElement("span")
-  label.className = "pill-title"
+  next.title = next.getAttribute("aria-label")!
+  const meta = document.createElement("span")
+  meta.className = "pill-meta"
+  const spacer = document.createElement("span")
+  spacer.className = "pill-spacer"
   const secondary = button(onSecondary)
-  const settings = button(() => togglePopover())
+  secondary.className = "pill-secondary"
+  const settings = button((event) => togglePopover(event.detail === 0))
+  settings.className = "pill-settings"
   // Posé une fois : l'icône et son intitulé ne dépendent pas de l'état de
   // lecture, contrairement à ceux de ▶ et ⏹.
-  settings.dataset.icon = "sliders"
+  settings.dataset.icon = "settings"
   settings.setAttribute("aria-label", browser.i18n.getMessage("ariaReadingSettings"))
+  settings.title = settings.getAttribute("aria-label")!
   settings.setAttribute("aria-expanded", "false")
-  // Replié : ▶ ⚙ ✕. Le titre s'ouvre entre ▶ et ⚙ pendant la lecture, donc les
-  // deux boutons de bord ne bougent pas quand la pastille se déplie.
-  row.append(previous, primary, next, label, settings, secondary)
+  settings.setAttribute("aria-controls", "orateur-reading-settings")
+  transport.append(previous, primary, next)
+  controls.append(transport, meta, spacer, settings, secondary)
+  row.append(content, controls)
   root.append(row)
 
   // Construit une fois, jamais réécrit : `innerHTML` est refusé par les pages
@@ -1371,37 +1286,15 @@ function createPill(
   // à chaque clic ferait perdre le focus clavier.
   const popover = document.createElement("div")
   popover.className = "settings-popover"
+  popover.id = "orateur-reading-settings"
+  popover.inert = true
   popover.setAttribute("role", "group")
   popover.setAttribute("aria-label", browser.i18n.getMessage("ariaReadingSettings"))
   row.append(popover)
 
-  /**
-   * Toast d'attente : téléchargement du modèle, chargement du moteur ou de
-   * la voix Supertonic. Séparé de `label` (qui porte le titre de l'article)
-   * pour ne jamais l'écraser — sans ça la pastille perdrait le titre affiché
-   * pendant l'attente et devrait le retrouver au retour à "playing".
-   */
-  const toast = document.createElement("div")
-  toast.className = "loading-toast"
-  toast.setAttribute("role", "status")
-  toast.setAttribute("aria-live", "polite")
-  // `div` plutôt que `span` : sans conséquence ici, les deux sont mis en
-  // forme par leur classe.
-  const toastSpinner = document.createElement("div")
-  toastSpinner.className = "loading-toast-spinner"
-  toastSpinner.setAttribute("aria-hidden", "true")
-  const toastLabel = document.createElement("div")
-  toastLabel.className = "loading-toast-label"
-  const toastBar = document.createElement("div")
-  toastBar.className = "loading-toast-bar"
-  const toastFill = document.createElement("div")
-  toastFill.className = "loading-toast-bar-fill"
-  toastBar.append(toastFill)
-  toast.append(toastSpinner, toastLabel, toastBar)
-  row.append(toast)
-
   let currentPrefs = initialPrefs
   let isPopoverOpen = false
+  let currentState: PillState = "idle"
   let currentBlock = 0
   let totalBlocks = 0
   let navigationActive = false
@@ -1427,12 +1320,9 @@ function createPill(
     if (engine.value === "supertonic") track({ name: "supertonic_offered" })
   })
 
-  // Le coût du premier ▶ : Supertonic ne télécharge rien tant qu'on ne lit
-  // pas, mais le dire à l'avance rend ce coût acceptable plutôt que subi.
-  // Une fois le modèle en cache, le même message vire en confirmation — les
-  // libellés viennent de la page d'options, qui affiche déjà les deux états
-  // via isModelCached().
-  let modelCached = false
+  // Only a confirmed missing extension cache needs the first-download note.
+  let modelCached: boolean | undefined
+  let modelCacheRequest = 0
   const supertonicNote = document.createElement("div")
   supertonicNote.className = "settings-note"
   const noteLead = document.createElement("strong")
@@ -1490,15 +1380,24 @@ function createPill(
   // Le shadow root ne voit pas les clics du reste de la page — l'écouteur doit
   // être sur le document. En capture, pour survivre à un `stopPropagation`.
   const onDocumentClick = (event: Event) => {
-    if (isPopoverOpen && !event.composedPath().includes(row)) closePopover()
+    if (isPopoverOpen && !event.composedPath().includes(host)) closePopover()
   }
   const onDocumentKeydown = (event: KeyboardEvent) => {
     if (event.key !== "Escape" || !isPopoverOpen) return
-    closePopover()
+    event.preventDefault()
+    event.stopPropagation()
+    closePopover(true)
     settings.focus()
   }
   document.addEventListener("click", onDocumentClick, true)
   document.addEventListener("keydown", onDocumentKeydown, true)
+  const onWindowResize = () => {
+    if (isPopoverOpen) fitPopover()
+  }
+  window.addEventListener("resize", onWindowResize)
+  row.addEventListener("focusout", (event) => {
+    if (isPopoverOpen && !row.contains(event.relatedTarget as Node | null)) closePopover(true)
+  })
 
   /**
    * Pose un réglage dans le popover : intitulé à gauche, valeur lue à droite,
@@ -1539,25 +1438,31 @@ function createPill(
       voice.value = currentPrefs.voiceURI ?? ""
     }
     follow.checked = currentPrefs.follow
+    updateMeta()
     updateSupertonicNote()
-    if (currentPrefs.engine === "supertonic") void refreshModelCached()
+    if (isPopoverOpen && currentPrefs.engine === "supertonic") void refreshModelCached()
   }
 
   /** Reflète `modelCached` sur le texte et la visibilité de la note. */
   function updateSupertonicNote() {
-    supertonicNote.hidden = currentPrefs.engine !== "supertonic"
+    supertonicNote.hidden = currentPrefs.engine !== "supertonic" || modelCached !== false
     if (supertonicNote.hidden) return
-    noteLead.textContent = browser.i18n.getMessage(
-      modelCached ? "optionsModelAlertReadyLead" : "optionsModelAlertPendingLead"
-    )
-    noteRest.textContent = browser.i18n.getMessage(
-      modelCached ? "optionsModelAlertReady" : "optionsModelAlertPending"
-    )
+    noteLead.textContent = browser.i18n.getMessage("optionsModelAlertPendingLead")
+    noteRest.textContent = browser.i18n.getMessage("optionsModelAlertPending")
   }
 
   async function refreshModelCached() {
-    modelCached = await isModelCached()
+    const request = ++modelCacheRequest
+    let cached: unknown
+    try {
+      cached = await browser.runtime.sendMessage({ type: MODEL_CACHE_QUERY })
+    } catch {
+      cached = undefined
+    }
+    if (request !== modelCacheRequest) return
+    modelCached = typeof cached === "boolean" ? cached : undefined
     updateSupertonicNote()
+    if (isPopoverOpen) fitPopover()
   }
 
   function renderVoices() {
@@ -1576,17 +1481,42 @@ function createPill(
     syncControls()
   }
 
-  function closePopover() {
+  function closePopover(instant = false) {
+    // Restoring the card moves its anchor; hide first to avoid an exit jump.
+    const restoringCard = currentState !== "idle" && currentState !== "loading"
     isPopoverOpen = false
+    popover.inert = true
+    popover.toggleAttribute("data-instant", instant || restoringCard)
     popover.removeAttribute("data-open")
     settings.setAttribute("aria-expanded", "false")
+    updateLayout()
   }
 
-  function togglePopover() {
-    isPopoverOpen = !isPopoverOpen
-    popover.toggleAttribute("data-open", isPopoverOpen)
-    settings.setAttribute("aria-expanded", String(isPopoverOpen))
-    if (isPopoverOpen) syncControls()
+  function togglePopover(keyboard = false) {
+    if (isPopoverOpen) return closePopover(keyboard)
+    isPopoverOpen = true
+    popover.inert = false
+    popover.toggleAttribute("data-instant", keyboard)
+    popover.setAttribute("data-open", "")
+    settings.setAttribute("aria-expanded", "true")
+    updateLayout()
+    modelCached = undefined
+    syncControls()
+    fitPopover()
+    if (keyboard) engine.focus()
+  }
+
+  function updateLayout() {
+    const expanded = currentState !== "idle" && currentState !== "loading" && !isPopoverOpen
+    host.toggleAttribute("data-expanded", expanded)
+    row.toggleAttribute("data-settings-open", isPopoverOpen)
+    // Clip the card visually, retaining live announcements and inline loading feedback.
+    content.hidden = currentState === "idle"
+  }
+
+  function fitPopover() {
+    // Account for wrapped titles, both dock margins and the gap to the reader.
+    popover.style.maxHeight = `${Math.max(0, window.innerHeight - row.offsetHeight - 40)}px`
   }
 
   function attach() {
@@ -1603,33 +1533,61 @@ function createPill(
     state: PillState,
     title?: string,
     interruptible = false,
-    toastInfo?: { label: string; percent?: number }
+    loadingInfo?: { label: string; percent?: number; reason?: TtsLoadingReason }
   ) {
-    primary.dataset.icon = LABELS[state].primary
-    primary.setAttribute("aria-label", ARIA[state].primary)
-    secondary.dataset.icon = LABELS[state].secondary
-    secondary.setAttribute("aria-label", ARIA[state].secondary)
-    // Rien à annuler tant que l'extraction tourne : quelques centaines de
-    // millisecondes, plus simple à neutraliser qu'à interrompre. Supertonic
-    // réutilise ce même état "loading" pour des attentes de plusieurs
-    // secondes (téléchargement, synthèse entre blocs) — `interruptible` en
-    // sort les deux appelants concernés, sinon ⏸/⏹ resteraient morts
-    // précisément quand l'utilisateur veut s'en servir.
-    primary.disabled = secondary.disabled = state === "loading" && !interruptible
+    const wasLoading = currentState === "loading"
+    currentState = state
+    const activeLoading = state === "loading" && interruptible
+    const downloading = state === "loading" && (
+      loadingInfo?.reason === "downloading-model" || Number.isFinite(loadingInfo?.percent)
+    )
+    const statusText = state === "loading"
+      ? loadingInfo?.label ?? browser.i18n.getMessage(activeLoading ? "ttsLoadingVoice" : "ariaExtracting")
+      : state === "error" ? browser.i18n.getMessage("readerErrorRecovery")
+      : state === "paused" ? browser.i18n.getMessage("readerPaused")
+      : state === "playing" ? browser.i18n.getMessage("readerPlaying") : ""
+    primary.dataset.icon = downloading ? "cloud-download" : LABELS[state].primary
+    primary.setAttribute("aria-label", state === "loading" ? statusText : ARIA[state].primary)
+    secondary.dataset.icon = activeLoading ? "square" : LABELS[state].secondary
+    secondary.setAttribute("aria-label", activeLoading ? ARIA.playing.secondary : ARIA[state].secondary)
+    primary.title = primary.getAttribute("aria-label")!
+    secondary.title = secondary.getAttribute("aria-label")!
+    // Preparation cannot pause or resume; long waits remain cancellable.
+    primary.disabled = state === "loading"
+    secondary.disabled = state === "loading" && !interruptible
     // Le titre n'est réécrit que quand on en fournit un : une pause ne doit
     // pas le perdre — donc pas replier la pastille — juste changer l'icône.
-    if (title !== undefined) label.textContent = title
-    const expanded = state === "playing" || state === "paused" || (state === "loading" && interruptible)
-    host.toggleAttribute("data-expanded", expanded)
-    previous.hidden = next.hidden = !expanded
+    if (title !== undefined) label.textContent = title || browser.i18n.getMessage("readerUntitled")
+    updateLayout()
+    row.toggleAttribute("data-active", state !== "idle")
+    row.toggleAttribute("data-loading", state === "loading")
+    row.toggleAttribute("data-downloading", downloading)
+    previous.hidden = next.hidden = meta.hidden = state !== "playing" && state !== "paused"
+    spacer.hidden = !meta.hidden || state === "loading"
     navigationActive = state === "playing" || state === "paused"
     updateNavigation()
-
-    toast.toggleAttribute("data-open", toastInfo !== undefined)
-    if (toastInfo) {
-      toastLabel.textContent = toastInfo.label
-      toast.dataset.mode = toastInfo.percent === undefined ? "indeterminate" : "determinate"
-      if (toastInfo.percent !== undefined) toastFill.style.transform = `scaleX(${toastInfo.percent / 100})`
+    label.hidden = !label.textContent || state === "loading"
+    status.setAttribute("role", state === "error" ? "alert" : "status")
+    if (status.textContent !== statusText) status.textContent = statusText
+    status.title = statusText
+    const downloadPercent = state === "loading" && Number.isFinite(loadingInfo?.percent)
+      ? Math.round(Math.min(100, Math.max(0, loadingInfo!.percent!))) : undefined
+    progress.hidden = !downloading
+    percent.hidden = downloadPercent === undefined
+    if (downloadPercent !== undefined) {
+      percent.textContent = `${downloadPercent}%`
+      progress.setAttribute("aria-valuenow", String(downloadPercent))
+      progressFill.style.transform = `scaleX(${downloadPercent / 100})`
+    } else {
+      percent.textContent = ""
+      progress.removeAttribute("aria-valuenow")
+      progressFill.style.transform = "scaleX(0)"
+    }
+    if (isPopoverOpen) {
+      fitPopover()
+      if (wasLoading && state === "playing" && currentPrefs.engine === "supertonic") {
+        void refreshModelCached()
+      }
     }
   }
 
@@ -1642,6 +1600,13 @@ function createPill(
     currentBlock = block
     totalBlocks = total
     updateNavigation()
+    updateMeta()
+  }
+
+  function updateMeta() {
+    meta.textContent = totalBlocks > 0
+      ? browser.i18n.getMessage("readerProgress", [String(currentBlock + 1), String(totalBlocks), formatSpeed(currentPrefs.speed)])
+      : formatSpeed(currentPrefs.speed)
   }
 
   return {
@@ -1657,6 +1622,7 @@ function createPill(
     remove: () => {
       document.removeEventListener("click", onDocumentClick, true)
       document.removeEventListener("keydown", onDocumentKeydown, true)
+      window.removeEventListener("resize", onWindowResize)
       speechSynthesis.removeEventListener("voiceschanged", renderVoices)
       host.remove()
     },
@@ -1689,7 +1655,7 @@ function formatSpeed(speed: number) {
   return `${digit}×`
 }
 
-function button(onClick: () => void) {
+function button(onClick: (event: MouseEvent) => void) {
   const element = document.createElement("button")
   element.type = "button"
   // Le mousedown par défaut déplace le caret et efface une sélection en cours.

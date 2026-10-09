@@ -151,6 +151,8 @@ export const MODEL_DOWNLOAD_REQUEST = "orateur:tts:model-download-request"
 export const MODEL_DOWNLOAD_START = "orateur:tts:model-download-start"
 export const MODEL_DOWNLOAD_CANCEL = "orateur:tts:model-download-cancel"
 export const MODEL_STATE_QUERY = "orateur:tts:model-state-query"
+/** Query persistent cache completeness from the extension origin, including when no TTS host exists. */
+export const MODEL_CACHE_QUERY = "orateur:tts:model-cache-query"
 /** Diffusé par l'hôte à chaque avancée — reçu directement par la page
  *  d'options, contexte d'extension comme un autre, sans relais. */
 export const MODEL_PROGRESS = "orateur:tts:model-progress"
@@ -180,6 +182,10 @@ export interface ModelDownloadCancelMessage {
 
 export interface ModelStateQueryMessage {
   type: typeof MODEL_STATE_QUERY
+}
+
+export interface ModelCacheQueryMessage {
+  type: typeof MODEL_CACHE_QUERY
 }
 
 export interface ModelProgressMessage {

@@ -41,6 +41,24 @@
   "ariaReadPage": {
     "message": "Lire cette page avec Orateur"
   },
+  "ariaRetryReading": {
+    "message": "Réessayer la lecture"
+  },
+  "readerUntitled": {
+    "message": "Lecture avec Orateur"
+  },
+  "readerPlaying": {
+    "message": "Lecture en cours"
+  },
+  "readerPaused": {
+    "message": "En pause"
+  },
+  "readerProgress": {
+    "message": "$1 / $2 · $3"
+  },
+  "readerErrorRecovery": {
+    "message": "Impossible de lire. Réessayez, changez de voix dans les réglages ou sélectionnez du texte à lire."
+  },
   "ariaHidePill": {
     "message": "Ne plus afficher Orateur sur ce site"
   },
