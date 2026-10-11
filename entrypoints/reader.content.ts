@@ -688,7 +688,6 @@ const PILL_CSS = charteTokens(".pill-row") + `
 [hidden] { display: none !important }
 .pill-row {
   accent-color: var(--primary);
-  --pop-slide: translateY(4px);
   display: flex;
   flex-direction: column;
   max-width: calc(100vw - 48px);
@@ -697,10 +696,31 @@ const PILL_CSS = charteTokens(".pill-row") + `
   font: 400 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   color: var(--foreground);
-  background: var(--card);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
+  border: 1px solid transparent;
   position: relative;
+  isolation: isolate;
+}
+.pill-surface {
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(100% + 2px);
+  height: calc(100% + 2px);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  transform-origin: top left;
+  pointer-events: none;
+  z-index: -1;
+}
+.pill-surface-card { border-radius: 20px; opacity: 0 }
+:host([data-expanded]) .pill-surface-card { opacity: 1 }
+:host([data-expanded]) .pill-surface-compact { opacity: 0 }
+.pill-content-copy {
+  position: absolute;
+  padding: 2px 4px 12px;
+  pointer-events: none;
 }
 .pill-row[data-active] { width: min(336px, calc(100vw - 48px)) }
 :host([data-expanded]) .pill-row {
@@ -853,29 +873,18 @@ button[data-icon="loader-circle"] {
   font-size: 13px;
   opacity: 0;
   pointer-events: none;
-  transform: var(--pop-slide);
-  transition:
-    opacity 150ms var(--ease-out),
-    transform 150ms var(--ease-out);
   z-index: 10000;
   margin-bottom: 8px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .settings-popover { transform: none; transition: opacity 120ms ease-out }
-  .settings-popover[data-open] { transform: none }
   button:active:not(:disabled) { transform: none }
 }
 .settings-popover[data-open] {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
 }
-.settings-popover[data-instant] { transition: none }
 /* Keep settings inside the viewport at all six dock positions. */
 :host([data-orateur-position$="left"]) .settings-popover { right: auto; left: -1px }
-:host([data-orateur-position^="top"]) .pill-row {
-  --pop-slide: translateY(-4px);
-}
 :host([data-orateur-position^="top"]) .settings-popover {
   bottom: auto;
   top: 100%;
@@ -1222,6 +1231,14 @@ function createPill(
 
   const row = document.createElement("div")
   row.className = "pill-row"
+  const surfaces = ["compact", "card"].map((shape) => {
+    const surface = document.createElement("div")
+    surface.className = `pill-surface pill-surface-${shape}`
+    surface.setAttribute("aria-hidden", "true")
+    surface.inert = true
+    row.append(surface)
+    return surface
+  })
   const content = document.createElement("div")
   content.className = "pill-content"
   const label = document.createElement("span")
@@ -1298,6 +1315,10 @@ function createPill(
   let currentBlock = 0
   let totalBlocks = 0
   let navigationActive = false
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)")
+  let animations: Animation[] = []
+  let contentCopy: HTMLElement | undefined
+  let motionRevision = 0
 
   const engine = document.createElement("select")
   settingsRow(browser.i18n.getMessage("settingsEngineLabel"), engine)
@@ -1392,9 +1413,11 @@ function createPill(
   document.addEventListener("click", onDocumentClick, true)
   document.addEventListener("keydown", onDocumentKeydown, true)
   const onWindowResize = () => {
+    settleMotion()
     if (isPopoverOpen) fitPopover()
   }
   window.addEventListener("resize", onWindowResize)
+  reducedMotion.addEventListener("change", settleMotion)
   row.addEventListener("focusout", (event) => {
     if (isPopoverOpen && !row.contains(event.relatedTarget as Node | null)) closePopover(true)
   })
@@ -1445,7 +1468,9 @@ function createPill(
 
   /** Reflète `modelCached` sur le texte et la visibilité de la note. */
   function updateSupertonicNote() {
-    supertonicNote.hidden = currentPrefs.engine !== "supertonic" || modelCached !== false
+    const hidden = currentPrefs.engine !== "supertonic" || modelCached !== false
+    if (supertonicNote.hidden !== hidden && animations.length) settleMotion()
+    supertonicNote.hidden = hidden
     if (supertonicNote.hidden) return
     noteLead.textContent = browser.i18n.getMessage("optionsModelAlertPendingLead")
     noteRest.textContent = browser.i18n.getMessage("optionsModelAlertPending")
@@ -1481,28 +1506,132 @@ function createPill(
     syncControls()
   }
 
-  function closePopover(instant = false) {
-    // Restoring the card moves its anchor; hide first to avoid an exit jump.
-    const restoringCard = currentState !== "idle" && currentState !== "loading"
-    isPopoverOpen = false
-    popover.inert = true
-    popover.toggleAttribute("data-instant", instant || restoringCard)
-    popover.removeAttribute("data-open")
-    settings.setAttribute("aria-expanded", "false")
+  function settleMotion() {
+    motionRevision++
+    for (const animation of animations) animation.cancel()
+    animations = []
+    contentCopy?.remove()
+    contentCopy = undefined
+    content.style.opacity = ""
+    popover.style.transform = ""
+    for (const surface of surfaces) surface.removeAttribute("style")
+  }
+
+  function setPopover(open: boolean, instant: boolean) {
+    // Sample displayed values before cancellation, including interrupted exits.
+    const moving = [transport, meta, settings, secondary]
+    const beforeControls = moving.map((element) => element.getBoundingClientRect())
+    const beforePanel = popover.getBoundingClientRect()
+    const panelOpacity = Number(getComputedStyle(popover).opacity)
+    const beforeSurfaces = surfaces.map((surface) => ({
+      rect: surface.getBoundingClientRect(),
+      opacity: Number(getComputedStyle(surface).opacity),
+      width: parseFloat(surface.style.width) || surface.getBoundingClientRect().width,
+      height: parseFloat(surface.style.height) || surface.getBoundingClientRect().height,
+    }))
+    const hasCardContent = currentState !== "idle" && currentState !== "loading"
+    const visibleContent = contentCopy ?? (hasCardContent && !isPopoverOpen ? content : undefined)
+    const beforeContent = visibleContent?.getBoundingClientRect()
+    const contentOpacity = visibleContent ? Number(getComputedStyle(visibleContent).opacity) : 0
+
+    // Keep native surface dimensions on reversals; only hidden layers may resize.
+    motionRevision++
+    for (const animation of animations) animation.cancel()
+    animations = []
+    contentCopy?.remove()
+    contentCopy = undefined
+    content.style.opacity = ""
+    popover.style.transform = ""
+    isPopoverOpen = open
+    popover.inert = !open
+    popover.toggleAttribute("data-open", open)
+    settings.setAttribute("aria-expanded", String(open))
     updateLayout()
+    if (open) {
+      modelCached = undefined
+      syncControls()
+    }
+    fitPopover()
+    if (instant || !host.isConnected || typeof popover.animate !== "function") {
+      settleMotion()
+      return
+    }
+
+    const reduced = reducedMotion.matches
+    const easeOut = "cubic-bezier(0.23, 1, 0.32, 1)"
+    const shapeEase = "cubic-bezier(0.77, 0, 0.175, 1)"
+    const translate = (x: number, y: number) => `translate(${x}px, ${y}px)`
+    const animate = (element: HTMLElement, frames: Keyframe[], duration: number, easing = easeOut, delay = 0) => {
+      animations.push(element.animate(frames, { duration, easing, delay, fill: "both" }))
+    }
+    const bounds = row.getBoundingClientRect()
+    if (!reduced && bounds.width > 0 && bounds.height > 0) {
+      surfaces.forEach((surface, index) => {
+        const before = beforeSurfaces[index]!
+        const width = before.opacity > 0 ? before.width : bounds.width
+        const height = before.opacity > 0 ? before.height : bounds.height
+        surface.style.width = `${width}px`
+        surface.style.height = `${height}px`
+        const expanded = host.hasAttribute("data-expanded")
+        animate(surface, [
+          { transform: `${translate(before.rect.left - bounds.left, before.rect.top - bounds.top)} scale(${before.rect.width / width}, ${before.rect.height / height})`, opacity: before.opacity },
+          { transform: `scale(${bounds.width / width}, ${bounds.height / height})`, opacity: Number(index === (expanded ? 1 : 0)) },
+        ], 220, shapeEase)
+      })
+      moving.forEach((element, index) => {
+        if (element.hidden) return
+        const after = element.getBoundingClientRect()
+        const before = beforeControls[index]!
+        animate(element, [
+          { transform: translate(before.left - after.left, before.top - after.top) },
+          { transform: "translate(0px, 0px)" },
+        ], 220, shapeEase)
+      })
+    } else {
+      for (const surface of surfaces) surface.removeAttribute("style")
+    }
+
+    const afterPanel = popover.getBoundingClientRect()
+    const slide = currentPrefs.position.startsWith("top") ? -4 : 4
+    const x = panelOpacity > 0 ? beforePanel.left - afterPanel.left : 0
+    const y = panelOpacity > 0 ? beforePanel.top - afterPanel.top : slide
+    // Reduced motion keeps the exit anchored without animating its position.
+    if (reduced && panelOpacity > 0) popover.style.transform = translate(x, y)
+    animate(popover, [
+      { opacity: panelOpacity, ...(!reduced && { transform: translate(x, y) }) },
+      { opacity: Number(open), ...(!reduced && { transform: open ? "translate(0px, 0px)" : translate(x, y + slide) }) },
+    ], reduced ? 120 : open ? 180 : 150)
+
+    if (hasCardContent && (beforeContent || !open)) {
+      const target = open ? beforeContent! : content.getBoundingClientRect()
+      contentCopy = content.cloneNode(true) as HTMLElement
+      contentCopy.className = "pill-content-copy"
+      contentCopy.setAttribute("aria-hidden", "true")
+      contentCopy.inert = true
+      contentCopy.style.left = `${target.left - bounds.left - 1}px`
+      contentCopy.style.top = `${target.top - bounds.top - 1}px`
+      contentCopy.style.width = `${target.width}px`
+      contentCopy.style.opacity = ""
+      row.append(contentCopy)
+      content.style.opacity = "0"
+      animate(contentCopy, [
+        { opacity: contentOpacity, ...(!reduced && { transform: beforeContent ? translate(beforeContent.left - target.left, beforeContent.top - target.top) : "translate(0px, 4px)" }) },
+        { opacity: Number(!open), ...(!reduced && { transform: "translate(0px, 0px)" }) },
+      ], 120, easeOut, !open && contentOpacity < 0.01 && !reduced ? 150 : 0)
+    }
+    const revision = motionRevision
+    void Promise.all(animations.map((animation) => animation.finished)).then(() => {
+      if (revision === motionRevision) settleMotion()
+    }).catch(() => { /* Cancellation belongs to the next interaction. */ })
+  }
+
+  function closePopover(instant = false) {
+    setPopover(false, instant)
   }
 
   function togglePopover(keyboard = false) {
     if (isPopoverOpen) return closePopover(keyboard)
-    isPopoverOpen = true
-    popover.inert = false
-    popover.toggleAttribute("data-instant", keyboard)
-    popover.setAttribute("data-open", "")
-    settings.setAttribute("aria-expanded", "true")
-    updateLayout()
-    modelCached = undefined
-    syncControls()
-    fitPopover()
+    setPopover(true, keyboard)
     if (keyboard) engine.focus()
   }
 
@@ -1535,6 +1664,7 @@ function createPill(
     interruptible = false,
     loadingInfo?: { label: string; percent?: number; reason?: TtsLoadingReason }
   ) {
+    settleMotion()
     const wasLoading = currentState === "loading"
     currentState = state
     const activeLoading = state === "loading" && interruptible
@@ -1616,18 +1746,26 @@ function createPill(
     // ensuite une pastille dont le popover se referme encore au clic
     // extérieur et à Échap — un site exclu peut alterner détaché/rattaché
     // toute la session, `remove` ne devant jouer qu'une fois, au déchargement.
-    detach: () => host.remove(),
+    detach: () => {
+      settleMotion()
+      host.remove()
+    },
     setState,
     setPosition,
     remove: () => {
+      settleMotion()
       document.removeEventListener("click", onDocumentClick, true)
       document.removeEventListener("keydown", onDocumentKeydown, true)
       window.removeEventListener("resize", onWindowResize)
+      reducedMotion.removeEventListener("change", settleMotion)
       speechSynthesis.removeEventListener("voiceschanged", renderVoices)
       host.remove()
     },
     updatePrefs: (prefs: ReaderPreferences) => {
-      if (prefs.position !== currentPrefs.position) applyPosition(prefs.position, host)
+      if (prefs.position !== currentPrefs.position) {
+        settleMotion()
+        applyPosition(prefs.position, host)
+      }
       currentPrefs = prefs
       syncControls()
     },
