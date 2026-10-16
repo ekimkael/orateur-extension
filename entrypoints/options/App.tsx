@@ -16,7 +16,8 @@ import { SpeedSlider } from "../../components/SpeedSlider"
 import { VoicePicker } from "../../components/VoicePicker"
 import { ThemeSegmented } from "../../components/ThemeSegmented"
 import { PositionSegmented } from "../../components/PositionSegmented"
-import { SettingsNav } from "./SettingsNav"
+import { PronunciationSettings } from "../../components/PronunciationSettings"
+import { getSettingsSection, SettingsNav } from "./SettingsNav"
 import { clearModelCache, getModelCacheSize } from "../../lib/supertonic/model-cache.ts"
 import { resolveLocale } from "../../lib/i18n"
 import { applyTheme } from "../../lib/theme"
@@ -48,6 +49,7 @@ interface AppContentProps {
 
 function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentProps) {
   const t = useTranslation()
+  const [activeSection, setActiveSection] = useState(getSettingsSection)
   const { consent, setEnabled: setTelemetryEnabled } = useTelemetryConsent()
   const locale = resolveLocale(uiPrefs.language)
 
@@ -60,6 +62,21 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
   const [clearing, setClearing] = useState(false)
   const [armed, setArmed] = useState(false)
   const armedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    function navigate() {
+      setActiveSection(getSettingsSection())
+    }
+    window.addEventListener("hashchange", navigate)
+    return () => window.removeEventListener("hashchange", navigate)
+  }, [])
+
+  useEffect(() => {
+    document.querySelector<HTMLElement>(`#${activeSection} h2`)?.focus({ preventScroll: true })
+    window.scrollTo({ top: 0, behavior: "instant" })
+    setArmed(false)
+    if (armedTimerRef.current) clearTimeout(armedTimerRef.current)
+  }, [activeSection])
 
   useEffect(() => {
     void refreshCacheSize()
@@ -125,11 +142,11 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
       <p className="tagline">{t("optionsTagline")}</p>
 
       <div className="shell">
-        <SettingsNav />
+        <SettingsNav activeSection={activeSection} />
 
-        <div className="card">
-          <section className="section" id="general">
-            <h2 className="eyebrow">{t("optionsSectionGeneral")}</h2>
+        <div className="card options-card">
+          <section className="section" id="general" hidden={activeSection !== "general"} aria-labelledby="general-heading">
+            <h2 className="eyebrow" id="general-heading" tabIndex={-1}>{t("optionsSectionGeneral")}</h2>
 
             <div className="row">
               <span className="row-head">
@@ -178,8 +195,8 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
             </div>
           </section>
 
-          <section className="section" id="sites">
-            <h2 className="eyebrow">{t("optionsSectionSites")}</h2>
+          <section className="section" id="sites" hidden={activeSection !== "sites"} aria-labelledby="sites-heading">
+            <h2 className="eyebrow" id="sites-heading" tabIndex={-1}>{t("optionsSectionSites")}</h2>
             <p className="help">{t("optionsSitesHelp")}</p>
 
             <label className="row-label site-add-label" htmlFor="site-input">
@@ -242,8 +259,8 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
             )}
           </section>
 
-          <section className="section" id="voix">
-            <h2 className="eyebrow">{t("optionsSectionVoice")}</h2>
+          <section className="section" id="voix" hidden={activeSection !== "voix"} aria-labelledby="voix-heading">
+            <h2 className="eyebrow" id="voix-heading" tabIndex={-1}>{t("optionsSectionVoice")}</h2>
 
             <EngineSelect
               value={prefs.engine}
@@ -253,20 +270,24 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
               locale={locale}
             />
 
-            <VoicePicker
-              engine={prefs.engine}
-              voiceURI={prefs.voiceURI}
-              supertonicVoice={prefs.supertonicVoice}
-              speed={prefs.speed}
-              onChangeSystemVoice={(voiceURI) => updatePrefs({ voiceURI })}
-              onChangeSupertonicVoice={(supertonicVoice) => updatePrefs({ supertonicVoice })}
-            />
+            {activeSection === "voix" && (
+              <VoicePicker
+                engine={prefs.engine}
+                voiceURI={prefs.voiceURI}
+                supertonicVoice={prefs.supertonicVoice}
+                speed={prefs.speed}
+                onChangeSystemVoice={(voiceURI) => updatePrefs({ voiceURI })}
+                onChangeSupertonicVoice={(supertonicVoice) => updatePrefs({ supertonicVoice })}
+              />
+            )}
 
             <SpeedSlider value={prefs.speed} onChange={(speed) => updatePrefs({ speed })} locale={locale} />
           </section>
 
-          <section className="section" id="modele">
-            <h2 className="eyebrow">{t("optionsSectionModel")}</h2>
+          <PronunciationSettings prefs={prefs} modelCached={modelCached} active={activeSection === "prononciation"} />
+
+          <section className="section" id="modele" hidden={activeSection !== "modele"} aria-labelledby="modele-heading">
+            <h2 className="eyebrow" id="modele-heading" tabIndex={-1}>{t("optionsSectionModel")}</h2>
 
             {cacheBytes != null ? (
               // Pas de <progress> ici : une barre toujours à 100% est de la
@@ -303,8 +324,8 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
             )}
           </section>
 
-          <section className="section" id="confidentialite">
-            <h2 className="eyebrow">{t("optionsSectionPrivacy")}</h2>
+          <section className="section" id="confidentialite" hidden={activeSection !== "confidentialite"} aria-labelledby="confidentialite-heading">
+            <h2 className="eyebrow" id="confidentialite-heading" tabIndex={-1}>{t("optionsSectionPrivacy")}</h2>
 
             <label className="toggle">
               <input

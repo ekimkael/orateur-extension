@@ -21,6 +21,10 @@
  */
 import * as en from './en.ts';
 import * as fr from './fr.ts';
+import { splitPronunciationSegments, type PronunciationRule } from './personal.ts';
+import { normalizeSpokenNumbers } from './numbers.ts';
+
+export type { PronunciationRule } from './personal.ts';
 
 type LanguageRules = { VERBALIZE: [RegExp, string][]; PHONETIC: [RegExp, string][] };
 
@@ -81,12 +85,24 @@ function spellAcronyms(text: string): string {
 
 export function expandText(
   raw: string,
-  options?: { language?: string; skipPhonetic?: boolean }
+  options?: { language?: string; skipPhonetic?: boolean; personalRules?: readonly PronunciationRule[] }
 ): string {
+  const language = options?.language ?? 'fr';
+  const segments = splitPronunciationSegments(raw, language, options?.personalRules ?? []);
+  return segments.map((segment, index) => segment.protected
+    ? segment.text
+    : expandBuiltins(segment.text, language, options?.skipPhonetic, index > 0)
+  ).join('').replace(/\s+/g, ' ').trim();
+}
+
+function expandBuiltins(raw: string, language: string, skipPhonetic = false, afterReplacement = false): string {
   // Two-letter code, French by default — same convention as reading-intro,
   // reading-outro and reader-prefs.
-  const rules = LANGUAGES[(options?.language ?? 'fr').slice(0, 2).toLowerCase()];
-  let result = raw;
+  const rules = LANGUAGES[language.slice(0, 2).toLowerCase()];
+  // Preserve left context for punctuation ("API : suite") without exposing
+  // any personal replacement to the builtins. Every builtin leaves this marker intact.
+  const prefix = afterReplacement ? '\uE000' : '';
+  let result = normalizeSpokenNumbers(prefix + raw, language);
 
   for (const [pattern, replacement] of UNIVERSAL) result = result.replace(pattern, replacement);
 
@@ -96,7 +112,7 @@ export function expandText(
     }
   }
 
-  if (!options?.skipPhonetic) {
+  if (!skipPhonetic) {
     if (rules) {
       for (const [pattern, replacement] of rules.PHONETIC) {
         result = result.replace(pattern, replacement);
@@ -111,7 +127,5 @@ export function expandText(
   return result
     .replace(/\b([A-ZÀ-Ü]{4,})\b/g, (word) =>
       ALWAYS_SPELLED.has(word) ? word : word.charAt(0) + word.slice(1).toLowerCase()
-    )
-    .replace(/\s+/g, ' ')
-    .trim();
+    ).slice(prefix.length);
 }

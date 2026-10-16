@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react"
+import type { ReactNode } from "react"
 import { useTranslation } from "../../hooks/useTranslation"
 
 interface NavItem {
@@ -37,6 +37,15 @@ const ITEMS: NavItem[] = [
     ),
   },
   {
+    id: "prononciation",
+    labelKey: "optionsSectionPronunciation",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M4 4h7a3 3 0 0 1 3 3v14a4 4 0 0 0-4-3H4zM14 7a3 3 0 0 1 3-3h3v14h-2a4 4 0 0 0-4 3" />
+      </svg>
+    ),
+  },
+  {
     id: "modele",
     labelKey: "optionsSectionModel",
     icon: (
@@ -58,40 +67,28 @@ const ITEMS: NavItem[] = [
   },
 ]
 
-/**
- * De simples `<a href="#id">` — pas de routage, `scroll-behavior: smooth` de
- * style.css fait le défilement. Le seul JS ici : marquer la section visible
- * la plus haute comme active dans la nav pendant le défilement manuel.
- */
-export function SettingsNav() {
-  const t = useTranslation()
-  const [active, setActive] = useState(ITEMS[0]!.id)
+export function getSettingsSection() {
+  const id = window.location.hash.slice(1)
+  return ITEMS.find((item) => item.id === id)?.id ?? ITEMS[0]!.id
+}
 
-  useEffect(() => {
-    const visible = new Set<string>()
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) visible.add(entry.target.id)
-          else visible.delete(entry.target.id)
-        }
-        const next = ITEMS.find((item) => visible.has(item.id))
-        if (next) setActive(next.id)
-      },
-      { rootMargin: "-15% 0px -65% 0px" },
-    )
-    for (const item of ITEMS) {
-      const el = document.getElementById(item.id)
-      if (el) observer.observe(el)
-    }
-    return () => observer.disconnect()
-  }, [])
+export function SettingsNav({ activeSection }: { activeSection: string }) {
+  const t = useTranslation()
 
   return (
     <aside className="sidebar">
       <nav aria-label={t("optionsNavLabel")}>
         {ITEMS.map((item) => (
-          <a key={item.id} href={`#${item.id}`} aria-current={item.id === active ? "true" : undefined}>
+          <a
+            key={item.id}
+            href={`#${item.id}`}
+            aria-current={item.id === activeSection ? "true" : undefined}
+            onClick={(event) => {
+              if (item.id === activeSection && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+                event.preventDefault()
+              }
+            }}
+          >
             {item.icon}
             <span>{t(item.labelKey)}</span>
           </a>

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { resolveBlockLangs, splitBlocks, splitUnits } from "./tts-host.ts"
+import type { PronunciationRule } from "./pronunciation/personal.ts"
 
 const EN_PARAGRAPH =
   "The cat is sitting on the mat and watching the window with attention, " +
@@ -8,6 +9,28 @@ const EN_PARAGRAPH =
 const FR_PARAGRAPH =
   "Le chat est assis sur le tapis et regarde la fenêtre avec attention, " +
   "pendant que la pluie tombe doucement sur les toits de la ville entière."
+
+test("neural reading applies personal rules per original paragraph language and normalizes grouped numbers", () => {
+  const rules: PronunciationRule[] = [
+    { id: "fr", language: "fr", source: "API", replacement: "interface française", caseSensitive: false },
+    { id: "en", language: "en", source: "API", replacement: "English interface", caseSensitive: false },
+  ]
+  const raw = `${FR_PARAGRAPH} API : 40 000.\n\n${EN_PARAGRAPH} API: 40,000.`
+  const units = splitUnits(raw, "fr", rules)
+  assert.match(units.filter((unit) => unit.paragraph === 0).map((unit) => unit.text).join(" "), /interface française, 40000/)
+  assert.match(units.filter((unit) => unit.paragraph === 1).map((unit) => unit.text).join(" "), /English interface, 40000/)
+  assert.ok(units.every((unit) => unit.lang === (unit.paragraph === 0 ? "fr" : "en")))
+  assert.match(raw, /API : 40 000/)
+})
+
+test("neural preview uses the rule language instead of detecting its source word", () => {
+  const rules: PronunciationRule[] = [
+    { id: "fr", language: "fr", source: "Overview", replacement: "vue d'ensemble", caseSensitive: false },
+  ]
+  assert.deepEqual(splitUnits("Overview", "fr", rules, false), [
+    { text: "vue d'ensemble.", endsParagraph: true, paragraph: 0, lang: "fr" },
+  ])
+})
 
 test("splitBlocks découpe sur les paragraphes", () => {
   assert.deepEqual(splitBlocks("Un.\n\nDeux.\n\nTrois."), ["Un.", "Deux.", "Trois."])
