@@ -24,7 +24,7 @@
  * content script, chargé sur toutes les pages (voir l'en-tête de
  * `tts-messages.ts` pour la même règle).
  */
-import type { SupportedLang } from "./supertonic-lang.ts"
+import { toSupertonicLang, type SupportedLang } from "./supertonic-lang.ts"
 
 const MIN_CHARS = 8
 const MIN_TOKENS = 12
@@ -274,6 +274,17 @@ export function detectLang(text: string, fallback: SupportedLang | null): Suppor
     default:
       return fallback
   }
+}
+
+/**
+ * Document language for the reader: the page's declaration, unless the text
+ * clearly says otherwise; `null` when neither gives a supported language.
+ *
+ * An indecisive text (a job list, a short mail) keeps the declaration instead
+ * of dropping to the system voice.
+ */
+export function resolveDocLang(declared: string | undefined, text: string): SupportedLang | null {
+  return detectLang(text, toSupertonicLang(declared ?? ""))
 }
 
 // Réexporté pour les tests uniquement, pour vérifier la couverture des tables

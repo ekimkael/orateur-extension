@@ -21,7 +21,7 @@ import { expandText } from "../lib/pronunciation/index.ts"
 import { createAnchorFinder, findBlockIndex } from "../lib/read-anchor.ts"
 import { buildReadingIntro } from "../lib/reading-intro"
 import { toSupertonicLang, type SupportedLang } from "../lib/supertonic-lang.ts"
-import { detectLang } from "../lib/detect-lang.ts"
+import { detectLang, resolveDocLang } from "../lib/detect-lang.ts"
 import { markTab } from "../lib/tab-title.ts"
 import {
   MODEL_CACHE_QUERY,
@@ -409,11 +409,10 @@ export default defineContentScript({
       readingTotal = total
 
       if (prefs.engine === "supertonic") {
-        // La déclaration de la page d'abord ; si elle manque ou sort du
-        // modèle, une détection sur le texte réel avant d'abandonner —
-        // beaucoup de pages ne déclarent aucun `lang`.
-        const supertonicLang =
-          toSupertonicLang(payload.lang ?? "") ?? detectLang(payload.text, null)
+        // Same rule as the system voice below: the page's declaration unless
+        // the text clearly contradicts it (Gmail declares its UI language,
+        // not the message's), detection alone when nothing is declared.
+        const supertonicLang = resolveDocLang(payload.lang, payload.text)
         if (supertonicLang) {
           startSupertonic(payload, supertonicLang, startBlock)
           return
