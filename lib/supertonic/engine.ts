@@ -23,8 +23,7 @@ import type * as ort from "onnxruntime-web"
 // l'extension comme le fait Vite. Même convention que lib/pronunciation/*.
 import { AVAILABLE_LANGS, type SupportedLang } from "../supertonic-lang.ts"
 import type { SupertonicVoice } from "./types.ts"
-import { VOICE_STYLE_BASE } from "./types.ts"
-import { readCachedVoiceStyle } from "./model-cache.ts"
+import { loadVoiceStyleBytes } from "./model-cache.ts"
 
 export type { SupportedLang }
 
@@ -405,12 +404,7 @@ export async function loadVoiceStyle(voice: SupertonicVoice): Promise<Style> {
  *  disque, et changer de voix ne doit pas casser pour autant. */
 /** Type `any`, comme l'ancien `response.json()` direct : jamais typé ici. */
 async function readVoiceStyleJson(voice: SupertonicVoice): Promise<any> {
-  const cached = await readCachedVoiceStyle(voice)
-  if (cached) return JSON.parse(new TextDecoder().decode(cached))
-  const url = `${VOICE_STYLE_BASE}/${voice}.json`
-  const response = await fetch(url)
-  if (!response.ok) throw new Error(`Failed to fetch voice style ${voice}: ${response.status}`)
-  return response.json()
+  return JSON.parse(new TextDecoder().decode(await loadVoiceStyleBytes(voice)))
 }
 
 export interface LoadProgress {
