@@ -1,4 +1,9 @@
-import { extractArticle, visibleText, type ExtractedArticle } from "../lib/extract-article"
+import {
+  extractArticle,
+  extractGmailMessage,
+  visibleText,
+  type ExtractedArticle,
+} from "../lib/extract-article"
 
 export type ExtractResult =
   | { ok: true; article: ExtractedArticle }
@@ -13,9 +18,13 @@ export default defineContentScript({
   // Sans ça, WXT produit une IIFE anonyme et executeScript ne récupère rien.
   globalName: "orateurExtract",
   main(): ExtractResult {
+    // Gmail: the open message only. No visible-text fallback there — with no
+    // message open it would read the whole app and the inbox.
+    const gmail = location.hostname === "mail.google.com"
     try {
-      return { ok: true, article: extractArticle(document) }
+      return { ok: true, article: gmail ? extractGmailMessage(document) : extractArticle(document) }
     } catch (error) {
+      if (gmail) return { ok: false, error: (error as Error).message }
       // Une exception ne traverse pas la frontière executeScript : on la
       // transporte dans la valeur de retour.
       const { text, lang } = visibleText(document)

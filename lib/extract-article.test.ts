@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { JSDOM } from "jsdom"
-import { extractArticle, visibleText } from "./extract-article.ts"
+import { extractArticle, extractGmailMessage, visibleText } from "./extract-article.ts"
 import { splitUnits } from "./tts-host.ts"
 
 /**
@@ -435,4 +435,95 @@ test("extrait un fil Reddit sans l'arbre de commentaires", () => {
 
   assert.match(textContent, /Le texte décrit ici le sujet/)
   assert.doesNotMatch(textContent, /commentaire/i)
+})
+
+// Gmail markup, trimmed: app chrome, the hidden inbox, then the open message.
+function gmail(message: string) {
+  return docFrom(
+    `<!doctype html><html lang="fr"><body>
+      <div role="navigation"><a>Boîte de réception</a><a>Messages envoyés</a></div>
+      <div>Si vous rencontrez des problèmes de chargement, consultez le Centre d'aide Gmail</div>
+      <table><tr class="zA"><td>Autre expéditeur</td><td>Un autre mail de la boîte de réception</td></tr></table>
+      <h2 class="hP">Nobody wants your AI app | Dan Maccarone in UX Collective</h2>
+      <span class="gD">Medium Weekly Digest</span>
+      ${message}
+    </body></html>`,
+    "https://mail.google.com/mail/u/0/#inbox/abc"
+  )
+}
+
+const DIGEST = `<div class="a3s aiL"><div class="m_1o">
+  <h2><a href="#">Nobody wants your AI app</a></h2><p>The people buying AI are blunt about the fact that the…</p>
+  <h2><a href="#">The Darker Side of Growing Old</a></h2><p>The parts of aging we won’t talk about</p>
+  <h2><a href="#">Building an AI Agent from Scratch</a></h2><p>I was using Claude, and it felt like magic.</p>
+  <div class="iX">[Message tronqué] <a href="#">Afficher l'intégralité du message</a></div>
+</div></div>`
+
+test("extractGmailMessage lit toutes les cartes d'un digest, sans l'interface Gmail", () => {
+  const article = extractGmailMessage(gmail(DIGEST))
+
+  for (const title of ["Nobody wants your AI app", "The Darker Side of Growing Old", "Building an AI Agent from Scratch"]) {
+    assert.match(article.textContent, new RegExp(title))
+  }
+  // Each card title keeps its own block instead of being glued to its teaser.
+  assert.match(article.textContent, /Building an AI Agent from Scratch\.\n\nI was using Claude/)
+  assert.doesNotMatch(article.textContent, /Centre d'aide|Boîte de réception|Autre expéditeur|Medium Weekly Digest/)
+  assert.equal(article.title, "Nobody wants your AI app | Dan Maccarone in UX Collective")
+  // Gmail's UI language, a prior the reader overrides from the text.
+  assert.equal(article.lang, "fr")
+})
+
+test("extractGmailMessage signale un message tronqué par Gmail sans lire l'avertissement", () => {
+  const article = extractGmailMessage(gmail(DIGEST))
+  assert.equal(article.truncated, true)
+  assert.doesNotMatch(article.textContent, /tronqué|intégralité/)
+
+  const whole = extractGmailMessage(gmail(`<div class="a3s"><p>Un message court mais complet.</p></div>`))
+  assert.equal(whole.truncated, false)
+})
+
+test("extractGmailMessage refuse la boîte de réception : aucun message ouvert", () => {
+  assert.throws(() => extractGmailMessage(gmail("")), /article lisible/)
+})
+
+test("extractGmailMessage garde l'article d'une newsletter, sans son enveloppe ni son pré-en-tête", () => {
+  const article = extractGmailMessage(
+    gmail(`<div class="a3s aiL"><div>
+      <div style="display:none;max-height:0px">Aperçu de la boîte de réception ͏ ­͏ ­͏</div>
+      <div><a href="#">Forwarded this email? Subscribe here for more</a></div>
+      <div><a href="#">Upgrade to paid</a> <a href="#">READ IN APP</a></div>
+      <div>${paragraphs(4)}</div>
+      <div><a href="#">LIKE</a> <a href="#">RESTACK</a></div>
+    </div></div>`)
+  )
+
+  assert.match(article.textContent, /^Paragraphe 1\./)
+  assert.match(article.textContent, /Paragraphe 4\./)
+  assert.doesNotMatch(article.textContent, /Aperçu|Forwarded|Upgrade|READ IN APP|RESTACK/)
+  assert.equal(article.title, "Nobody wants your AI app | Dan Maccarone in UX Collective")
+  assert.equal(article.lang, "fr")
+})
+
+test("extractGmailMessage ignore l'historique cité que Gmail replie dans un fil", () => {
+  const reply = (text: string, quoted: string) => `<div class="a3s aiL"><div dir="ltr">${text}</div>
+    <div class="HOEnZb adL"><div class="h5"><div class="gmail_quote"><blockquote>${quoted}</blockquote></div></div></div></div>`
+  const article = extractGmailMessage(
+    gmail(reply("Merci, je regarde ça demain matin.", "Le 14 oct., Alice a écrit : voici le devis.") +
+      reply("Parfait, à demain alors.", "Merci, je regarde ça demain matin. Le 14 oct., Alice a écrit : voici le devis."))
+  )
+
+  assert.match(article.textContent, /Merci, je regarde ça demain matin\./)
+  assert.match(article.textContent, /Parfait, à demain alors\./)
+  assert.doesNotMatch(article.textContent, /devis|a écrit/)
+  assert.equal(article.textContent.match(/demain matin/g)?.length, 1)
+})
+
+test("extractGmailMessage lit l'historique cité que le lecteur a déplié", () => {
+  const doc = gmail(`<div class="a3s aiL"><div dir="ltr">Parfait, à demain alors.</div>
+    <div class="HOEnZb adL"><blockquote>Le 14 oct., Alice a écrit : voici le devis.</blockquote></div></div>`)
+  // jsdom has no layout: a rendered box is what "unfolded" means live.
+  const unfolded = doc.querySelector(".adL")!
+  unfolded.getClientRects = () => ({ length: 1 }) as DOMRectList
+
+  assert.match(extractGmailMessage(doc).textContent, /voici le devis/)
 })

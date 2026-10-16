@@ -488,6 +488,7 @@ async function save(
   }
 
   if (result?.ok) {
+    if (result.article.truncated) await notify(browser.i18n.getMessage("noticeMessageTruncated"))
     const { content, title, lang } = result.article
     await open(buildImportUrl({ content, title, lang, url }))
     return
@@ -612,6 +613,7 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined, f
     return false
   }
 
+  if (result.article.truncated) await notify(browser.i18n.getMessage("noticeMessageTruncated"))
   return startReading(tab.id, {
     text: result.article.textContent,
     title: result.article.title ?? undefined,
