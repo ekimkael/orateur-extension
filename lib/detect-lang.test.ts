@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { detectLang } from "./detect-lang.ts"
+import { detectLang, resolveDocLang } from "./detect-lang.ts"
 
 const FR =
   "Le chat est assis sur le tapis et regarde la fenêtre avec attention, " +
@@ -127,4 +127,22 @@ test("signatures contradictoires dans un même texte renvoient le repli", () => 
 test("trop peu de mots distincts renvoie le repli, dans les deux sens", () => {
   assert.equal(detectLang("Voir plus", "fr"), "fr")
   assert.equal(detectLang("Voir plus", "en"), "en")
+})
+
+const ENGLISH =
+  "It is impossible to build a failure-proof software system. Sure, a system can go through its lifecycle without any failures. But you can’t provide a guarantee that it will never fail."
+// Job list from a French newsletter: too few words for a verdict.
+const TERSE = "Freelance.\n\nExpert cyber/SOC.\n\n500 - 550 €⁄j.\n\nLille.\n\nFreelance.\n\nDevOps - DBA Expert.\n\n500 - 600 €⁄j.\n\nÎle-de-France."
+
+test("resolveDocLang: the text overrides a declaration it clearly contradicts", () => {
+  assert.equal(resolveDocLang("fr", ENGLISH), "en")
+})
+
+test("resolveDocLang: an indecisive text keeps the declaration", () => {
+  assert.equal(resolveDocLang("fr-FR", TERSE), "fr")
+})
+
+test("resolveDocLang: no declaration and no verdict gives null", () => {
+  assert.equal(resolveDocLang(undefined, TERSE), null)
+  assert.equal(resolveDocLang("zh", TERSE), null)
 })

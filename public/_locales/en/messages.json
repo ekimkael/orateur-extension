@@ -29,6 +29,9 @@
   "noticeSelectionTruncated": {
     "message": "Selection very long: only the beginning will be read."
   },
+  "noticeMessageTruncated": {
+    "message": "Message clipped by Gmail: only its beginning is included."
+  },
   "errorPageNotInjectable": {
     "message": "This page can't be read directly."
   },
