@@ -243,7 +243,7 @@
     "message": "« Système » suit la langue de votre navigateur."
   },
   "optionsSectionSites": {
-    "message": "Sites"
+    "message": "Sites masqués"
   },
   "optionsSitesHelp": {
     "message": "Orateur reste discret sur les sites listés ici — ni pastille, ni bulle de sélection."
@@ -333,7 +333,7 @@
     "message": "Voici à quoi ressemble cette voix, à cette vitesse."
   },
   "optionsSectionModel": {
-    "message": "Modèle IA"
+    "message": "Stockage IA"
   },
   "optionsModelReady": {
     "message": "Prêt hors ligne"
@@ -359,6 +359,54 @@
   "optionsOpenApp": {
     "message": "Ouvrir Orateur"
   },
+  "optionsSectionPronunciation": { "message": "Prononciation" },
+  "pronunciationHelp": { "message": "Corrigez la prononciation des noms, sigles et termes métier. Ces règles restent sur cet appareil et s’appliquent dès la prochaine lecture, sans changer le texte affiché." },
+  "pronunciationMatchingHelp": { "message": "Les mots et expressions entiers sont reconnus dans la langue du paragraphe. Ajoutez les pluriels séparément. Apostrophes et tirets séparent les mots ; lettres, chiffres et _ les prolongent. Les accents comptent. L’expression la plus longue gagne, puis la règle respectant la casse. Vos règles passent avant les corrections intégrées, sans remplacement en cascade." },
+  "pronunciationMatchingDetails": { "message": "Comment les règles s’appliquent" },
+  "pronunciationNumbersHelp": { "message": "Les nombres groupés sont corrigés automatiquement : 40 000 se lit « quarante mille ». Les décimales suivent la langue du paragraphe ; les zéros initiaux et les groupes de téléphone sont préservés." },
+  "pronunciationAddHeading": { "message": "Ajouter une règle" },
+  "pronunciationEditHeading": { "message": "Modifier la règle" },
+  "pronunciationLanguage": { "message": "Langue du texte" },
+  "pronunciationSource": { "message": "Texte écrit" },
+  "pronunciationSourceExample": { "message": "Ex. : API" },
+  "pronunciationReplacement": { "message": "Texte à prononcer" },
+  "pronunciationReplacementExample": { "message": "Ex. : a pé i" },
+  "pronunciationLengthHint": { "message": "$1 caractères maximum." },
+  "pronunciationCaseSensitive": { "message": "Respecter la casse" },
+  "pronunciationSave": { "message": "Enregistrer" },
+  "pronunciationSaving": { "message": "Enregistrement…" },
+  "pronunciationCancel": { "message": "Annuler la modification" },
+  "pronunciationListen": { "message": "Écouter" },
+  "pronunciationStop": { "message": "Arrêter" },
+  "pronunciationListenRule": { "message": "Écouter la règle pour $1" },
+  "pronunciationStopRule": { "message": "Arrêter l’aperçu pour $1" },
+  "pronunciationPreviewHelp": { "message": "L’aperçu utilise le moteur, la voix et la vitesse de lecture sélectionnés. Il arrête la lecture en cours, sans reprise automatique." },
+  "pronunciationPreviewLoading": { "message": "Préparation de l’aperçu… Vous pouvez l’arrêter." },
+  "pronunciationPreviewError": { "message": "Impossible de lire cet aperçu. Réessayez avec Écouter ou choisissez une autre voix." },
+  "pronunciationPreviewError_model-unavailable": { "message": "Le modèle IA n’est pas disponible. Téléchargez-le pour écouter l’aperçu." },
+  "pronunciationPreviewError_invalid-rule": { "message": "Vérifiez le texte écrit et sa prononciation, puis réessayez avec Écouter." },
+  "pronunciationPreviewError_no-voice": { "message": "Aucune voix n’est disponible. Choisissez une autre voix, puis réessayez." },
+  "pronunciationModelMissing": { "message": "Téléchargez le modèle IA pour écouter avec les voix naturelles." },
+  "pronunciationModelLink": { "message": "Gérer le modèle IA" },
+  "pronunciationEdit": { "message": "Modifier" },
+  "pronunciationDelete": { "message": "Supprimer" },
+  "pronunciationEditRule": { "message": "Modifier la règle pour $1" },
+  "pronunciationDeleteRule": { "message": "Supprimer la règle pour $1" },
+  "pronunciationRulesHeading": { "message": "Règles enregistrées — $1 sur $2" },
+  "pronunciationReplacementValue": { "message": "À prononcer : $1" },
+  "pronunciationEmpty": { "message": "Aucune règle enregistrée. Ajoutez un texte écrit et sa prononciation dans le formulaire ci-dessus." },
+  "pronunciationLoading": { "message": "Chargement des règles…" },
+  "pronunciationLoadError": { "message": "Impossible de charger les règles. Réessayez pour retrouver le dictionnaire enregistré." },
+  "pronunciationRetry": { "message": "Réessayer" },
+  "pronunciationStorageError": { "message": "Impossible d’enregistrer cette modification. Vos saisies sont conservées ; réessayez." },
+  "pronunciationSaved": { "message": "Règle pour « $1 » enregistrée. Elle s’appliquera dès la prochaine lecture." },
+  "pronunciationDeleted": { "message": "Règle pour « $1 » supprimée." },
+  "pronunciationError_required": { "message": "Saisissez un texte contenant au moins un caractère autre qu’un espace." },
+  "pronunciationError_too-long": { "message": "Raccourcissez ce texte à $1 caractères maximum." },
+  "pronunciationError_control": { "message": "Retirez les caractères de contrôle, comme les tabulations et les retours à la ligne." },
+  "pronunciationError_duplicate": { "message": "Une règle existe déjà pour ce texte, cette langue et ce mode de casse. Modifiez la règle enregistrée." },
+  "pronunciationError_limit": { "message": "La limite de $1 règles est atteinte. Supprimez une règle avant d’en ajouter une." },
+  "pronunciationError_invalid": { "message": "Choisissez Français ou English et renseignez les deux textes, puis réessayez." },
   "readerResumePrompt": {
     "message": "Reprendre la lecture là où vous l’avez arrêtée ? Choisissez Annuler pour recommencer au début."
   }

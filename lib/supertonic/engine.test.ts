@@ -60,6 +60,34 @@ test("UnicodeProcessor.preprocessText lève sur une langue invalide", () => {
   assert.throws(() => proc.preprocessText("text.", "zz"), /Invalid language/)
 })
 
+test("UnicodeProcessor garde les milliers groupés comme une quantité", () => {
+  const proc = new UnicodeProcessor([])
+  assert.equal(proc.preprocessText("40 000 et 1\u202f250\u00a0000", "fr"), "<fr>40000 et 1250000.</fr>")
+  assert.equal(proc.preprocessText("40,000.50 and -40 000.007", "en"), "<en>40000.50 and -40000.007.</en>")
+  assert.equal(proc.preprocessText("40 000,007", "fr"), "<fr>40000,007.</fr>")
+})
+
+test("UnicodeProcessor épelle les vrais codes mais préserve décimales et versions", () => {
+  const proc = new UnicodeProcessor([])
+  assert.equal(proc.preprocessText("007", "en"), "<en>zero zero seven.</en>")
+  assert.equal(proc.preprocessText("007", "fr"), "<fr>zéro zéro sept.</fr>")
+  assert.equal(proc.preprocessText("1,007 / 0,05", "fr"), "<fr>1,007 0,05.</fr>")
+  assert.equal(proc.preprocessText("1.007 / v1.02.003 / 192.168.000.001", "en"), "<en>1.007 v1.02.003 192.168.000.001.</en>")
+  assert.equal(proc.preprocessText("code007", "en"), "<en>code007.</en>")
+  assert.equal(proc.preprocessText("𐐀007 et e\u0301007", "en"), "<en>𐐀007 et e\u0301007.</en>")
+})
+
+test("UnicodeProcessor ne fusionne pas les téléphones à zéro initial", () => {
+  const proc = new UnicodeProcessor([])
+  assert.equal(proc.preprocessText("01 000 000", "en"), "<en>zero one zero zero zero zero zero zero.</en>")
+  assert.equal(proc.preprocessText("01 23 45 67 89", "en"), "<en>zero one 23 45 67 89.</en>")
+})
+
+test("UnicodeProcessor conserve les codes et décimales des autres langues", () => {
+  const proc = new UnicodeProcessor([])
+  assert.equal(proc.preprocessText("007 et 1,007", "de"), "<de>null null sieben et 1,007.</de>")
+})
+
 test("writeWavFile produit un buffer avec l'en-tête RIFF", () => {
   const samples = new Array(100).fill(0.5)
   const buffer = writeWavFile(samples, 44100)

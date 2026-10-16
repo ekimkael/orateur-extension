@@ -49,6 +49,27 @@ npm run dev:firefox  # Firefox
 npm test             # unit tests (lib/*.test.ts)
 ```
 
+### Reader design model
+
+Open [docs/reader-model.html](docs/reader-model.html) for an interactive Anatomy
+illustration of the current floating reader, drawn as a physical isometric
+object. Its facade preserves the current proportions, typography, colors,
+control positions and source icon paths; the casing and internal parts are a
+physical interpretation, with five raised button caps. Playback is simulated. Try the drawn controls, both
+themes and the exploded view. No audio plays and no model downloads.
+Standalone vector exports are saved as `docs/reader-model.svg` and
+`docs/reader-model-light.svg`.
+
+Regenerate after changing the reader design:
+
+```bash
+node scripts/reader-model.mjs
+node scripts/reader-model.mjs --light
+node scripts/reader-model.mjs --audit
+```
+
+The generator uses the vendored MIT-licensed Anatomy kit in `scripts/anatomy/kit/`.
+
 ## Build
 
 ```bash

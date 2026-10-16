@@ -146,6 +146,7 @@ async function handleTtsFromPill(
         voice: message.voice,
         speed: message.speed ?? 1,
         startBlock: message.startBlock,
+        personalRules: message.personalRules,
       })
     } else if (message.type === TTS_CONTROL && message.action) {
       host.control(message.action)

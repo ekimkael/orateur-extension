@@ -18,6 +18,9 @@ import {
   type PillPosition,
 } from "../lib/reader-prefs"
 import { expandText } from "../lib/pronunciation/index.ts"
+import { loadPronunciationRules } from "../lib/pronunciation-rules.ts"
+import type { PronunciationRule } from "../lib/pronunciation/personal.ts"
+import { resolveBlockLangs } from "../lib/reading-language.ts"
 import { createAnchorFinder, findBlockIndex } from "../lib/read-anchor.ts"
 import { buildReadingIntro } from "../lib/reading-intro"
 import { toSupertonicLang, type SupportedLang } from "../lib/supertonic-lang.ts"
@@ -116,6 +119,7 @@ export default defineContentScript({
     let paused = false
     /** Position de lecture : le bloc en cours, et où la voix en est dedans. */
     let blocks: string[] = []
+    let blockLangs: string[] = []
     let blockIndex = 0
     let charIndex = 0
     let lang: string | undefined
@@ -129,6 +133,7 @@ export default defineContentScript({
      * pastille.
      */
     let generation = 0
+    let startGeneration = 0
     /** Un réglage a changé pendant la pause : à appliquer à la reprise. */
     let stale = false
     /**
@@ -215,6 +220,7 @@ export default defineContentScript({
     // l'audio continuerait indéfiniment, sans plus aucune pastille pour
     // l'arrêter : le même risque que l'onglet fermé, côté rechargement.
     ctx.addEventListener(window, "pagehide", () => {
+      startGeneration++
       if (!reading) return
       if (usingSupertonic) {
         void browser.runtime.sendMessage({ type: TTS_CONTROL, action: "stop" } satisfies TtsControlMessage)
@@ -227,6 +233,7 @@ export default defineContentScript({
       markTab(false)
     })
     ctx.onInvalidated(() => {
+      startGeneration++
       browser.runtime.onMessage.removeListener(onMessage)
       browser.runtime.onMessage.removeListener(onTtsEvent)
       browser.storage.onChanged.removeListener(onTokenChanged)
@@ -311,7 +318,7 @@ export default defineContentScript({
     /** Un autre onglet a pris la parole : se replier, sans toucher au moteur. */
     function onTokenChanged(changes: Record<string, { newValue?: unknown }>) {
       const owner = changes[READER_TOKEN]?.newValue
-      if (owner === undefined || owner === token || !reading) return
+      if (!(READER_TOKEN in changes) || owner === token) return
       fold()
     }
 
@@ -356,6 +363,7 @@ export default defineContentScript({
     /** ⏹ pendant la lecture, ✕ au repos : ne plus afficher Orateur sur ce domaine. */
     function onSecondary() {
       if (reading) return stop()
+      startGeneration++
       pill.detach()
       void addHiddenSite(location.hostname)
     }
@@ -394,19 +402,33 @@ export default defineContentScript({
 
     /** Choisit le moteur, puis démarre — le reste ne se recroise plus. */
     async function start(payload: ReadPagePayload, fromHere = false) {
+      const mine = ++startGeneration
       const paragraphs = splitParagraphs(payload.text)
       const total = paragraphs.length
       if (!total) return fold()
+      let personalRules: PronunciationRule[]
+      try {
+        personalRules = await loadPronunciationRules()
+      } catch {
+        if (mine === startGeneration) pill.setState("error", payload.title ?? "")
+        return
+      }
+      if (mine !== startGeneration) return
       const url = canonicalUrl()
       const title = payload.title ?? ""
       const targetBlock = fromHere ? findBlockIndex(document, paragraphs, contextTarget) : -1
       const saved = fromHere ? null : await loadReadingProgress(url, total)
-      // `confirm` blocks the page: opened mid-transition, it freezes the pill
-      // half-resized (width animates on the main thread).
-      if (saved) await pill.settled()
+      if (mine !== startGeneration) return
+      if (saved) {
+        // `confirm` blocks the page: opened mid-transition, it freezes the
+        // pill half-resized (width animates on the main thread).
+        await pill.settled()
+        if (mine !== startGeneration) return
+      }
       const resume = !!saved && confirm(browser.i18n.getMessage("readerResumePrompt"))
       const startBlock = targetBlock >= 0 ? targetBlock : resume ? saved.block : 0
       if (saved && !resume) await clearReadingProgress(url)
+      if (mine !== startGeneration) return
       readingUrl = url
       readingTitle = title
       readingTotal = total
@@ -417,7 +439,7 @@ export default defineContentScript({
         // not the message's), detection alone when nothing is declared.
         const supertonicLang = resolveDocLang(payload.lang, payload.text)
         if (supertonicLang) {
-          startSupertonic(payload, supertonicLang, startBlock)
+          startSupertonic(payload, supertonicLang, startBlock, personalRules)
           return
         }
         // Langue hors du modèle même après détection : un repli silencieux
@@ -428,10 +450,10 @@ export default defineContentScript({
           message: browser.i18n.getMessage("noticeSupertonicLangUnsupported"),
         } satisfies NotifyMessage)
       }
-      startSystem(payload, startBlock)
+      startSystem(payload, startBlock, personalRules)
     }
 
-    function startSupertonic(payload: ReadPagePayload, lang: SupportedLang, startBlock: number) {
+    function startSupertonic(payload: ReadPagePayload, lang: SupportedLang, startBlock: number, personalRules: PronunciationRule[]) {
       // `lang` est la langue résolue (déclaration ou détection), pas
       // forcément `payload.lang` : l'annonce du titre doit sonner dans la
       // langue qui va réellement être lue.
@@ -468,11 +490,12 @@ export default defineContentScript({
         voice: prefs.supertonicVoice,
         speed: prefs.speed,
         startBlock,
+        personalRules,
         token,
       } satisfies Partial<TtsSpeakMessage>)
     }
 
-    function startSystem(payload: ReadPagePayload, startBlock: number) {
+    function startSystem(payload: ReadPagePayload, startBlock: number, personalRules: PronunciationRule[]) {
       // Un bloc par paragraphe, pour éviter la limite de longueur de Chrome.
       // Le découpage passe avant `expandText`, qui écrase les blancs — les
       // frontières de paragraphes n'y survivraient pas.
@@ -493,6 +516,10 @@ export default defineContentScript({
       const declared = toSupertonicLang(payload.lang ?? "")
       const detected = detectLang(payload.text, declared)
       const resolvedLang = detected && detected !== declared ? detected : payload.lang
+      const docLang = toSupertonicLang(resolvedLang ?? "") ?? "na"
+      blockLangs = resolveBlockLangs(raw, docLang).map((blockLang) =>
+        blockLang === docLang ? resolvedLang ?? blockLang : blockLang
+      )
 
       // Le titre n'est pas dans le texte extrait — Readability retire le h1 qui
       // le répète. L'annoncer en tête du premier bloc plutôt qu'en bloc à part :
@@ -503,7 +530,7 @@ export default defineContentScript({
       // Texte à dire, jamais à afficher : sigles épelés, symboles verbalisés,
       // anglicismes réécrits pour les voix système. Ce sont les seules
       // disponibles ici, donc la couche phonétique s'applique toujours.
-      blocks = raw.map((block) => expandText(block, { language: resolvedLang })).filter(Boolean)
+      blocks = raw.map((block, i) => expandText(block, { language: blockLangs[i], personalRules }))
       if (!blocks.length) return fold()
 
       blockIndex = startBlock
@@ -562,7 +589,8 @@ export default defineContentScript({
         ? speechSynthesis.getVoices().find((v) => v.voiceURI === prefs.voiceURI)
         : undefined
       const utterance = new SpeechSynthesisUtterance(text.slice(from))
-      if (lang) utterance.lang = lang
+      const spokenLang = blockLangs[block] ?? lang
+      if (spokenLang && spokenLang !== "na") utterance.lang = spokenLang
       utterance.rate = prefs.speed
       if (voice) utterance.voice = voice
 
@@ -612,6 +640,7 @@ export default defineContentScript({
 
     /** Revenir au repos sans toucher au moteur de synthèse. */
     function fold() {
+      startGeneration++
       reading = false
       paused = false
       stale = false

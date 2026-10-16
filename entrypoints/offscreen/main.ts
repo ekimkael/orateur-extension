@@ -150,6 +150,7 @@ browser.runtime.onMessage.addListener((message: IncomingMessage, sender) => {
       voice: message.voice,
       speed: message.speed ?? 1,
       startBlock: message.startBlock,
+      personalRules: message.personalRules,
     })
     return
   }
