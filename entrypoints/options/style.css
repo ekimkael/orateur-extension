@@ -24,7 +24,6 @@
   --radius-xl: calc(var(--radius) * 1.4);
   --radius-2xl: calc(var(--radius) * 1.8);
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --anchor-offset: 2rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -65,7 +64,6 @@ body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  scroll-behavior: smooth;
 }
 
 /* Signature de la charte : grille 40 px à 1,8 % d'opacité. */
@@ -89,12 +87,6 @@ body::before {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
   border-radius: var(--radius-lg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  body {
-    scroll-behavior: auto;
-  }
 }
 
 .page {
@@ -143,14 +135,18 @@ h1 {
 /* ── Grille sidebar + contenu ────────────────────────────────────────── */
 .shell {
   display: grid;
-  grid-template-columns: 13.75rem 1fr;
+  grid-template-columns: 13.75rem minmax(0, 1fr);
   gap: 2rem;
   align-items: start;
 }
 
+.shell > * {
+  min-width: 0;
+}
+
 .sidebar {
   position: sticky;
-  top: var(--anchor-offset);
+  top: 2rem;
 }
 
 .sidebar nav {
@@ -207,7 +203,6 @@ h1 {
 
 .section {
   padding: 1.5rem;
-  scroll-margin-top: var(--anchor-offset);
 }
 
 .section + .section {
@@ -221,6 +216,24 @@ h1 {
   text-transform: uppercase;
   color: var(--muted-foreground);
   margin: 0 0 1.25rem;
+}
+
+.options-card {
+  container-type: inline-size;
+}
+
+.options-card > .section {
+  border-top: 0;
+}
+
+.options-card .eyebrow {
+  font-family: inherit;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-transform: none;
+  color: var(--foreground);
 }
 
 /* ── Lignes de réglage ───────────────────────────────────────────────── */
@@ -303,6 +316,8 @@ input[type="range"] {
 /* ── Contrôle segmenté (thème) ───────────────────────────────────────── */
 .segmented {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   gap: 2px;
   padding: 3px;
   background: var(--background);
@@ -314,6 +329,12 @@ input[type="range"] {
 .segmented-grid {
   display: inline-grid;
   grid-template-columns: repeat(3, 1fr);
+}
+
+@container (max-width: 20rem) {
+  .segmented-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .segmented label {
@@ -442,9 +463,174 @@ input[type="range"] {
   height: 28px;
 }
 
+.site-item > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .site-item .btn-icon svg {
   width: 14px;
   height: 14px;
+}
+
+/* ── Pronunciation dictionary ───────────────────────────────────────── */
+.pronunciation-intro {
+  margin-top: 0;
+}
+
+.pronunciation-form {
+  margin-top: 1.5rem;
+}
+
+.pronunciation-matching {
+  margin-top: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.pronunciation-matching summary {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.pronunciation-form h3,
+.pronunciation-list-heading {
+  margin: 0 0 0.75rem;
+  font-size: inherit;
+}
+
+.pronunciation-fields {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.pronunciation-fields .row + .row {
+  margin-top: 0;
+}
+
+.pronunciation-fields label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.pronunciation-fields input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.pronunciation-fields input[aria-invalid="true"] {
+  border-color: var(--destructive);
+}
+
+.pronunciation-error {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.pronunciation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pronunciation-form > .pronunciation-actions {
+  margin-top: 1rem;
+}
+
+.pronunciation-button {
+  min-height: 40px;
+  padding: 0.375rem 0.75rem;
+  color: var(--foreground);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+}
+
+.pronunciation-list .btn-danger {
+  min-height: 40px;
+  height: auto;
+  color: var(--foreground);
+}
+
+.pronunciation-form button:disabled,
+.pronunciation-list button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.pronunciation-link a {
+  color: var(--link);
+  text-underline-offset: 2px;
+}
+
+.pronunciation-list-heading {
+  margin-top: 1.5rem;
+}
+
+.pronunciation-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pronunciation-item {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding-block: 0.875rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.pronunciation-rule-text {
+  min-width: 0;
+  flex: 1 1 12rem;
+  overflow-wrap: anywhere;
+}
+
+.pronunciation-rule-text > span {
+  display: block;
+}
+
+.pronunciation-list-heading {
+  font-variant-numeric: tabular-nums;
+}
+
+#prononciation button:focus-visible {
+  transition: none;
+}
+
+#prononciation button:focus-visible:active {
+  transform: none;
+}
+
+@media (pointer: coarse) {
+  .pronunciation-button,
+  .pronunciation-list .btn-danger,
+  .pronunciation-fields input[type="text"],
+  .pronunciation-fields select {
+    min-height: 44px;
+  }
+}
+
+.pronunciation-source {
+  font-weight: 500;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pronunciation-button:not(:disabled):hover {
+    border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  }
 }
 
 /* ── Cartes moteur (radiogroup) ──────────────────────────────────────── */
@@ -625,7 +811,7 @@ button:active {
   height: 36px;
   padding: 0 0.875rem;
   background: transparent;
-  color: var(--destructive);
+  color: color-mix(in srgb, var(--destructive) 70%, var(--foreground));
   border: 1px solid color-mix(in srgb, var(--destructive) 35%, transparent);
 }
 
@@ -670,7 +856,7 @@ button:active {
     color: var(--primary);
   }
 
-  .btn-danger:hover {
+  .btn-danger:not([data-armed="true"]):hover {
     background: color-mix(in srgb, var(--destructive) 10%, transparent);
   }
 
@@ -810,7 +996,7 @@ progress::-moz-progress-bar {
 
 @media (hover: hover) and (pointer: fine) {
   .foot a:hover {
-    color: var(--primary);
+    color: var(--link);
     border-color: var(--primary);
   }
 }
@@ -837,7 +1023,7 @@ progress::-moz-progress-bar {
 /* ── Repli étroit : la sidebar devient une barre horizontale ──────────── */
 @media (max-width: 48rem) {
   .shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
   }
 
@@ -847,7 +1033,7 @@ progress::-moz-progress-bar {
 
   .sidebar nav {
     flex-direction: row;
-    overflow-x: auto;
+    flex-wrap: wrap;
     gap: 0.25rem;
   }
 

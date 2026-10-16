@@ -243,7 +243,7 @@
     "message": "“System” follows your browser’s language."
   },
   "optionsSectionSites": {
-    "message": "Sites"
+    "message": "Hidden sites"
   },
   "optionsSitesHelp": {
     "message": "Orateur stays hidden on the sites listed here — no pill, no selection bubble."
@@ -333,7 +333,7 @@
     "message": "This is what this voice sounds like, at this speed."
   },
   "optionsSectionModel": {
-    "message": "AI model"
+    "message": "AI storage"
   },
   "optionsModelReady": {
     "message": "Ready offline"
@@ -359,6 +359,54 @@
   "optionsOpenApp": {
     "message": "Open Orateur"
   },
+  "optionsSectionPronunciation": { "message": "Pronunciation" },
+  "pronunciationHelp": { "message": "Correct how names, acronyms and specialist terms are spoken. Rules stay on this device and apply from the next reading, without changing the displayed text." },
+  "pronunciationMatchingHelp": { "message": "Whole words and phrases match the paragraph’s language. Add plurals separately. Apostrophes and hyphens separate words; letters, digits and _ extend them. Accents matter. The longest phrase wins, then the case-sensitive rule. Personal rules take priority over built-in corrections, without cascading replacements." },
+  "pronunciationMatchingDetails": { "message": "How rules are applied" },
+  "pronunciationNumbersHelp": { "message": "Grouped numbers are corrected automatically: 40 000 is read as “forty thousand”. Decimals follow the paragraph’s language; leading zeros and phone number groups are preserved." },
+  "pronunciationAddHeading": { "message": "Add a rule" },
+  "pronunciationEditHeading": { "message": "Edit the rule" },
+  "pronunciationLanguage": { "message": "Text language" },
+  "pronunciationSource": { "message": "Written text" },
+  "pronunciationSourceExample": { "message": "E.g. API" },
+  "pronunciationReplacement": { "message": "Text to pronounce" },
+  "pronunciationReplacementExample": { "message": "E.g. A P I" },
+  "pronunciationLengthHint": { "message": "$1 characters maximum." },
+  "pronunciationCaseSensitive": { "message": "Match case" },
+  "pronunciationSave": { "message": "Save" },
+  "pronunciationSaving": { "message": "Saving…" },
+  "pronunciationCancel": { "message": "Cancel editing" },
+  "pronunciationListen": { "message": "Listen" },
+  "pronunciationStop": { "message": "Stop" },
+  "pronunciationListenRule": { "message": "Listen to the rule for $1" },
+  "pronunciationStopRule": { "message": "Stop the preview for $1" },
+  "pronunciationPreviewHelp": { "message": "The preview uses the selected engine, voice and reading speed. It stops the current reading, without resuming it automatically." },
+  "pronunciationPreviewLoading": { "message": "Preparing the preview… You can stop it." },
+  "pronunciationPreviewError": { "message": "Unable to play this preview. Try Listen again or select another voice." },
+  "pronunciationPreviewError_model-unavailable": { "message": "The AI model is unavailable. Download it to listen to the preview." },
+  "pronunciationPreviewError_invalid-rule": { "message": "Check the written text and its pronunciation, then try Listen again." },
+  "pronunciationPreviewError_no-voice": { "message": "No voice is available. Select another voice, then try again." },
+  "pronunciationModelMissing": { "message": "Download the AI model to listen with natural voices." },
+  "pronunciationModelLink": { "message": "Manage the AI model" },
+  "pronunciationEdit": { "message": "Edit" },
+  "pronunciationDelete": { "message": "Delete" },
+  "pronunciationEditRule": { "message": "Edit the rule for $1" },
+  "pronunciationDeleteRule": { "message": "Delete the rule for $1" },
+  "pronunciationRulesHeading": { "message": "Saved rules — $1 of $2" },
+  "pronunciationReplacementValue": { "message": "Pronounce as: $1" },
+  "pronunciationEmpty": { "message": "No saved rules. Add written text and its pronunciation in the form above." },
+  "pronunciationLoading": { "message": "Loading rules…" },
+  "pronunciationLoadError": { "message": "Unable to load rules. Try again to retrieve the saved dictionary." },
+  "pronunciationRetry": { "message": "Try again" },
+  "pronunciationStorageError": { "message": "Unable to save this change. Your input is preserved; try again." },
+  "pronunciationSaved": { "message": "Rule for “$1” saved. It will apply from the next reading." },
+  "pronunciationDeleted": { "message": "Rule for “$1” deleted." },
+  "pronunciationError_required": { "message": "Enter text with at least one non-space character." },
+  "pronunciationError_too-long": { "message": "Shorten this text to $1 characters or fewer." },
+  "pronunciationError_control": { "message": "Remove control characters, such as tabs and line breaks." },
+  "pronunciationError_duplicate": { "message": "A rule already exists for this text, language and case setting. Edit the saved rule." },
+  "pronunciationError_limit": { "message": "The limit of $1 rules has been reached. Delete a rule before adding another." },
+  "pronunciationError_invalid": { "message": "Select Français or English and fill in both texts, then try again." },
   "readerResumePrompt": {
     "message": "Resume where you stopped? Choose Cancel to restart from the beginning."
   }

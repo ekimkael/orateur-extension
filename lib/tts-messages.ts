@@ -11,6 +11,7 @@
  */
 import type { SupertonicVoice } from "./supertonic/types"
 import type { SupportedLang } from "./supertonic-lang"
+import type { PronunciationRule } from "./pronunciation/personal.ts"
 
 export const TTS_SPEAK = "orateur:tts:speak"
 export const TTS_CONTROL = "orateur:tts:control"
@@ -46,6 +47,7 @@ export interface TtsSpeakMessage {
   speed: number
   /** Premier paragraphe à synthétiser lors d'une reprise. */
   startBlock?: number
+  personalRules?: PronunciationRule[]
   /** Le jeton de la pastille émettrice — même mécanisme que READER_TOKEN. */
   token: string
   /**
