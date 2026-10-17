@@ -198,12 +198,12 @@ export function PronunciationSettings({ prefs, modelCached, active = true }: { p
 
   function errorMessage(failure: ValidationError) {
     const limit = failure.code === "limit" ? MAX_RULES : failure.field === "source" ? MAX_SOURCE_LENGTH : MAX_REPLACEMENT_LENGTH
-    return t(`pronunciationError_${failure.code}`, [String(limit)])
+    return t(`pronunciationError_${failure.code.replaceAll("-", "_")}`, [String(limit)])
   }
 
   function previewErrorMessage(state: Extract<TtsState, { phase: "error" }>) {
     if (["model-unavailable", "invalid-rule", "no-voice"].includes(state.message)) {
-      return t(`pronunciationPreviewError_${state.message}`)
+      return t(`pronunciationPreviewError_${state.message.replaceAll("-", "_")}`)
     }
     return `${t("pronunciationPreviewError")}${state.reason !== "audio-playback" && state.message ? ` ${state.message}` : ""}`
   }
