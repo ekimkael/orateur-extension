@@ -583,9 +583,9 @@ async function saveSelection(payload: SelectionPayload, url?: string) {
  * Extrait l'article de l'onglet et le lit sur place, via `speechSynthesis`
  * dans la page — rien n'est envoyé à Orateur.
  *
- * Plus rien à injecter : le lecteur est un content script déclaré, présent
- * partout où l'extracteur peut s'injecter. Le booléen renvoyé sert à la
- * pastille, qui attend de savoir si la lecture a démarré.
+ * Le lecteur déclaré peut manquer sur un onglet ouvert avant l'installation
+ * ou la mise à jour : startReading l'y injecte si nécessaire. Le booléen
+ * renvoyé indique à la pastille si la lecture a démarré.
  */
 async function readPageInPlace(tab: { id?: number; url?: string } | undefined, fromHere = false) {
   if (tab?.id == null) return false
@@ -622,17 +622,25 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined, f
   }, fromHere)
 }
 
-/** Faux si aucun content script ne répond dans l'onglet. */
+/** Réinjecte le lecteur sur les onglets ouverts avant l'installation ou la mise à jour. */
 async function startReading(tabId: number, payload: ReadPagePayload, fromHere = false) {
+  const message = { type: START_READING, fromHere, ...payload } satisfies StartReadingMessage
   try {
-    await browser.tabs.sendMessage(tabId, {
-      type: START_READING,
-      fromHere,
-      ...payload,
-    } satisfies StartReadingMessage)
+    await browser.tabs.sendMessage(tabId, message)
     return true
   } catch {
-    return false
+    try {
+      const file = "/content-scripts/reader.js"
+      if (browser.scripting) {
+        await browser.scripting.executeScript({ target: { tabId }, files: [file] })
+      } else {
+        await browser.tabs.executeScript(tabId, { file })
+      }
+      await browser.tabs.sendMessage(tabId, message)
+      return true
+    } catch {
+      return false
+    }
   }
 }
 
