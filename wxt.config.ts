@@ -83,6 +83,7 @@ export default defineConfig({
     // ses permissions d'hôte dans la même liste.
     permissions: [
       'contextMenus',
+      'alarms',
       'activeTab',
       // Le moteur de synthèse est partagé par tout le navigateur, alors qu'il y
       // a une pastille par onglet : `storage` sert de canal entre elles pour
