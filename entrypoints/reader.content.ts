@@ -592,7 +592,11 @@ export default defineContentScript({
       const spokenLang = blockLangs[block] ?? lang
       if (spokenLang && spokenLang !== "na") utterance.lang = spokenLang
       utterance.rate = prefs.speed
-      if (voice) utterance.voice = voice
+      // A saved voice overrides `lang`, including on a translated page.
+      // Let the browser choose when that voice speaks another language.
+      if (voice && (!utterance.lang || voice.lang.toLowerCase().split(/[-_]/)[0] === utterance.lang.toLowerCase().split(/[-_]/)[0])) {
+        utterance.voice = voice
+      }
 
       utterance.addEventListener("start", () => {
         if (mine !== generation) return
