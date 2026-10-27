@@ -88,7 +88,7 @@ jobs:
           sudo tee /etc/apparmor.d/orateur-chrome-testing > /dev/null <<EOF
           abi <abi/4.0>,
           include <tunables/global>
-          profile orateur-chrome-testing "$orateur_chrome_bin" flags=(unconfined) {
+          profile orateur-chrome-testing $orateur_chrome_bin flags=(unconfined) {
             userns,
           }
           EOF
