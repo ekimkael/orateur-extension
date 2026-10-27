@@ -155,6 +155,10 @@ test("does not delay an ambiguous heading already visible on a translated page",
   const live = createLivePage(doc, ["Reflections."], 5000, () => true)
 
   assert.equal(await live.prepare(0, true), "Reflections.")
+  assert.equal(await Promise.race([
+    live.prepare(0, true, true),
+    new Promise((resolve) => setTimeout(() => resolve("prefetch delayed"), 20)),
+  ]), "Reflections.")
   live.stop()
 })
 
