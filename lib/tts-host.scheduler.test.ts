@@ -545,6 +545,52 @@ test("l'activation ne révèle pas un corps au-delà d'un long paragraphe déjà
   await settle(10)
 })
 
+test("un titre en attente est activé puis laisse préparer son corps pendant le dernier chunk précédent", async () => {
+  const heading = Promise.withResolvers<{ text: string; lang: "fr" }>()
+  const body = Promise.withResolvers<{ text: string; lang: "fr" }>()
+  const translatedBody = "Le corps après le titre est prêt avant que le titre commence à être lu."
+  const requested: { paragraph: number; prefetch: boolean | undefined }[] = []
+  const playing: number[] = []
+  const loading: string[] = []
+  const host = createTtsHost((state) => {
+    if (state.phase === "playing") playing.push(state.block)
+    if (state.phase === "loading") loading.push(state.reason ?? "")
+  })
+  host.speak({
+    text: article(3), lang: "en", voice: "F1", speed: 1,
+    prepareParagraph: async (paragraph, prefetch) => {
+      requested.push({ paragraph, prefetch })
+      if (paragraph === 0) return {
+        text: "Le premier paragraphe contient assez de texte pour laisser préparer le titre puis son corps pendant son dernier chunk. ".repeat(4), lang: "fr",
+      }
+      const pending = paragraph === 1 ? heading : body
+      if (!prefetch) pending.resolve({ text: paragraph === 1 ? "Détails." : translatedBody, lang: "fr" })
+      return pending.promise
+    },
+  })
+  await settle()
+  const firstChunks = contentSynths().length
+  assert.ok(firstChunks > 1)
+  assert.deepEqual(requested.filter((request) => request.paragraph === 1), [{ paragraph: 1, prefetch: true }])
+  for (let i = 1; i < firstChunks; i++) {
+    audios.find((audio) => !audio.paused)!.finish()
+    await settle()
+  }
+  assert.equal(playing.at(-1), 0)
+  assert.deepEqual(requested.filter((request) => request.paragraph === 1), [
+    { paragraph: 1, prefetch: true }, { paragraph: 1, prefetch: false },
+  ])
+  assert.ok(requested.some((request) => request.paragraph === 2 && !request.prefetch), "Le titre nouvellement prêt ne bloque pas l'activation de son corps")
+  assert.equal(contentSynths().at(-1), translatedBody)
+  for (let i = 0; i < 2; i++) {
+    audios.find((audio) => !audio.paused)!.finish()
+    await settle()
+  }
+  assert.equal(playing.at(-1), 2)
+  assert.ok(!loading.includes("preparing-next"))
+  host.control("stop")
+})
+
 for (const resume of [false, true]) {
   test(`${resume ? "la reprise" : "le dernier chunk"} active le corps après un titre déjà prêt avant de jouer ce titre`, async () => {
     const body = Promise.withResolvers<{ text: string; lang: "fr" }>()

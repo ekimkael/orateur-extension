@@ -459,15 +459,14 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     load((1 - active) as 0 | 1, next)
   }
 
-  function prepareAhead(gen: number, i: number) {
+  async function prepareAhead(gen: number, i: number) {
     if (!prepareParagraph || !units[i]?.endsParagraph) return
     // Two following units overlap a short heading without revealing past a long paragraph.
-    const end = Math.min(i + 3, units.length)
-    for (let next = i + 1; next < end; next++) {
+    for (let next = i + 1; next < Math.min(i + 3, units.length); next++) {
+      if (gen !== generation) return
       if (preparedParagraphs.has(units[next]!.paragraph)) continue
       // Ready headings must not postpone revealing the body beyond them.
-      void prepareUnit(gen, next).catch(() => {})
-      break
+      await prepareUnit(gen, next)
     }
   }
 
@@ -491,7 +490,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       if (gen !== generation) return
       onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
     })
-    prepareAhead(gen, i)
+    void prepareAhead(gen, i).catch(() => {})
     preloadNext()
   }
 
@@ -635,7 +634,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
         onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
       })
       onState({ phase: "playing", block: units[index]?.paragraph ?? 0, total: paragraphCount() })
-      prepareAhead(gen, index)
+      void prepareAhead(gen, index).catch(() => {})
       return
     }
     // "stop" : une nouvelle génération invalide toute promesse en vol, sans
