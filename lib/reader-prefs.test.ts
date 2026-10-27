@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { loadPrefs, savePrefs, SPEED } from "./reader-prefs.ts"
+import { loadPrefs, savePrefs, seedEngine, SPEED } from "./reader-prefs.ts"
 
 /** Storage local en mémoire — `browser` est un global fourni par WXT. */
 function fakeStorage(initial: Record<string, unknown> = {}) {
@@ -21,7 +21,7 @@ const KEY = "orateur:reader-prefs"
 test("part sur les défauts quand rien n'est stocké", async () => {
   fakeStorage()
   assert.deepEqual(await loadPrefs(), {
-    engine: "system",
+    engine: "supertonic",
     speed: 1,
     voiceURI: null,
     supertonicVoice: "F1",
@@ -35,7 +35,7 @@ test("complète une préférence partielle avec les défauts", async () => {
 
   const prefs = await loadPrefs()
   assert.equal(prefs.speed, 1.5)
-  assert.equal(prefs.engine, "system")
+  assert.equal(prefs.engine, "supertonic")
   assert.equal(prefs.voiceURI, null)
 })
 
@@ -45,7 +45,7 @@ test("savePrefs n'écrase que la clé fournie", async () => {
   await savePrefs({ speed: 0.8 })
 
   assert.deepEqual(data[KEY], {
-    engine: "system",
+    engine: "supertonic",
     speed: 0.8,
     voiceURI: "urn:voix",
     supertonicVoice: "F1",
@@ -84,11 +84,25 @@ test("deux écritures successives ne se perdent pas", async () => {
   await savePrefs({ voiceURI: "urn:voix" })
 
   assert.deepEqual(data[KEY], {
-    engine: "system",
+    engine: "supertonic",
     speed: 1.2,
     voiceURI: "urn:voix",
     supertonicVoice: "F1",
     follow: true,
     position: "bottom-right",
   })
+})
+
+test("seedEngine never overrides a stored engine", async () => {
+  fakeStorage()
+  await seedEngine("supertonic")
+  assert.equal((await loadPrefs()).engine, "supertonic")
+
+  fakeStorage({ [KEY]: { speed: 1.2 } })
+  await seedEngine("system")
+  assert.equal((await loadPrefs()).engine, "system")
+
+  fakeStorage({ [KEY]: { engine: "supertonic" } })
+  await seedEngine("system")
+  assert.equal((await loadPrefs()).engine, "supertonic")
 })

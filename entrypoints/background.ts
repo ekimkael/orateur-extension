@@ -57,6 +57,7 @@ import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessag
 // (entrypoints/offscreen/main.ts) — jamais ici, où il alourdirait le service
 // worker pour rien.
 import { createTtsHost } from "../lib/tts-host"
+import { seedEngine } from "../lib/reader-prefs"
 // Même garde `import.meta.env.FIREFOX` : côté Chrome, c'est le document
 // offscreen qui appelle loadModelFiles(), jamais ce fichier.
 import { isModelCached, loadModelFiles } from "../lib/supertonic/model-cache"
@@ -290,6 +291,9 @@ export default defineBackground({
       title: browser.i18n.getMessage("menuReadFromHereTitle"),
       contexts: ["page", "link"],
     })
+
+    if (details.reason === "install") void seedEngine("supertonic")
+    else if (details.reason === "update") void seedEngine("system")
 
     if (details.reason === "install") {
       // Le seul endroit qui explique le consentement télémétrie avant de le

@@ -37,6 +37,28 @@ browserTest("reads an already-open article, then pauses, resumes and stops", asy
   assert.equal(h.blocked.some(url => /posthog|orateur\.digitalekim|huggingface/.test(url)), false, "Local reading needs no external service")
 })
 
+browserTest("a fresh install defaults to the natural voices", async h => {
+  await h.install({ engine: null })
+  const prefs = await h.options.evaluate(async () => (await (globalThis.browser ?? chrome).storage.local.get("orateur:reader-prefs"))["orateur:reader-prefs"])
+  assert.equal(prefs.engine, "supertonic")
+})
+
+browserTest("switching engine mid-reading stops the running engine", async h => {
+  await h.install()
+  await h.fakeSpeech()
+  assert.equal(await h.script(() => (globalThis.browser ?? chrome).runtime.sendMessage({ type: "orateur:read-page" })), true)
+  await waitFor(() => h.speech().then(state => state.spoken.length), "System reading starts")
+  await h.click("Pause")
+  await h.options.evaluate(async () => {
+    const api = globalThis.browser ?? chrome
+    const key = "orateur:reader-prefs"
+    const prefs = (await api.storage.local.get(key))[key]
+    await api.storage.local.set({ [key]: { ...prefs, engine: "supertonic" } })
+  })
+  // Before the fix, Play resumed the paused system voice despite the switch.
+  await waitFor(() => h.shadow(reader, `button[aria-label="${read}"]`), "Reader returns to idle after the switch")
+})
+
 browserTest("mouse selection exposes the bubble and reads only the selected text", async h => {
   await h.install()
   await h.page.reload()
