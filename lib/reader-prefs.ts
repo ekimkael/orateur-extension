@@ -46,7 +46,7 @@ export interface ReaderPreferences {
 
 const PREFS_KEY = "orateur:reader-prefs"
 const DEFAULT_PREFS: ReaderPreferences = {
-  engine: "system",
+  engine: "supertonic",
   speed: 1,
   voiceURI: null,
   supertonicVoice: "F1",
@@ -69,6 +69,17 @@ export async function savePrefs(prefs: Partial<ReaderPreferences>) {
   // relisent tous les deux l'état d'avant, et le second écrase le premier.
   const current = await loadPrefs()
   await browser.storage.local.set({ [PREFS_KEY]: { ...current, ...prefs } })
+}
+
+/**
+ * Writes `engine` only when none is stored yet. Install seeds the natural
+ * voices; an update pins "system" for users who never saved a setting, who
+ * would otherwise switch engine (and face a 398 MB download) without asking.
+ */
+export async function seedEngine(engine: ReaderEngine) {
+  const data = await browser.storage.local.get(PREFS_KEY)
+  const stored = data[PREFS_KEY] as Partial<ReaderPreferences> | undefined
+  if (!stored?.engine) await savePrefs({ engine })
 }
 
 export function onPrefsChanged(callback: (prefs: ReaderPreferences) => void) {

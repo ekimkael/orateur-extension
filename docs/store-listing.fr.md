@@ -43,11 +43,11 @@ d’ici » pour commencer à cet endroit si Orateur le retrouve dans l'article e
 ━━ Deux voix, à vous de choisir ━━
 
 • La voix de votre système, disponible immédiatement, sans rien télécharger.
-  C'est le réglage par défaut. Certaines voix système utilisent le service
-  en ligne de leur fournisseur.
+  Certaines voix système utilisent le service en ligne de leur fournisseur.
 • Supertonic, une voix neuronale nettement plus naturelle, qui tourne
-  entièrement sur votre machine. Ses modèles sont téléchargés à la première
-  lecture ou sur demande dans les réglages (environ 400 Mo), puis elle
+  entièrement sur votre machine, choisie par défaut sur les nouvelles
+  installations. Les mises à jour conservent votre moteur. Ses modèles sont
+  téléchargés à la première lecture ou sur demande dans les réglages (environ 400 Mo), puis elle
   fonctionne sans réseau. Prévoyez quelques minutes pour ce premier
   téléchargement.
 
@@ -113,8 +113,8 @@ envoi vers Orateur.
 ### `unlimitedStorage`
 
 ```
-Le moteur de synthèse vocale local (Supertonic), si l'utilisateur l'active,
-conserve environ 400 Mo de modèles ONNX dans l'OPFS de l'extension. Sans cette
+Le moteur de synthèse vocale local (Supertonic) conserve environ 400 Mo de
+modèles ONNX dans l'OPFS après lecture ou demande de téléchargement. Sans cette
 permission, le quota par origine peut les évincer et forcer un nouveau
 téléchargement complet.
 ```
@@ -202,9 +202,8 @@ entrée du menu contextuel.
 
   Les modèles ONNX ne sont pas embarqués : ils sont téléchargés depuis le dépôt
   public https://huggingface.co/Supertone/supertonic-3 à la première lecture
-  avec ce moteur ou sur demande explicite dans les réglages (le moteur par
-  défaut est celui du système), et stockés dans l'OPFS de l'extension. Ce sont
-  des poids de modèle, pas du code exécutable.
+  avec ce moteur ou sur demande explicite dans les réglages, et stockés dans
+  l'OPFS de l'extension. Ce sont des poids de modèle, pas du code exécutable.
 
   lib/spike-checks.ts et lib/spike-phrase.ts sont des bancs d'essai de
   développement conservés dans le dépôt. Ils ne sont importés par aucun

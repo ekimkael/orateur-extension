@@ -39,7 +39,11 @@ Reading a page or selection in place does not send its content to Orateur.
 
 ### 2. Speech engines and model downloads
 
-The default engine uses the browser's `speechSynthesis` API. The extension
+New installations default to Supertonic. Updates preserve saved engine choices;
+existing installations without a saved engine keep the system voice. You can
+change the engine in the reading pill or Settings.
+
+The system engine uses the browser's `speechSynthesis` API. The extension
 does not download its own model for this engine. Available voices come from
 the browser or operating system; whether a voice uses a network service
 depends on that voice and its provider.
@@ -50,6 +54,8 @@ or an explicit model download from Settings, downloads approximately
 `Supertone/supertonic-3` repository on `https://huggingface.co`. These files
 are cached in the extension's private storage (OPFS). A complete cache
 allows offline synthesis; missing files may require another download.
+Private windows without cached models use the system engine instead of starting
+a download that may not persist.
 
 Model requests contain no article or selected text. Hugging Face and its
 download infrastructure receive the network metadata needed to serve the

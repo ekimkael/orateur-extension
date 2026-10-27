@@ -198,10 +198,16 @@ export default defineContentScript({
     const unsubscribePrefs = onPrefsChanged((newPrefs) => {
       const speedChanged = newPrefs.speed !== prefs.speed
       const voiceChanged = newPrefs.voiceURI !== prefs.voiceURI
+      const engineChanged = newPrefs.engine !== prefs.engine
       prefs = newPrefs
       pill.updatePrefs(newPrefs)
       follower.setEnabled(newPrefs.follow)
       if (!reading) return
+
+      // Neither engine can take over the other's queue: without this, Play
+      // resumed the old engine and the new choice was silently ignored. The
+      // saved progress lets the next start offer to pick up where it stopped.
+      if (engineChanged) return stop()
 
       if (usingSupertonic) {
         // La vitesse s'applique tout de suite (audio.playbackRate, jamais de
@@ -481,7 +487,14 @@ export default defineContentScript({
         // the text clearly contradicts it (Gmail declares its UI language,
         // not the message's), detection alone when nothing is declared.
         const supertonicLang = resolveDocLang(payload.lang, payload.text)
-        if (supertonicLang) {
+        // A private window must not trigger the 398 MB first download: the
+        // model may not persist there (OPFS is blocked in Firefox private
+        // browsing). An already cached model is still used.
+        const privateWithoutModel =
+          browser.extension.inIncognitoContext &&
+          !(await browser.runtime.sendMessage({ type: MODEL_CACHE_QUERY }).catch(() => false))
+        if (mine !== startGeneration) return
+        if (supertonicLang && !privateWithoutModel) {
           startSupertonic(payload, supertonicLang, startBlock, personalRules)
           return
         }
@@ -490,7 +503,9 @@ export default defineContentScript({
         // place.
         void browser.runtime.sendMessage({
           type: NOTIFY,
-          message: browser.i18n.getMessage("noticeSupertonicLangUnsupported"),
+          message: browser.i18n.getMessage(
+            supertonicLang ? "noticeSupertonicPrivateWindow" : "noticeSupertonicLangUnsupported"
+          ),
         } satisfies NotifyMessage)
       }
       startSystem(payload, startBlock, personalRules)
@@ -1128,6 +1143,21 @@ input.settings-control { margin: 2px 0 }
   color: var(--muted-foreground);
 }
 .settings-note strong { color: var(--foreground); font-weight: 600 }
+.settings-download {
+  width: 100%;
+  height: auto;
+  min-height: 36px;
+  margin-top: 8px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+.settings-download:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 88%, black) }
+.settings-download:focus-visible { outline-color: var(--foreground) }
 `
 
 /** Libellé et intitulé accessible de chaque bouton, état par état. */
@@ -1498,7 +1528,17 @@ function createPill(
   supertonicNote.className = "settings-note"
   const noteLead = document.createElement("strong")
   const noteRest = document.createElement("div")
-  supertonicNote.append(noteLead, noteRest)
+  // The download happens on the first Supertonic reading, so the button just
+  // starts one: progress then shows in the pill, where the eye already is.
+  const noteDownload = document.createElement("button")
+  noteDownload.type = "button"
+  noteDownload.className = "settings-download"
+  noteDownload.addEventListener("click", () => {
+    closePopover()
+    // Already loading or reading: onPrimary would pause, not download.
+    if (currentState === "idle" || currentState === "error") onPrimary()
+  })
+  supertonicNote.append(noteLead, noteRest, noteDownload)
   popover.append(supertonicNote)
 
   const speed = document.createElement("input")
@@ -1624,6 +1664,7 @@ function createPill(
     if (supertonicNote.hidden) return
     noteLead.textContent = browser.i18n.getMessage("optionsModelAlertPendingLead")
     noteRest.textContent = browser.i18n.getMessage("optionsModelAlertPending")
+    noteDownload.textContent = browser.i18n.getMessage("optionsModelDownloadCta")
   }
 
   async function refreshModelCached() {
