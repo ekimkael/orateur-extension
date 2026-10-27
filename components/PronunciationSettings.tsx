@@ -23,7 +23,7 @@ function emptyRule(): PronunciationRule {
   return { id: crypto.randomUUID(), language: "fr", source: "", replacement: "", caseSensitive: false }
 }
 
-export function PronunciationSettings({ prefs, modelCached, active = true }: { prefs: ReaderPreferences; modelCached: boolean; active?: boolean }) {
+export function PronunciationSettings({ prefs, modelCached, context = "options", active = true }: { prefs: ReaderPreferences; modelCached: boolean; context?: "options" | "pdf"; active?: boolean }) {
   const t = useTranslation()
   const id = useId()
   const [rules, setRules] = useState<PronunciationRule[]>([])
@@ -228,7 +228,7 @@ export function PronunciationSettings({ prefs, modelCached, active = true }: { p
   return (
     <section className="section" id="prononciation" hidden={!active} aria-labelledby={`${id}-heading`}>
       <h2 className="eyebrow" id={`${id}-heading`} tabIndex={-1}>{t("optionsSectionPronunciation")}</h2>
-      <p className="help pronunciation-intro">{t("pronunciationHelp")}</p>
+      <p className="help pronunciation-intro">{t(context === "pdf" ? "pdfPronunciationHelp" : "pronunciationHelp")}</p>
       <p className="help">{t("pronunciationNumbersHelp")}</p>
       <details className="pronunciation-matching">
         <summary>{t("pronunciationMatchingDetails")}</summary>
@@ -306,7 +306,7 @@ export function PronunciationSettings({ prefs, modelCached, active = true }: { p
         {error?.field === "form" && <p className="help pronunciation-error" role="alert">{errorMessage(error)}</p>}
       </form>
 
-      <p id={`${id}-preview-help`} className="help">{t("pronunciationPreviewHelp")}</p>
+      <p id={`${id}-preview-help`} className="help">{t(context === "pdf" ? "pdfPronunciationPreviewHelp" : "pronunciationPreviewHelp")}</p>
       {modelMissing && <p className="help pronunciation-link">{t("pronunciationModelMissing")} <a href="#modele">{t("pronunciationModelLink")}</a></p>}
       {previewState.phase === "loading" && <p className="help" role="status">{t("pronunciationPreviewLoading")}</p>}
       {previewState.phase === "error" && <p className="help pronunciation-error" role="alert">{previewErrorMessage(previewState)}</p>}

@@ -171,6 +171,8 @@ export default defineContentScript({
      * eu lieu, pas à chaque lecture qui trouve le modèle déjà en cache.
      */
     let sawSupertonicDownload = false
+    let readingTelemetryStarted = false
+    let readingTelemetryFailed = false
     const token = Math.random().toString(36).slice(2)
     // Réassigné, pas figé : une lecture doit partir sur les réglages du moment,
     // y compris ceux changés depuis un autre onglet.
@@ -310,6 +312,7 @@ export default defineContentScript({
           label ? { label, percent: state.progress, reason: state.reason } : undefined
         )
       } else if (state.phase === "playing") {
+        trackReadingStarted("supertonic")
         if (sawSupertonicDownload) {
           sawSupertonicDownload = false
           track({ name: "supertonic_download_completed" })
@@ -324,10 +327,11 @@ export default defineContentScript({
         paused = true
         pill.setState("paused")
       } else if (state.phase === "ended") {
-        track({ name: "read_completed" })
+        trackReadingCompleted("supertonic")
         void clearReadingProgress(readingUrl)
         fold()
       } else if (state.phase === "error") {
+        trackReadingFailed("supertonic", state.reason === "audio-playback" ? "audio_playback" : "preparation")
         if (sawSupertonicDownload) {
           sawSupertonicDownload = false
           track({ name: "supertonic_download_failed", properties: { reason: classifyTtsError(state.message) } })
@@ -515,13 +519,15 @@ export default defineContentScript({
       paused = false
       markTab(true)
       sawSupertonicDownload = false
+      readingTelemetryStarted = false
+      readingTelemetryFailed = false
       supertonicTitle = payload.title ?? ""
-      track({ name: "read_started", properties: { engine: "supertonic" } })
       void browser.storage.local.set({ [READER_TOKEN]: token })
       pill.attach()
       pill.setState("loading", supertonicTitle, true)
       pill.setPosition(startBlock, readingTotal)
       void persistProgress(startBlock)
+      const mine = startGeneration
       void browser.runtime.sendMessage({
         type: TTS_SPEAK,
         text,
@@ -533,7 +539,12 @@ export default defineContentScript({
         personalRules,
         token,
         livePage: !!pageSource,
-      } satisfies Partial<TtsSpeakMessage>)
+      } satisfies Partial<TtsSpeakMessage>).catch(() => {
+        if (mine !== startGeneration || !reading || !usingSupertonic) return
+        trackReadingFailed("supertonic", "preparation")
+        fold()
+        pill.setState("error", readingTitle)
+      })
     }
 
     function startSystem(payload: ReadPagePayload, startBlock: number, personalRules: PronunciationRule[]) {
@@ -582,7 +593,8 @@ export default defineContentScript({
       paused = false
       stale = false
       markTab(true)
-      track({ name: "read_started", properties: { engine: "system" } })
+      readingTelemetryStarted = false
+      readingTelemetryFailed = false
       // Prendre la parole : les pastilles des autres onglets s'en déduisent.
       void browser.storage.local.set({ [READER_TOKEN]: token })
       // La pastille a pu être masquée : une lecture lancée depuis le menu
@@ -592,6 +604,30 @@ export default defineContentScript({
       pill.setPosition(startBlock, readingTotal)
       void persistProgress(startBlock)
       speak()
+    }
+
+    /**
+     * Compte une écoute au premier son confirmé, une seule fois par demande.
+     * Les réglages, paragraphes et reprises réutilisent ces gardes ; les
+     * générations des moteurs écartent leurs callbacks devenus obsolètes.
+     */
+    function trackReadingStarted(engine: ReaderEngine) {
+      if (readingTelemetryStarted) return
+      readingTelemetryStarted = true
+      track({ name: "read_started", properties: { engine } })
+    }
+
+    /** Une catégorie fermée par lecture suffit à repérer les écoutes en échec. */
+    function trackReadingFailed(engine: ReaderEngine, reason: "synthesis" | "audio_playback" | "preparation") {
+      if (readingTelemetryFailed) return
+      readingTelemetryFailed = true
+      track({ name: "read_failed", properties: { engine, reason } })
+    }
+
+    /** Arrivée en fin de file après un son, y compris après navigation ou erreurs. */
+    function trackReadingCompleted(engine: ReaderEngine) {
+      if (!readingTelemetryStarted) return
+      track({ name: "read_completed", properties: { engine, had_errors: readingTelemetryFailed } })
     }
 
     /**
@@ -617,7 +653,7 @@ export default defineContentScript({
     async function play(block: number, from: number) {
       let text = blocks[block]
       if (text === undefined) {
-        track({ name: "read_completed" })
+        trackReadingCompleted("system")
         void clearReadingProgress(readingUrl)
         fold()
         return
@@ -642,7 +678,8 @@ export default defineContentScript({
           if (text !== expanded) from = 0
           text = blocks[block] = expanded
         } catch {
-          if (mine !== generation || session !== startGeneration || source !== pageSource) return
+          if (mine !== generation || session !== startGeneration || source !== pageSource || !reading) return
+          trackReadingFailed("system", "preparation")
           fold()
           pill.setState("error", readingTitle)
           return
@@ -667,6 +704,7 @@ export default defineContentScript({
 
       utterance.addEventListener("start", () => {
         if (mine !== generation) return
+        trackReadingStarted("system")
         blockIndex = block
         charIndex = from
         void persistProgress(block)
@@ -694,6 +732,7 @@ export default defineContentScript({
       // reste de l'article : avancer quand même, comme une fin naturelle.
       utterance.addEventListener("error", () => {
         if (mine !== generation) return
+        trackReadingFailed("system", "synthesis")
         play(block + 1, 0)
       })
       speechSynthesis.speak(utterance)

@@ -105,34 +105,34 @@
     "message": "Par défaut"
   },
   "voiceFemale1": {
-    "message": "Femme 1"
+    "message": "Clara"
   },
   "voiceFemale2": {
-    "message": "Femme 2"
+    "message": "Emma"
   },
   "voiceFemale3": {
-    "message": "Femme 3"
+    "message": "Jade"
   },
   "voiceFemale4": {
-    "message": "Femme 4"
+    "message": "Lina"
   },
   "voiceFemale5": {
-    "message": "Femme 5"
+    "message": "Nora"
   },
   "voiceMale1": {
-    "message": "Homme 1"
+    "message": "Adam"
   },
   "voiceMale2": {
-    "message": "Homme 2"
+    "message": "Gabriel"
   },
   "voiceMale3": {
-    "message": "Homme 3"
+    "message": "Hugo"
   },
   "voiceMale4": {
-    "message": "Homme 4"
+    "message": "Louis"
   },
   "voiceMale5": {
-    "message": "Homme 5"
+    "message": "Noah"
   },
   "selectionRead": {
     "message": "Lire"
@@ -171,10 +171,10 @@
     "message": "Effacement…"
   },
   "optionsTelemetryDescription": {
-    "message": "Désactivé par défaut. Si vous l'activez, Orateur signale quand une lecture démarre, si le téléchargement du modèle a réussi, et quand une extraction échoue."
+    "message": "Activé par défaut. Orateur signale les lectures, les erreurs et les téléchargements du modèle. Vous pouvez désactiver ce suivi à tout moment."
   },
   "optionsTelemetryEnable": {
-    "message": "Partager des statistiques d'usage anonymes"
+    "message": "Partager des statistiques d'usage"
   },
   "optionsHeading": {
     "message": "Réglages"
@@ -354,7 +354,7 @@
     "message": "Confidentialité"
   },
   "optionsTelemetryNever": {
-    "message": "Jamais le texte que vous écoutez, jamais les pages que vous visitez, jamais rien qui vous identifie."
+    "message": "Aucun texte, titre ou adresse de page envoyé. Un identifiant aléatoire permet de reconnaître votre navigateur tant que le suivi reste activé."
   },
   "optionsOpenApp": {
     "message": "Ouvrir Orateur"

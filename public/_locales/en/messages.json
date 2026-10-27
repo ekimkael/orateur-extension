@@ -105,34 +105,34 @@
     "message": "Default"
   },
   "voiceFemale1": {
-    "message": "Female 1"
+    "message": "Clara"
   },
   "voiceFemale2": {
-    "message": "Female 2"
+    "message": "Emma"
   },
   "voiceFemale3": {
-    "message": "Female 3"
+    "message": "Jade"
   },
   "voiceFemale4": {
-    "message": "Female 4"
+    "message": "Lina"
   },
   "voiceFemale5": {
-    "message": "Female 5"
+    "message": "Nora"
   },
   "voiceMale1": {
-    "message": "Male 1"
+    "message": "Adam"
   },
   "voiceMale2": {
-    "message": "Male 2"
+    "message": "Gabriel"
   },
   "voiceMale3": {
-    "message": "Male 3"
+    "message": "Hugo"
   },
   "voiceMale4": {
-    "message": "Male 4"
+    "message": "Louis"
   },
   "voiceMale5": {
-    "message": "Male 5"
+    "message": "Noah"
   },
   "selectionRead": {
     "message": "Listen"
@@ -171,10 +171,10 @@
     "message": "Clearing…"
   },
   "optionsTelemetryDescription": {
-    "message": "Off by default. If you turn it on, Orateur reports when a reading starts, whether the model download succeeded, and when an extraction fails."
+    "message": "On by default. Orateur reports readings, errors and model downloads. You can turn this tracking off at any time."
   },
   "optionsTelemetryEnable": {
-    "message": "Share anonymous usage statistics"
+    "message": "Share usage statistics"
   },
   "optionsHeading": {
     "message": "Settings"
@@ -354,7 +354,7 @@
     "message": "Privacy"
   },
   "optionsTelemetryNever": {
-    "message": "Never the text you listen to, never the pages you visit, never anything that identifies you."
+    "message": "No page text, titles or addresses are sent. A random identifier recognizes your browser while tracking stays enabled."
   },
   "optionsOpenApp": {
     "message": "Open Orateur"

@@ -292,7 +292,6 @@ export default defineBackground({
     })
 
     if (details.reason === "install") {
-      track({ name: "installed" })
       // Le seul endroit qui explique le consentement télémétrie avant de le
       // demander (voir entrypoints/options/App.tsx) — pas de mur nu.
       void browser.runtime.openOptionsPage()
