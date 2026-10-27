@@ -66,8 +66,15 @@ jobs:
       - run: npx puppeteer browsers install firefox
       - name: Configure Chrome Linux sandbox
         run: |
-          test -u /opt/google/chrome/chrome-sandbox
-          echo "CHROME_DEVEL_SANDBOX=/opt/google/chrome/chrome-sandbox" >> "$GITHUB_ENV"
+          orateur_chrome_bin="$(node --input-type=module -e "import puppeteer from 'puppeteer'; console.log(puppeteer.executablePath())")"
+          sudo tee /etc/apparmor.d/orateur-chrome-testing > /dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile orateur-chrome-testing "$orateur_chrome_bin" flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/orateur-chrome-testing
       - run: npm run test:e2e
       - run: npm run test:e2e:firefox
 

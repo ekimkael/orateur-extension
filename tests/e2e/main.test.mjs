@@ -131,9 +131,18 @@ browserTest("paragraph navigation and speed changes reach the speech engine", as
   await h.click("Next paragraph")
   await waitFor(() => h.speech().then(state => state.spoken.some(item => item.text.includes("deuxième paragraphe"))), "Next paragraph reaches the engine")
   await h.click("Reading settings")
-  const speed = await waitFor(() => h.shadow(reader, 'input[type="range"]'), "Speed control exists")
-  await h.page.mouse.click(speed.x, speed.y)
+  await h.page.bringToFront()
+  // Focus without changing the track value: a pending pointer write can race the keys.
+  await waitFor(() => h.script(() => {
+    const host = document.querySelector("orateur-reader-pill")
+    const root = globalThis.chrome?.dom?.openOrClosedShadowRoot(host) ?? host.openOrClosedShadowRoot
+    const speed = root.querySelector('input[type="range"]')
+    if (!speed?.getBoundingClientRect().width) return false
+    speed.focus()
+    return document.hasFocus() && root.activeElement === speed
+  }), "Speed control receives keyboard focus")
   await h.page.keyboard.press("Home")
+  await waitFor(() => h.speech().then(state => Math.abs(state.spoken.at(-1)?.rate - 0.8) < 1e-6), "Minimum speed reaches the engine before incrementing")
   await h.page.keyboard.press("ArrowRight")
   await h.page.keyboard.press("Tab")
   // SpeechSynthesisUtterance.rate is a Web IDL float, so 0.9 is rounded.
