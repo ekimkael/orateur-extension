@@ -14,6 +14,7 @@ import type { SupportedLang } from "./supertonic-lang"
 import type { PronunciationRule } from "./pronunciation/personal.ts"
 
 export const TTS_SPEAK = "orateur:tts:speak"
+export const TTS_PREPARE_BLOCK = "orateur:tts:prepare-block"
 export const TTS_CONTROL = "orateur:tts:control"
 export const TTS_EVENT = "orateur:tts:event"
 /** L'hôte demande sa propre fermeture après un délai d'inactivité — voir offscreen/main.ts. */
@@ -47,6 +48,8 @@ export interface TtsSpeakMessage {
   speed: number
   /** Premier paragraphe à synthétiser lors d'une reprise. */
   startBlock?: number
+  /** Refresh each page paragraph from the live DOM before synthesis. */
+  livePage?: boolean
   personalRules?: PronunciationRule[]
   /** Le jeton de la pastille émettrice — même mécanisme que READER_TOKEN. */
   token: string
@@ -56,6 +59,18 @@ export interface TtsSpeakMessage {
    * avant de relayer vers l'hôte, qui en a besoin pour savoir à qui répondre.
    */
   tabId?: number
+}
+
+export interface TtsPrepareBlockMessage {
+  type: typeof TTS_PREPARE_BLOCK
+  tabId?: number
+  token: string
+  block: number
+}
+
+export interface TtsPreparedBlock {
+  text: string
+  lang: SupportedLang
 }
 
 export type TtsControlAction = "pause" | "resume" | "stop"

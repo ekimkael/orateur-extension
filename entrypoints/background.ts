@@ -35,6 +35,7 @@ import {
   TTS_CLOSE,
   TTS_CONTROL,
   TTS_EVENT,
+  TTS_PREPARE_BLOCK,
   TTS_SEEK,
   TTS_SET_SPEED,
   TTS_SPEAK,
@@ -43,6 +44,8 @@ import {
   type ModelProgressState,
   type TtsControlMessage,
   type TtsEventMessage,
+  type TtsPrepareBlockMessage,
+  type TtsPreparedBlock,
   type TtsSeekMessage,
   type TtsSetSpeedMessage,
   type TtsSpeakMessage,
@@ -138,6 +141,8 @@ async function handleTtsFromPill(
     const host = ensureFirefoxHost()
     if (message.type === TTS_SPEAK) {
       if (tabId == null || !message.text || !message.lang || !message.voice) return
+      const token = message.token
+      if (message.livePage && (typeof token !== "string" || !token)) return
       firefoxTabId = tabId
       firefoxToken = message.token ?? null
       host.speak({
@@ -147,6 +152,11 @@ async function handleTtsFromPill(
         speed: message.speed ?? 1,
         startBlock: message.startBlock,
         personalRules: message.personalRules,
+        prepareParagraph: message.livePage ? (block) => browser.tabs.sendMessage(tabId, {
+          type: TTS_PREPARE_BLOCK,
+          token: token!,
+          block,
+        } satisfies TtsPrepareBlockMessage) as Promise<TtsPreparedBlock> : undefined,
       })
     } else if (message.type === TTS_CONTROL && message.action) {
       host.control(message.action)
@@ -407,6 +417,19 @@ export default defineBackground({
   // propriétaire. N'existe que côté Chrome — la page de fond Firefox parle
   // déjà directement à l'onglet dans `ensureFirefoxHost`.
   if (!import.meta.env.FIREFOX) {
+    browser.runtime.onMessage.addListener((message: Partial<TtsPrepareBlockMessage>, sender, sendResponse) => {
+      if (message?.type !== TTS_PREPARE_BLOCK || sender.tab || sender.id !== browser.runtime.id ||
+          !Number.isInteger(message.tabId) || message.tabId! < 0 ||
+          !Number.isInteger(message.block) || message.block! < 0 ||
+          typeof message.token !== "string" || !message.token) return
+      void browser.tabs.sendMessage(message.tabId!, {
+        type: TTS_PREPARE_BLOCK,
+        token: message.token,
+        block: message.block!,
+      } satisfies TtsPrepareBlockMessage).then(sendResponse, () => sendResponse(null))
+      return true
+    })
+
     browser.runtime.onMessage.addListener((message: Partial<TtsEventMessage>) => {
       if (message?.type !== TTS_EVENT || message.tabId == null) return
       void browser.tabs.sendMessage(message.tabId, message).catch(() => {})
@@ -598,7 +621,7 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined, f
     // sélection (voir `read()` ci-dessous).
     if (result.text) {
       track({ name: "extraction_failed", properties: { reason: "fallback_text" } })
-      return startReading(tab.id, { text: result.text, lang: result.lang }, fromHere)
+      return startReading(tab.id, { text: result.text, lang: result.lang, livePage: true }, fromHere)
     }
     track({ name: "extraction_failed", properties: { reason: "not_article" } })
     await notify(result.error)
@@ -619,6 +642,7 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined, f
     text: result.article.textContent,
     title: result.article.title ?? undefined,
     lang: result.article.lang ?? undefined,
+    livePage: true,
   }, fromHere)
 }
 
