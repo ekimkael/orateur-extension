@@ -64,6 +64,10 @@ jobs:
       - run: npx puppeteer browsers install chrome
       - run: sudo env "PATH=$PATH" "PUPPETEER_CACHE_DIR=$PWD/.cache/puppeteer" npx puppeteer browsers install chrome --install-deps
       - run: npx puppeteer browsers install firefox
+      - name: Configure Chrome Linux sandbox
+        run: |
+          test -u /opt/google/chrome/chrome-sandbox
+          echo "CHROME_DEVEL_SANDBOX=/opt/google/chrome/chrome-sandbox" >> "$GITHUB_ENV"
       - run: npm run test:e2e
       - run: npm run test:e2e:firefox
 

@@ -81,6 +81,11 @@ jobs:
       - run: npx puppeteer browsers install ${{ matrix.browser }}
       - if: matrix.browser == 'chrome'
         run: sudo env "PATH=$PATH" "PUPPETEER_CACHE_DIR=$PWD/.cache/puppeteer" npx puppeteer browsers install chrome --install-deps
+      - name: Configure Chrome Linux sandbox
+        if: matrix.browser == 'chrome'
+        run: |
+          test -u /opt/google/chrome/chrome-sandbox
+          echo "CHROME_DEVEL_SANDBOX=/opt/google/chrome/chrome-sandbox" >> "$GITHUB_ENV"
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v7
         if: always()

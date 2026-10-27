@@ -147,6 +147,11 @@ arbitrary line-coverage target cannot replace behavior coverage.
 
 ## Browser and audio limits
 
+On GitHub's Ubuntu runners, Chrome for Testing uses the installed Chrome SUID
+sandbox via `CHROME_DEVEL_SANDBOX=/opt/google/chrome/chrome-sandbox`. The workflows
+check that helper exists before browser tests; Chrome's sandbox stays enabled.
+See [Chromium's AppArmor guidance](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md).
+
 Puppeteer uses Chrome for Testing on Chrome and WebDriver BiDi on Firefox.
 Browser versions must remain identifiable and tied to installed tooling. Firefox
 does not support every Chrome-driver feature, including extension actions and
