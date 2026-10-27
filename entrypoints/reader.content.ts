@@ -21,6 +21,7 @@ import { expandText } from "../lib/pronunciation/index.ts"
 import { loadPronunciationRules } from "../lib/pronunciation-rules.ts"
 import type { PronunciationRule } from "../lib/pronunciation/personal.ts"
 import { resolveBlockLangs } from "../lib/reading-language.ts"
+import { createLivePage } from "../lib/live-page.ts"
 import { createAnchorFinder, findBlockIndex } from "../lib/read-anchor.ts"
 import { buildReadingIntro } from "../lib/reading-intro"
 import { toSupertonicLang, type SupportedLang } from "../lib/supertonic-lang.ts"
@@ -33,12 +34,15 @@ import {
   TTS_SEEK,
   TTS_SET_SPEED,
   TTS_SPEAK,
+  TTS_PREPARE_BLOCK,
   type TtsControlMessage,
   type TtsEventMessage,
   type TtsLoadingReason,
   type TtsSeekMessage,
   type TtsSetSpeedMessage,
   type TtsSpeakMessage,
+  type TtsPrepareBlockMessage,
+  type TtsPreparedBlock,
 } from "../lib/tts-messages"
 // Type uniquement — importer la valeur (la liste des 10 voix, ses libellés)
 // depuis lib/supertonic/* ferait entrer le moteur dans ce bundle. La petite
@@ -60,6 +64,7 @@ export interface ReadPagePayload {
   text: string
   title?: string
   lang?: string
+  livePage?: boolean
 }
 
 export interface StartReadingMessage extends ReadPagePayload {
@@ -112,9 +117,14 @@ export default defineContentScript({
   // déjà être là avant le geste de l'utilisateur. Aucun avertissement de plus,
   // la bulle de sélection réclame déjà <all_urls>.
   matches: ["<all_urls>"],
+  runAt: "document_start",
   // Pas d'`allFrames` (défaut : frame principale) : une pastille par page, là
   // où la bulle de sélection en veut une par iframe.
   async main(ctx) {
+    const initialPageLanguage = document.documentElement?.lang ?? ""
+    if (document.readyState === "loading") {
+      await new Promise<void>((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }))
+    }
     let reading = false
     let paused = false
     /** Position de lecture : le bloc en cours, et où la voix en est dedans. */
@@ -123,6 +133,9 @@ export default defineContentScript({
     let blockIndex = 0
     let charIndex = 0
     let lang: string | undefined
+    let pageSource: ReturnType<typeof createLivePage> | null = null
+    let pageIntro = ""
+    let pageRules: PronunciationRule[] = []
     /**
      * Numéro de la file en cours.
      *
@@ -171,6 +184,7 @@ export default defineContentScript({
     follower.setEnabled(prefs.follow)
 
     browser.runtime.onMessage.addListener(onMessage)
+    browser.runtime.onMessage.addListener(onPrepareBlock)
     browser.runtime.onMessage.addListener(onTtsEvent)
     browser.storage.onChanged.addListener(onTokenChanged)
     document.addEventListener("contextmenu", rememberContextTarget, true)
@@ -221,6 +235,7 @@ export default defineContentScript({
     // l'arrêter : le même risque que l'onglet fermé, côté rechargement.
     ctx.addEventListener(window, "pagehide", () => {
       startGeneration++
+      pageSource?.stop()
       if (!reading) return
       if (usingSupertonic) {
         void browser.runtime.sendMessage({ type: TTS_CONTROL, action: "stop" } satisfies TtsControlMessage)
@@ -235,12 +250,14 @@ export default defineContentScript({
     ctx.onInvalidated(() => {
       startGeneration++
       browser.runtime.onMessage.removeListener(onMessage)
+      browser.runtime.onMessage.removeListener(onPrepareBlock)
       browser.runtime.onMessage.removeListener(onTtsEvent)
       browser.storage.onChanged.removeListener(onTokenChanged)
       document.removeEventListener("contextmenu", rememberContextTarget, true)
       unsubscribePrefs()
       unsubscribeHiddenSites()
       unsubscribeUiPrefs()
+      pageSource?.stop()
       cancelSpeech()
       follower.end()
       pill.remove()
@@ -252,6 +269,20 @@ export default defineContentScript({
     function onMessage(message: Partial<StartReadingMessage>) {
       if (message?.type !== START_READING || !message.text) return
       start(message as ReadPagePayload, message.fromHere)
+    }
+
+    function onPrepareBlock(message: Partial<TtsPrepareBlockMessage>) {
+      if (message?.type !== TTS_PREPARE_BLOCK) return
+      const source = pageSource
+      if (!source || !reading || !usingSupertonic || message.token !== token ||
+        !Number.isInteger(message.block) || message.block! < 0 || message.block! >= readingTotal ||
+        (message.prefetch !== undefined && typeof message.prefetch !== "boolean")) return Promise.resolve(null)
+      const mine = startGeneration
+      return source.prepare(message.block!, prefs.follow, !!message.prefetch, message.block! > blockIndex ? "nearest" : "center").then((text): TtsPreparedBlock | null => {
+        if (source !== pageSource || mine !== startGeneration) return null
+        const lang = resolveDocLang(document.documentElement.lang, text) ?? "na"
+        return { text: message.block === 0 && pageIntro ? `${pageIntro} ${text}` : text, lang }
+      })
     }
 
     function rememberContextTarget(event: Event) {
@@ -406,6 +437,11 @@ export default defineContentScript({
       const paragraphs = splitParagraphs(payload.text)
       const total = paragraphs.length
       if (!total) return fold()
+      const source = payload.livePage ? createLivePage(document, paragraphs, 5000, () =>
+        document.documentElement.lang !== initialPageLanguage ||
+        document.documentElement.classList.contains("translated-ltr") ||
+        document.documentElement.classList.contains("translated-rtl")
+      ) : null
       let personalRules: PronunciationRule[]
       try {
         personalRules = await loadPronunciationRules()
@@ -432,6 +468,9 @@ export default defineContentScript({
       readingUrl = url
       readingTitle = title
       readingTotal = total
+      pageSource?.stop()
+      pageSource = source
+      pageRules = personalRules
 
       if (prefs.engine === "supertonic") {
         // Same rule as the system voice below: the page's declaration unless
@@ -462,12 +501,13 @@ export default defineContentScript({
       // plutôt que par l'hôte : lib/tts-host.ts ne connaît ni onglets ni titres,
       // seulement du texte à synthétiser.
       const intro = buildReadingIntro(lang, payload.title ?? "")
+      pageIntro = intro
       const text = intro ? `${intro} ${payload.text}` : payload.text
 
       // Sur `payload.text`, pas sur `text` : l'annonce du titre n'est écrite
       // nulle part dans la page. L'hôte la recolle au premier paragraphe
       // (`splitBlocks`), donc les index concordent quand même.
-      follower.begin(splitParagraphs(payload.text))
+      follower.begin(splitParagraphs(payload.text), pageSource?.anchors)
 
       usingSupertonic = true
       blockIndex = startBlock
@@ -492,6 +532,7 @@ export default defineContentScript({
         startBlock,
         personalRules,
         token,
+        livePage: !!pageSource,
       } satisfies Partial<TtsSpeakMessage>)
     }
 
@@ -506,7 +547,7 @@ export default defineContentScript({
       // le paragraphe dans le DOM. Il reste aligné sur `blocks` : aucune règle
       // de `expandText` ne remplace par du vide, donc son `filter(Boolean)`
       // plus bas ne retire jamais rien.
-      follower.begin([...raw])
+      follower.begin([...raw], pageSource?.anchors)
 
       // La déclaration de la page l'emporte quand la détection ne la
       // contredit pas — elle porte souvent une région (`en-US`) que la
@@ -525,6 +566,7 @@ export default defineContentScript({
       // le répète. L'annoncer en tête du premier bloc plutôt qu'en bloc à part :
       // il suit alors la même reprise que le reste, comme sur mobile.
       const intro = buildReadingIntro(resolvedLang ?? "", payload.title ?? "")
+      pageIntro = intro
       if (intro && raw.length) raw[0] = `${intro} ${raw[0]}`
 
       // Texte à dire, jamais à afficher : sigles épelés, symboles verbalisés,
@@ -572,8 +614,8 @@ export default defineContentScript({
       play(blockIndex, charIndex)
     }
 
-    function play(block: number, from: number) {
-      const text = blocks[block]
+    async function play(block: number, from: number) {
+      let text = blocks[block]
       if (text === undefined) {
         track({ name: "read_completed" })
         void clearReadingProgress(readingUrl)
@@ -581,6 +623,31 @@ export default defineContentScript({
         return
       }
       const mine = generation
+      const session = startGeneration
+      const source = pageSource
+      if (source) {
+        blockIndex = block
+        charIndex = from
+        try {
+          const current = await source.prepare(block, prefs.follow)
+          if (mine !== generation || session !== startGeneration || source !== pageSource || !reading) return
+          if (paused) {
+            stale = true
+            return
+          }
+          const currentLang = detectLang(current, toSupertonicLang(blockLangs[block] ?? lang ?? ""))
+          if (currentLang) blockLangs[block] = currentLang
+          const spoken = block === 0 && pageIntro ? `${pageIntro} ${current}` : current
+          const expanded = expandText(spoken, { language: blockLangs[block], personalRules: pageRules })
+          if (text !== expanded) from = 0
+          text = blocks[block] = expanded
+        } catch {
+          if (mine !== generation || session !== startGeneration || source !== pageSource) return
+          fold()
+          pill.setState("error", readingTitle)
+          return
+        }
+      }
 
       // Résolue à chaque énoncé : `getVoices()` reconstruit sa liste à
       // chaque appel. Introuvable (voix désinstallée, autre machine) vaut
@@ -604,6 +671,9 @@ export default defineContentScript({
         charIndex = from
         void persistProgress(block)
         follower.show(block)
+        if (source && block + 1 < readingTotal) {
+          void source.prepare(block + 1, prefs.follow, true, "nearest").catch(() => {})
+        }
       })
       // `charIndex` est compté depuis le début de l'énoncé, donc depuis le
       // reste du bloc : le rebaser sur le bloc entier, sinon une deuxième
@@ -645,6 +715,8 @@ export default defineContentScript({
     /** Revenir au repos sans toucher au moteur de synthèse. */
     function fold() {
       startGeneration++
+      pageSource?.stop()
+      pageSource = null
       reading = false
       paused = false
       stale = false
@@ -1106,6 +1178,7 @@ function createFollower() {
   let sheet: CSSStyleSheet | null = null
   let highlight: Highlight | null = null
   let findAnchor: ReturnType<typeof createAnchorFinder> | null = null
+  let pageAnchors: readonly (Element | null)[] | undefined
   let blocks: string[] = []
   /** Dernier paragraphe surligné : évite de rechercher deux fois le même. */
   let current = -1
@@ -1118,10 +1191,11 @@ function createFollower() {
   }
 
   /** Ouvre le suivi sur les blocs d'une lecture. Idempotent. */
-  function begin(paragraphs: string[]) {
+  function begin(paragraphs: string[], anchors?: readonly (Element | null)[]) {
     if (!supported) return
     end()
     blocks = paragraphs
+    pageAnchors = anchors
     findAnchor = createAnchorFinder(document)
     if (!sheet) {
       // Feuille construite plutôt qu'un `<style>` injecté : rien à soumettre à
@@ -1145,7 +1219,7 @@ function createFollower() {
     // Bloc introuvable dans la page — un `<pre>`, dit « Extrait de code. » —
     // le paragraphe précédent reste surligné plutôt que rien : la lecture est
     // bien là, quelque part entre les deux.
-    anchor = block === undefined ? null : findAnchor(block)
+    anchor = block === undefined ? null : pageAnchors ? pageAnchors[index] ?? null : findAnchor(block)
     if (anchor && enabled) paint(anchor)
   }
 
@@ -1185,6 +1259,7 @@ function createFollower() {
   function end() {
     blocks = []
     findAnchor = null
+    pageAnchors = undefined
     anchor = null
     current = -1
     if (highlight) {
@@ -1256,6 +1331,7 @@ function createPill(
 
   const host = document.createElement("orateur-reader-pill")
   host.lang = browser.i18n.getUILanguage()
+  host.translate = false
   applyPosition(initialPrefs.position, host)
   applyTheme(initialTheme, host)
 

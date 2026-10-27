@@ -15,6 +15,7 @@ import {
   TTS_CLOSE,
   TTS_CONTROL,
   TTS_EVENT,
+  TTS_PREPARE_BLOCK,
   TTS_SEEK,
   TTS_SET_SPEED,
   TTS_SPEAK,
@@ -23,6 +24,8 @@ import {
   type ModelProgressState,
   type TtsControlMessage,
   type TtsEventMessage,
+  type TtsPrepareBlockMessage,
+  type TtsPreparedBlock,
   type TtsSeekMessage,
   type TtsSetSpeedMessage,
   type TtsSpeakMessage,
@@ -142,6 +145,9 @@ browser.runtime.onMessage.addListener((message: IncomingMessage, sender) => {
 
   if (message?.type === TTS_SPEAK) {
     if (message.tabId == null || !message.text || !message.lang || !message.voice) return
+    const tabId = message.tabId
+    const token = message.token
+    if (message.livePage && (typeof token !== "string" || !token)) return
     currentTabId = message.tabId
     currentToken = message.token ?? null
     host.speak({
@@ -151,6 +157,13 @@ browser.runtime.onMessage.addListener((message: IncomingMessage, sender) => {
       speed: message.speed ?? 1,
       startBlock: message.startBlock,
       personalRules: message.personalRules,
+      prepareParagraph: message.livePage ? (block, prefetch = false) => browser.runtime.sendMessage({
+        type: TTS_PREPARE_BLOCK,
+        tabId,
+        token: token!,
+        block,
+        prefetch,
+      } satisfies TtsPrepareBlockMessage) as Promise<TtsPreparedBlock> : undefined,
     })
     return
   }
