@@ -412,7 +412,6 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
         let target = -1
         const end = Math.min(index + 1 + LOOKAHEAD, units.length)
         for (let i = index; i < end; i++) {
-          if (prepareParagraph && units[i]!.paragraph > units[index]!.paragraph + 1) break
           if (!cache.has(i) && !pending.has(i)) {
             target = i
             break

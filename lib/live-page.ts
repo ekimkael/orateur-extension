@@ -47,7 +47,7 @@ export function createLivePage(doc: Document, blocks: readonly string[], timeout
     const ambiguous = detected === null
     const box = ambiguous ? element.getBoundingClientRect() : null
     const visible = box && box.bottom > 0 && box.top < (doc.defaultView?.innerHeight ?? 0)
-    if (detected === target || visible) return Promise.resolve(currentText())
+    if (detected === target || visible || (ambiguous && before !== original[index])) return Promise.resolve(currentText())
 
     let resolve!: (text: string) => void
     let reject!: (error: Error) => void
@@ -55,12 +55,14 @@ export function createLivePage(doc: Document, blocks: readonly string[], timeout
     let timer: ReturnType<typeof setTimeout> | undefined
     let settling: ReturnType<typeof setTimeout> | undefined
     let active = false
+    let alignment: "center" | "nearest" = align
     let settled = false
     let following: boolean = follow
     const finish = (error?: Error) => {
       if (settled) return
       settled = true
       observer.disconnect()
+      doc.removeEventListener("visibilitychange", onVisibilityChange)
       clearTimeout(timer)
       clearTimeout(settling)
       pending.delete(index)
@@ -83,22 +85,36 @@ export function createLivePage(doc: Document, blocks: readonly string[], timeout
       return false
     }
     const observer = new Observer(ready)
-    const update = (follow: boolean, prefetch: boolean, align: "center" | "nearest") => {
-      following = follow
-      if (ready() || prefetch || active) return
-      active = true
+    const startActiveWait = () => {
+      clearTimeout(timer)
+      if (ready() || doc.visibilityState !== "visible") return
       // Passive lookahead must never turn an untranslated snapshot into audio.
       // Only the current paragraph reveals itself and starts a bounded wait.
-      timer = setTimeout(() => finish(ambiguous ? undefined : new Error("La traduction de ce paragraphe n’est pas encore disponible.")), ambiguous ? Math.min(timeout, 1000) : timeout)
+      timer = setTimeout(() => {
+        // Firefox suspends native translation while the page is hidden.
+        if (doc.visibilityState !== "visible" || ready()) return
+        finish(ambiguous ? undefined : new Error("La traduction de ce paragraphe n’est pas encore disponible."))
+      }, ambiguous ? Math.min(timeout, 1000) : timeout)
       try {
-        element.scrollIntoView({ block: align, behavior: "instant" })
+        element.scrollIntoView({ block: alignment, behavior: "instant" })
         ready()
       } catch (error) {
         finish(error instanceof Error ? error : new Error(String(error)))
       }
     }
+    const onVisibilityChange = () => {
+      if (active) startActiveWait()
+    }
+    const update = (follow: boolean, prefetch: boolean, align: "center" | "nearest") => {
+      following = follow
+      if (ready() || prefetch || active) return
+      active = true
+      alignment = align
+      startActiveWait()
+    }
     pending.set(index, { promise, update, stop: () => finish(new Error("Reading stopped")) })
     observer.observe(element, { childList: true, characterData: true, subtree: true })
+    doc.addEventListener("visibilitychange", onVisibilityChange)
     update(follow, prefetch, align)
     return promise
   }

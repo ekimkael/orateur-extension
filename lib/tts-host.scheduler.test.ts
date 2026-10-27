@@ -265,7 +265,7 @@ test("une erreur tardive de l'ancienne tête n'arrête pas le déplacement", asy
   host.control("stop")
 })
 
-test("la préparation attend le français puis précharge un seul paragraphe suivant sans attente à la frontière", async () => {
+test("la préparation attend le français puis précharge les paragraphes suivants sans attente à la frontière", async () => {
   const first = Promise.withResolvers<{ text: string; lang: "fr" }>()
   const requested: number[] = []
   const playing: { block: number; total: number }[] = []
@@ -290,11 +290,11 @@ test("la préparation attend le français puis précharge un seul paragraphe sui
     lang: "fr",
   })
   await settle()
-  const chunks = contentSynths().length - 1
+  const chunks = contentSynths().indexOf("Le paragraphe 1 est maintenant traduit.")
   assert.ok(chunks > 1 && chunks < 7, "La traduction change le nombre de chunks du paragraphe")
   assert.ok(synthesized.every((request) => request.lang === "fr"))
-  assert.deepEqual(requested, [0, 1], "Le troisième paragraphe reste intact pendant la lecture du premier")
-  assert.equal(contentSynths().at(-1), "Le paragraphe 1 est maintenant traduit.")
+  assert.deepEqual(requested, [0, 1, 2], "Les paragraphes déjà traduits remplissent l'avance audio")
+  assert.equal(contentSynths().at(-1), "Le paragraphe 2 est maintenant traduit.")
   const loadingBefore = loading.length
   for (let i = 0; i < chunks; i++) {
     audios.find((audio) => !audio.paused)!.finish()
@@ -304,6 +304,43 @@ test("la préparation attend le français puis précharge un seul paragraphe sui
   assert.deepEqual(contentSynths().slice(chunks), ["Le paragraphe 1 est maintenant traduit.", "Le paragraphe 2 est maintenant traduit."])
   assert.equal(loading.length, loadingBefore, "Le cache audio traverse la frontière sans attente")
   assert.deepEqual(playing.at(-1), { phase: "playing", block: 1, total: 3 })
+  host.control("stop")
+})
+
+test("l'avance audio franchit un titre court déjà traduit pendant la lecture du paragraphe précédent", async () => {
+  const translated = [
+    "Ce long paragraphe français développe le sujet et conserve suffisamment de contenu pour laisser préparer la suite pendant sa lecture. ".repeat(4),
+    "Détails.",
+    "Le corps situé après le titre est déjà traduit en français et doit être synthétisé pendant la lecture du paragraphe précédent.",
+  ]
+  const requested: { paragraph: number; prefetch: boolean | undefined }[] = []
+  const playing: number[] = []
+  const loading: string[] = []
+  const host = createTtsHost((state) => {
+    if (state.phase === "playing") playing.push(state.block)
+    if (state.phase === "loading") loading.push(state.reason ?? "")
+  })
+  host.speak({
+    text: article(3), lang: "en", voice: "F1", speed: 1,
+    prepareParagraph: async (paragraph, prefetch) => {
+      requested.push({ paragraph, prefetch })
+      return { text: translated[paragraph]!, lang: "fr" }
+    },
+  })
+  await settle()
+  assert.deepEqual(playing, [0], "Le premier paragraphe joue encore")
+  assert.deepEqual(requested, [
+    { paragraph: 0, prefetch: false }, { paragraph: 1, prefetch: true }, { paragraph: 2, prefetch: true },
+  ])
+  assert.equal(contentSynths().at(-1), translated[2], "Le corps après le titre possède déjà son audio")
+  const firstChunks = contentSynths().indexOf(translated[1]!)
+  assert.ok(firstChunks > 1)
+  for (let i = 0; i <= firstChunks; i++) {
+    audios.find((audio) => !audio.paused)!.finish()
+    await settle()
+  }
+  assert.equal(playing.at(-1), 2)
+  assert.ok(!loading.includes("preparing-next"), "Le titre court ne provoque aucune attente de synthèse")
   host.control("stop")
 })
 

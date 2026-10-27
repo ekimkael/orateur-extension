@@ -7,9 +7,18 @@ const FR = "Le chat est assis sur le tapis et regarde la fenêtre avec attention
 const EN = "The cat is sitting on the mat and watching the window with attention, while the rain falls gently on the roofs of the whole city outside."
 
 function fixture() {
-  const doc = new JSDOM(`<html lang="fr"><body><article><p>${FR}</p><p>${EN}</p></article></body></html>`).window.document
+  const doc = new JSDOM(`<html lang="fr"><body><article><p>${FR}</p><p>${EN}</p></article></body></html>`, { pretendToBeVisual: true }).window.document
   const paragraphs = [...doc.querySelectorAll("p")]
   return { doc, first: paragraphs[0]!, later: paragraphs[1]!, blocks: [FR, EN] }
+}
+
+function controlVisibility(doc: Document) {
+  let state = doc.visibilityState
+  Object.defineProperty(doc, "visibilityState", { get: () => state })
+  return (next: "visible" | "hidden") => {
+    state = next
+    doc.dispatchEvent(new doc.defaultView!.Event("visibilitychange"))
+  }
 }
 
 test("waits for a lazy paragraph translation before handing its text to speech", async () => {
@@ -131,7 +140,7 @@ test("a French interface with an English message does not imply active translati
 })
 
 test("waits for an ambiguous offscreen heading to change on a translated page", async () => {
-  const doc = new JSDOM('<html lang="fr"><body><article><h2>Reflections</h2></article></body></html>').window.document
+  const doc = new JSDOM('<html lang="fr"><body><article><h2>Reflections</h2></article></body></html>', { pretendToBeVisual: true }).window.document
   const heading = doc.querySelector("h2")!
   heading.getBoundingClientRect = () => new doc.defaultView!.DOMRect(0, 1000, 300, 50)
   let reveals = 0
@@ -148,7 +157,7 @@ test("waits for an ambiguous offscreen heading to change on a translated page", 
 })
 
 test("does not delay an ambiguous heading already visible on a translated page", async () => {
-  const doc = new JSDOM('<html lang="fr"><body><h2>Reflections</h2></body></html>').window.document
+  const doc = new JSDOM('<html lang="fr"><body><h2>Reflections</h2></body></html>', { pretendToBeVisual: true }).window.document
   const heading = doc.querySelector("h2")!
   heading.getBoundingClientRect = () => new doc.defaultView!.DOMRect(0, 10, 300, 50)
   heading.scrollIntoView = () => assert.fail("Visible ambiguous headings need no preparation scroll")
@@ -249,7 +258,7 @@ test("notranslate ancestors bypass translation waits", async () => {
 })
 
 test("ambiguous proper names may retain their original text after an active bounded wait", async () => {
-  const doc = new JSDOM('<html lang="fr"><body><h2>Team Anywhere</h2></body></html>').window.document
+  const doc = new JSDOM('<html lang="fr"><body><h2>Team Anywhere</h2></body></html>', { pretendToBeVisual: true }).window.document
   const heading = doc.querySelector("h2")!
   heading.getBoundingClientRect = () => new doc.defaultView!.DOMRect(0, 1000, 300, 50)
   heading.scrollIntoView = () => {}
@@ -287,4 +296,91 @@ test("waits for successive translation mutations to settle before returning live
 
   assert.equal(await future, complete)
   live.stop()
+})
+
+test("an ambiguous heading translated before prefetch is already ready", async () => {
+  const doc = new JSDOM('<html lang="fr"><body><h2>Reflections</h2></body></html>', { pretendToBeVisual: true }).window.document
+  const heading = doc.querySelector("h2")!
+  heading.getBoundingClientRect = () => new doc.defaultView!.DOMRect(0, 1000, 300, 50)
+  heading.scrollIntoView = () => assert.fail("A changed translated heading must not scroll")
+  const live = createLivePage(doc, ["Reflections."], 5000, () => true)
+  heading.textContent = "Réflexions"
+  let ready = false
+  const future = live.prepare(0, true, true).then((text) => { ready = true; return text })
+  await Promise.resolve()
+
+  assert.equal(ready, true, "Short translated headings do not wait for another mutation")
+  assert.equal(await future, "Réflexions.")
+  live.stop()
+})
+
+test("active translation waits start only when a hidden document becomes visible", async () => {
+  const { doc, later, blocks } = fixture()
+  const visibility = controlVisibility(doc)
+  visibility("hidden")
+  const live = createLivePage(doc, blocks, 5, () => true)
+  let reveals = 0
+  later.scrollIntoView = () => {
+    reveals++
+    queueMicrotask(() => { later.textContent = FR })
+  }
+  let failure: unknown
+  const future = live.prepare(1, true, false, "nearest")
+  future.catch((error) => { failure = error })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(failure, undefined)
+  assert.equal(reveals, 0, "A hidden page cannot trigger native translation by scrolling")
+
+  visibility("visible")
+  assert.equal(await future, FR)
+  assert.equal(reveals, 1)
+  live.stop()
+})
+
+test("hiding the page suspends an active deadline and visibility restarts preparation", async () => {
+  const { doc, later, blocks } = fixture()
+  const visibility = controlVisibility(doc)
+  const live = createLivePage(doc, blocks, 5, () => true)
+  let reveals = 0
+  later.scrollIntoView = () => {
+    if (++reveals === 2) queueMicrotask(() => { later.textContent = FR })
+  }
+  let failure: unknown
+  const future = live.prepare(1, true)
+  future.catch((error) => { failure = error })
+  assert.equal(reveals, 1)
+  visibility("hidden")
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(failure, undefined, "A browser translation pause must not end the reading")
+
+  visibility("visible")
+  assert.equal(await future, FR)
+  assert.equal(reveals, 2)
+  live.stop()
+})
+
+test("a target-language paragraph settling at the deadline is not rejected", async () => {
+  const { doc, later, blocks } = fixture()
+  later.scrollIntoView = () => {}
+  const live = createLivePage(doc, blocks, 5, () => true)
+  const future = live.prepare(1, true)
+  later.textContent = FR
+
+  assert.equal(await future, FR, "The short deadline must not beat translation's 75ms settling timer")
+  live.stop()
+})
+
+test("stopping removes visibility listeners as well as pending timers", async () => {
+  const { doc, later, blocks } = fixture()
+  const visibility = controlVisibility(doc)
+  const live = createLivePage(doc, blocks, 5, () => true)
+  let reveals = 0
+  later.scrollIntoView = () => { reveals++ }
+  const cancelled = assert.rejects(live.prepare(1, true), /Reading stopped/)
+  visibility("hidden")
+  live.stop()
+  visibility("visible")
+
+  await cancelled
+  assert.equal(reveals, 1, "Stopped preparation cannot restart when the document becomes visible")
 })
