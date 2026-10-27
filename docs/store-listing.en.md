@@ -41,10 +41,11 @@ Orateur can match it to the extracted article.
 
 ━━ Two voices, your choice ━━
 
-• Your system's voice, ready instantly, nothing to download. This is the
-  default. Some system voices use their provider's online service.
+• Your system's voice, ready instantly, nothing to download. Some system
+  voices use their provider's online service.
 • Supertonic, a noticeably more natural neural voice that runs entirely on
-  your machine. Its models download on first playback or when you request
+  your machine, selected by default on new installations. Updates keep your
+  existing engine. Its models download on first playback or when you request
   the download in settings (about 400 MB), then it works offline. Budget a
   few minutes for that first download.
 
@@ -116,8 +117,8 @@ demand, only when the user asks for a reading or a send to Orateur.
 ### `unlimitedStorage`
 
 ```
-The local speech engine (Supertonic), if the user enables it, keeps about
-400 MB of ONNX models in the extension's OPFS. Without this permission, the
+The local speech engine (Supertonic) keeps about 400 MB of ONNX models in the
+extension's OPFS after playback or a download request. Without this permission, the
 per-origin quota can evict them and force a full re-download.
 ```
 
@@ -203,9 +204,8 @@ entry.
 
   The ONNX models are not bundled: they're downloaded from the public
   repository https://huggingface.co/Supertone/supertonic-3 on first playback
-  with that engine or an explicit settings download request (the default
-  engine is the system's), and stored in the extension's OPFS. These are
-  model weights, not executable code.
+  with that engine or an explicit settings download request, and stored in
+  the extension's OPFS. These are model weights, not executable code.
 
   lib/spike-checks.ts and lib/spike-phrase.ts are development test benches
   kept in the repo. They aren't imported by any entrypoint, so they don't

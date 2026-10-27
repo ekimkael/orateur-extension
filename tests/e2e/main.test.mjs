@@ -39,8 +39,32 @@ browserTest("reads an already-open article, then pauses, resumes and stops", asy
 
 browserTest("a fresh install defaults to the natural voices", async h => {
   await h.install({ engine: null })
-  const prefs = await h.options.evaluate(async () => (await (globalThis.browser ?? chrome).storage.local.get("orateur:reader-prefs"))["orateur:reader-prefs"])
+  const prefs = await waitFor(() => h.options.evaluate(async () => {
+    const stored = (await (globalThis.browser ?? chrome).storage.local.get("orateur:reader-prefs"))["orateur:reader-prefs"]
+    return stored?.engine && stored
+  }), "Initial engine preference saved")
   assert.equal(prefs.engine, "supertonic")
+})
+
+browserTest("a private context without cached models uses the system voice without downloading", async h => {
+  await h.install({ engine: "supertonic" })
+  await h.page.reload()
+  await h.page.waitForSelector(reader)
+  await h.fakeSpeech()
+  await h.script(() => {
+    Object.defineProperty((globalThis.browser ?? chrome).extension, "inIncognitoContext", { value: true })
+  })
+  await h.click(read)
+  const spoken = await waitFor(() => h.speech().then(state => state.spoken[0]), "Private reading reaches the system engine")
+  assert.match(spoken.text, /Orateur permet de lire/)
+  await waitFor(async () => {
+    const notice = await h.options.evaluate(async () => {
+      const api = globalThis.browser ?? chrome
+      return (api.action ?? api.browserAction).getTitle({})
+    })
+    return /Private window: reading with the system voice/.test(notice)
+  }, "Private fallback notification is visible")
+  assert.equal(h.blocked.some(url => /huggingface/.test(url)), false, "Private reading never requests model downloads")
 })
 
 browserTest("switching engine mid-reading stops the running engine", async h => {
