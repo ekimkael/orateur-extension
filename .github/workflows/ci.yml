@@ -10,8 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  packages:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -28,17 +29,73 @@ jobs:
       # staging soit exactement ce qui partira aux stores.
       - run: npm run zip
       - run: npm run zip:firefox
+      - run: npm run test:packages
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: packages-${{ github.sha }}
+          path: .output/test-results/packages.*
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
 
       - uses: actions/upload-artifact@v7
         with:
           name: orateur-${{ github.sha }}
-          path: .output/*.zip
+          path: |
+            .output/*.zip
+            .output/test-results/packages.*
           # `.output` est un dossier caché sous Linux, et le glob d'upload-artifact
           # les ignore par défaut : sans ça le job passe au vert en n'ayant rien
           # téléversé, ce qui est le seul échec que cette CI ne doit pas se
           # permettre — les artefacts *sont* le livrable de staging.
           include-hidden-files: true
           if-no-files-found: error
-          # 3 zips de ~6 Mo par run : la rétention de 90 jours par défaut
+          # Main extension archives: the default 90-day retention
           # remplirait le quota du dépôt pour rien.
           retention-days: 7
+
+  browser-tests:
+    needs: packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chrome, firefox]
+    env:
+      ORATEUR_TEST_BROWSER: ${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          name: orateur-${{ github.sha }}
+          path: .output
+      # Le runner crée le cache du projet ; root n'installe que les dépendances système.
+      - run: npx puppeteer browsers install ${{ matrix.browser }}
+      - if: matrix.browser == 'chrome'
+        run: sudo env "PATH=$PATH" "PUPPETEER_CACHE_DIR=$PWD/.cache/puppeteer" npx puppeteer browsers install chrome --install-deps
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: tests-${{ matrix.browser }}-${{ github.sha }}
+          path: .output/test-results/
+          include-hidden-files: true
+          retention-days: 7
+
+  build:
+    if: always()
+    needs: [packages, browser-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Exiger la validation des paquets et des deux navigateurs
+        run: |
+          test "${{ needs.packages.result }}" = success
+          test "${{ needs.browser-tests.result }}" = success

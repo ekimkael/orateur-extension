@@ -13,6 +13,7 @@ on:
 jobs:
   submit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write # créer la GitHub Release
     steps:
@@ -38,20 +39,56 @@ jobs:
       - run: npm ci
       - run: npm run compile
       - run: npm test
+      - name: Vérifier la configuration PostHog de production
+        env:
+          WXT_POSTHOG_KEY: ${{ vars.WXT_POSTHOG_KEY }}
+          WXT_POSTHOG_REGION: ${{ vars.WXT_POSTHOG_REGION }}
+        run: |
+          node --input-type=module -e '
+            const { WXT_POSTHOG_KEY: key, WXT_POSTHOG_REGION: region } = process.env
+            if (!/^phc_[A-Za-z0-9_-]+$/.test(key ?? "") || /replace|your_project/i.test(key) || !["eu", "us"].includes(region)) {
+              console.error("Configurer les variables Actions WXT_POSTHOG_KEY et WXT_POSTHOG_REGION avant publication.")
+              process.exit(1)
+            }
+          '
       - run: npm run zip
+        env:
+          WXT_POSTHOG_KEY: ${{ vars.WXT_POSTHOG_KEY }}
+          WXT_POSTHOG_REGION: ${{ vars.WXT_POSTHOG_REGION }}
       - run: npm run zip:firefox
+        env:
+          WXT_POSTHOG_KEY: ${{ vars.WXT_POSTHOG_KEY }}
+          WXT_POSTHOG_REGION: ${{ vars.WXT_POSTHOG_REGION }}
+      - run: npm run test:packages
+      # Le runner crée le cache du projet ; root n'installe que les dépendances système.
+      - run: npx puppeteer browsers install chrome
+      - run: sudo env "PATH=$PATH" "PUPPETEER_CACHE_DIR=$PWD/.cache/puppeteer" npx puppeteer browsers install chrome --install-deps
+      - run: npx puppeteer browsers install firefox
+      - run: npm run test:e2e
+      - run: npm run test:e2e:firefox
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: release-tests-${{ github.sha }}
+          path: .output/test-results/
+          include-hidden-files: true
+          retention-days: 7
 
       - name: Soumettre aux stores dont les secrets sont configurés
         run: |
+          version=$(node -p "require('./package.json').version")
           args=()
-          [[ -n "$CHROME_EXTENSION_ID" ]] && args+=(--chrome-zip .output/*-chrome.zip)
-          [[ -n "$FIREFOX_EXTENSION_ID" ]] && args+=(--firefox-zip .output/*-firefox.zip --firefox-sources-zip .output/*-sources.zip)
+          [[ -n "$CHROME_EXTENSION_ID" ]] && args+=(--chrome-zip ".output/orateur-extension-$version-chrome.zip")
+          [[ -n "$FIREFOX_EXTENSION_ID" ]] && args+=(--firefox-zip ".output/orateur-extension-$version-firefox.zip" --firefox-sources-zip ".output/orateur-extension-$version-sources.zip")
           # Edge réutilise le zip Chrome : le MV3 passe tel quel.
-          [[ -n "$EDGE_PRODUCT_ID" ]] && args+=(--edge-zip .output/*-chrome.zip)
+          [[ -n "$EDGE_PRODUCT_ID" ]] && args+=(--edge-zip ".output/orateur-extension-$version-chrome.zip")
           if [[ ${#args[@]} -eq 0 ]]; then
             echo "Aucun secret de store configuré, rien à soumettre." >&2
             exit 1
           fi
+          # Aucun rebuild après les tests : ce sont exactement les ZIP vérifiés.
+          (cd .output && sha256sum --check --strict test-results/packages.sha256)
           npx wxt submit ${{ inputs.dry_run && '--dry-run' || '' }} "${args[@]}"
         env:
           # L'API v1.1 (client id / secret / refresh token) est dépréciée dans
@@ -71,6 +108,9 @@ jobs:
       # `gh` est préinstallé sur les runners : pas d'action tierce à auditer.
       - name: Publier la release GitHub
         if: startsWith(github.ref, 'refs/tags/')
-        run: gh release create "$GITHUB_REF_NAME" .output/*.zip --generate-notes
+        run: |
+          version=$(node -p "require('./package.json').version")
+          (cd .output && sha256sum --check --strict test-results/packages.sha256)
+          gh release create "$GITHUB_REF_NAME" ".output/orateur-extension-$version-chrome.zip" ".output/orateur-extension-$version-firefox.zip" ".output/orateur-extension-$version-sources.zip" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}

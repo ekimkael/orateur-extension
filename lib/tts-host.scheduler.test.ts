@@ -61,6 +61,12 @@ let urlCount = 0
 let encodedPcm: Float32Array[] = []
 let playPromises: Promise<void>[] = []
 
+function deferredPlay() {
+  const result = Promise.withResolvers<void>()
+  playPromises.push(result.promise)
+  return result
+}
+
 const g = globalThis as unknown as Record<string, unknown>
 g.Audio = FakeAudio
 URL.createObjectURL = () => {
@@ -229,6 +235,7 @@ test("un déplacement en pause reste en pause puis reprend au paragraphe demand�
   await settle()
   assert.equal(audios.some((audio) => !audio.paused), false)
   host.control("resume")
+  await settle()
   assert.equal(states.at(-1)?.block, 3)
   assert.equal(audios.some((audio) => !audio.paused), true)
   host.control("stop")
@@ -462,7 +469,7 @@ test("des déplacements rapides ignorent le refus tardif de l'ancien play", asyn
   host.seek(3, false)
   oldPlay.reject(new DOMException("Lecture interrompue par le déplacement", "AbortError"))
   await settle()
-  assert.deepEqual(playing, [0, 3])
+  assert.deepEqual(playing, [3], "An unresolved old play never confirms playback")
   assert.deepEqual(errors, [])
   assert.deepEqual(contentSynths().slice(before), ["Traduction du paragraphe 3.", "Traduction du paragraphe 4."])
   host.control("stop")
@@ -667,5 +674,107 @@ test("une ancienne préparation passive bloquée ne prive pas le déplacement de
   old.resolve({ text: "Cette ancienne traduction ne doit pas être synthétisée.", lang: "fr" })
   await settle(10)
   assert.equal(contentSynths().length, before)
+  host.control("stop")
+})
+
+test("playing attend que le navigateur confirme le démarrage audio", async () => {
+  const play = deferredPlay()
+  const { host, states } = start(1)
+  await settle()
+  assert.equal(states.includes("playing"), false)
+  play.resolve()
+  await settle(1)
+  assert.equal(states.at(-1), "playing")
+  host.control("stop")
+})
+
+test("un refus de lecture audio ne signale jamais playing", async () => {
+  const play = deferredPlay()
+  const states: Array<{ phase: string; reason?: string }> = []
+  const host = createTtsHost((state) => states.push(state))
+  host.speak({ text: article(1), lang: "fr", voice: "F1", speed: 1 })
+  await settle()
+  audios.find((audio) => !audio.paused)!.pause()
+  play.reject(new Error("Lecture refusée"))
+  await settle(1)
+  assert.equal(states.some((state) => state.phase === "playing"), false)
+  assert.equal(states.at(-1)?.phase, "error")
+  assert.equal(states.at(-1)?.reason, "audio-playback")
+  host.control("stop")
+})
+
+test("une confirmation audio tardive ne redémarre pas une lecture terminée", async () => {
+  const play = deferredPlay()
+  const { host, states } = start(1)
+  await settle()
+  audios.find((audio) => !audio.paused)!.finish()
+  assert.equal(states.at(-1), "ended")
+  play.resolve()
+  await settle(1)
+  assert.equal(states.at(-1), "ended")
+  assert.equal(states.includes("playing"), false)
+  host.control("stop")
+})
+
+for (const outcome of ["resolve", "reject"] as const) {
+  test(`une promesse audio ${outcome} après pause ne remplace pas la reprise`, async () => {
+    const stale = deferredPlay()
+    const { host, states } = start(1)
+    await settle()
+    host.control("pause")
+    const current = deferredPlay()
+    host.control("resume")
+    stale[outcome](outcome === "reject" ? new Error("Ancienne tentative") : undefined)
+    await settle(1)
+    assert.equal(states.at(-1), "paused")
+    assert.equal(states.includes("playing"), false)
+    assert.equal(states.includes("error"), false)
+    current.resolve()
+    await settle(1)
+    assert.equal(states.at(-1), "playing")
+    host.control("stop")
+  })
+
+  for (const action of ["stop", "speak", "seek"] as const) {
+    test(`une promesse audio ${outcome} après ${action} reste sans effet`, async () => {
+      const stale = deferredPlay()
+      const { host, states } = start(1)
+      await settle()
+      let current: ReturnType<typeof deferredPlay> | undefined
+      if (action === "stop") {
+        host.control("stop")
+      } else {
+        current = deferredPlay()
+        if (action === "speak") host.speak({ text: article(1), lang: "fr", voice: "F1", speed: 1 })
+        else host.seek(0, false)
+        await settle()
+      }
+      const count = states.length
+      stale[outcome](outcome === "reject" ? new Error("Ancienne lecture") : undefined)
+      await settle(1)
+      assert.equal(states.length, count)
+      if (current) {
+        current.resolve()
+        await settle(1)
+        assert.equal(states.at(-1), "playing")
+        host.control("stop")
+      }
+    })
+  }
+}
+
+test("un refus de reprise audio ne signale pas un nouveau playing", async () => {
+  const states: Array<{ phase: string; reason?: string }> = []
+  const host = createTtsHost((state) => states.push(state))
+  host.speak({ text: article(1), lang: "fr", voice: "F1", speed: 1 })
+  await settle()
+  host.control("pause")
+  const play = deferredPlay()
+  host.control("resume")
+  play.reject(new Error("Reprise refusée"))
+  await settle(1)
+  assert.equal(states.filter((state) => state.phase === "playing").length, 1)
+  assert.equal(states.at(-1)?.phase, "error")
+  assert.equal(states.at(-1)?.reason, "audio-playback")
   host.control("stop")
 })
