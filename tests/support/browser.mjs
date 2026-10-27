@@ -100,7 +100,7 @@ export function browserTest(name, run, options = {}) {
     let extensionPage
     const h = {
       browser, page, url, blocked, errors,
-      async install({ telemetry = false } = {}) {
+      async install({ telemetry = false, engine = "system" } = {}) {
         const extensionId = await browser.installExtension(pkg.directory)
         const origin = browserName === "chrome" ? `chrome-extension://${extensionId}` : `moz-extension://${uuid}`
         extensionPage = await browser.newPage()
@@ -114,6 +114,21 @@ export function browserTest(name, run, options = {}) {
         }
         await waitFor(() => extensionPage.evaluate(url => location.href === url && Boolean(document.querySelector("h1")), url).catch(() => false), "Packaged extension page is ready")
         h.extensionId = extensionId; h.origin = origin; h.options = extensionPage
+        if (engine) {
+          // Installs seed the natural voices, which would start the 398 MB
+          // model download. Most tests drive the faked system speech engine:
+          // wait for the seed so it cannot overwrite this choice afterwards.
+          await waitFor(() => extensionPage.evaluate(async () => {
+            const api = globalThis.browser ?? chrome
+            return Boolean((await api.storage.local.get("orateur:reader-prefs"))["orateur:reader-prefs"]?.engine)
+          }), "Initial engine preference saved")
+          await extensionPage.evaluate(async engine => {
+            const api = globalThis.browser ?? chrome
+            const key = "orateur:reader-prefs"
+            const prefs = (await api.storage.local.get(key))[key]
+            await api.storage.local.set({ [key]: { ...prefs, engine } })
+          }, engine)
+        }
         if (!telemetry) {
           // Settings initialize the default before tests opt out. The rejecting
           // proxy remains the final guard against production analytics traffic.
