@@ -88,3 +88,21 @@ test("retrouve le paragraphe ciblé par Lire à partir d'ici", () => {
   const target = doc.querySelector("span")!
   assert.equal(findBlockIndex(doc, ["Premier passage.", "Passage ciblé.", "Dernier passage."], target), 1)
 })
+
+test("Lire à partir d'ici ne saute pas le paragraphe visé (infobox Wikipédia)", () => {
+  // « Proconsul. » n'est qu'une ligne de la cellule ; son seul écho est le
+  // titre de section plus bas, qui entraînait le curseur au-delà de la cible.
+  const doc = docFrom(`<h1>Cicéron</h1><div><table><tr><td>Questeur<br>Proconsul</td></tr></table>
+    <p>Cicéron, dont le nom romain est Marcus Tullius Cicero.</p>
+    <p>Citoyen romain de <a href="#">province</a>, il naît à Arpinum.</p>
+    <h3>Proconsul</h3><p>La suite.</p></div>`)
+  const blocks = ["Cicéron.", "Questeur.", "Proconsul.", "Cicéron, dont le nom romain est Marcus Tullius Cicero.", "Citoyen romain de province, il naît à Arpinum.", "Proconsul.", "La suite."]
+  assert.equal(findBlockIndex(doc, blocks, doc.querySelectorAll("p")[1]!), 4)
+  assert.equal(findBlockIndex(doc, blocks, doc.querySelectorAll("p")[0]!), 3)
+})
+
+test("un clic sur un conteneur part de son premier bloc", () => {
+  const doc = docFrom("<article><p>Premier passage.</p><section><p>Deuxième passage.</p><p>Troisième.</p></section></article>")
+  assert.equal(findBlockIndex(doc, ["Premier passage.", "Deuxième passage.", "Troisième."], doc.querySelector("section")), 1)
+  assert.equal(findBlockIndex(doc, ["Premier passage."], null), -1)
+})

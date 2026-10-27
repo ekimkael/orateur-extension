@@ -1,115 +1,126 @@
-# Politique de confidentialité — Orateur
+# Privacy policy — Orateur
 
-*Dernière mise à jour : 23 août 2026*
+*Last updated: 27 October 2026*
 
-**Par défaut, Orateur ne collecte, ne stocke et ne transmet aucune donnée
-personnelle.** Il n'y a ni compte, ni traceur, ni serveur appartenant à
-l'extension. Rien de ce que vous lisez n'est enregistré.
+**Usage statistics are on by default when no preference has been saved.**
+You can turn them off in Settings → Privacy. An existing opt-out remains
+respected after updates. Sending statistics also requires a configured build
+and, on Firefox, the browser's optional data collection permission. Reading
+with the extension requires no account.
 
-La seule exception, entièrement optionnelle et désactivée à l'installation :
-des **statistiques d'usage anonymes**, si vous choisissez de les activer dans
-les réglages de l'extension — voir la section 3.
+## Page access
 
-## Ce que l'extension lit
+The main extension accesses page content to extract an article or read your
+selection. Extraction takes place in your browser. The extension does not
+automatically upload page content or browsing history.
 
-Pour extraire l'article d'une page ou récupérer votre sélection, l'extension a
-besoin d'accéder au contenu des pages que vous visitez (permission « accès à
-tous les sites »). Cette lecture se fait **entièrement dans votre navigateur**
-et n'est jamais enregistrée ni envoyée nulle part de sa propre initiative.
+The selection bubble and reading pill run on supported pages. Article
+extraction runs when you request it. You can hide these controls on selected
+domains in Settings → Sites.
 
-## Les requêtes réseau
+## Network requests
 
-### 1. L'envoi vers Orateur — uniquement sur votre action
+### 1. Sending content to Orateur
 
-Quand — et seulement quand — vous cliquez sur l'icône de l'extension, sur la
-bulle de sélection, ou sur « Lire avec Orateur » dans le menu contextuel, un
-onglet s'ouvre sur `https://orateur.digitalekim.net` avec le contenu à lire.
+Clicking the toolbar icon or choosing a read-later context-menu action opens
+`https://orateur.digitalekim.net`.
 
-Le contenu voyage dans le *fragment* de l'URL (la partie après `#`), qui par
-construction n'est **jamais envoyé au serveur** : il reste dans votre
-navigateur et n'est lu que par la page web d'Orateur. Seule l'adresse de la
-page d'origine peut être transmise au serveur, quand vous demandez à Orateur de
-la récupérer lui-même.
+When extraction succeeds, the article or selected text, title, language and
+source URL, when available, travel in the URL fragment after `#orateur=`.
+The fragment is not included in the HTTP request to the server. It is read
+by the Orateur web application, whose subsequent storage and processing are
+separate from in-page extension playback.
 
-Aucun envoi n'a lieu tant que vous ne déclenchez pas explicitement l'une de ces
-actions.
+If extraction cannot run on a transferable page, the extension can instead open
+Orateur with the source URL and optional title in query parameters. These
+parameters reach the web server so Orateur can fetch the page itself.
 
-### 2. Les modèles de synthèse vocale — uniquement si vous les activez
+Reading a page or selection in place does not send its content to Orateur.
 
-L'extension propose deux moteurs de lecture :
+### 2. Speech engines and model downloads
 
-- **le moteur du navigateur** (choix par défaut) — aucune requête réseau, aucun
-  téléchargement, tout est déjà dans votre système ;
-- **Supertonic**, une voix neuronale de meilleure qualité, que vous devez
-  activer vous-même dans les réglages de la pastille de lecture.
+The default engine uses the browser's `speechSynthesis` API. The extension
+does not download its own model for this engine. Available voices come from
+the browser or operating system; whether a voice uses a network service
+depends on that voice and its provider.
 
-Si vous activez Supertonic, l'extension télécharge une fois pour toutes ses
-modèles depuis `https://huggingface.co` (dépôt public `Supertone/supertonic-3`)
-et les conserve dans le stockage privé de l'extension (OPFS). Ce téléchargement
-ne transporte aucune information vous concernant : c'est un téléchargement de
-fichiers publics, identique pour tout le monde.
+Supertonic runs speech synthesis locally. First playback with this engine,
+or an explicit model download from Settings, downloads approximately
+400 MB of public models and voice styles from the
+`Supertone/supertonic-3` repository on `https://huggingface.co`. These files
+are cached in the extension's private storage (OPFS). A complete cache
+allows offline synthesis; missing files may require another download.
 
-**La synthèse elle-même est entièrement locale.** Le texte que vous écoutez ne
-quitte jamais votre machine : il n'est envoyé ni à Hugging Face, ni à Orateur,
-ni à personne.
+Model requests contain no article or selected text. Hugging Face and its
+download infrastructure receive the network metadata needed to serve the
+files, such as the requesting IP address. The text synthesized by Supertonic
+stays on your device.
 
-### 3. Statistiques d'usage anonymes — désactivées par défaut, uniquement si vous les activez
+### 3. Optional usage analytics
 
-Un interrupteur, dans les réglages de l'extension (« Statistiques d'usage
-anonymes »), **désactivé à l'installation**. Si — et seulement si — vous
-l'activez, l'extension envoie à [PostHog](https://posthog.com) quelques
-événements anonymes :
+The **Share usage statistics** switch in Settings → Privacy is on by default
+when no preference exists. When enabled in a configured build, the main
+extension sends a limited set of events to [PostHog](https://posthog.com):
 
-- l'installation de l'extension ;
-- le démarrage et la fin d'une lecture, et quel moteur (système ou
-  Supertonic) ;
-- le passage à Supertonic dans les réglages, et le résultat de son
-  téléchargement (réussi, échoué, et pourquoi en gros — jamais le détail) ;
-- un échec d'extraction d'article (et sa catégorie générale, jamais le
-  contenu de la page ni son URL).
+- Re-enabling statistics in Settings.
+- The first confirmed audio start, reaching the end of a reading, and
+  whether that reading encountered errors.
+- Reading failures, with the engine and a fixed category: preparation,
+  synthesis or audio playback.
+- Choosing Supertonic in the reading pill, and model download starts,
+  completions or failures with a fixed failure category.
+- Extraction failures or fallbacks with a fixed category.
 
-**Ce qui n'est jamais envoyé, activé ou non :** le texte que vous écoutez,
-l'adresse ou le titre des pages que vous visitez, votre historique de
-navigation, ou quoi que ce soit qui permette de vous identifier
-personnellement. L'identifiant utilisé (un nombre aléatoire, généré sur votre
-machine à la première activation) n'est lié à aucun compte ni aucune autre
-donnée.
+Each event includes the extension version. Only the events and properties
+listed in [the analytics guide](docs/analytics.md) are accepted. Missing or
+invalid build configuration prevents sending events. Firefox additionally
+requires its optional `technicalAndInteraction` permission; if that
+permission is absent or cannot be checked, no events are sent.
 
-Désactiver l'interrupteur arrête immédiatement l'envoi de nouveaux événements
-et efface cet identifiant aléatoire — une réactivation ultérieure en génère un
-nouveau, sans lien avec le précédent.
+**Statistics never include article text, page URLs or titles, browsing
+history, names or email addresses.** A random UUID identifies the same
+browser profile while statistics remain enabled. It is generated locally
+and is not linked to an account. It is a persistent pseudonymous identifier,
+not a guarantee of anonymity: PostHog also receives the network metadata
+needed for the request. Requests omit credentials and the referrer.
 
-### 4. Rien d'autre
+Turning statistics off prevents subsequent events and deletes the local
+UUID. Re-enabling them generates a new UUID. Disabling statistics does not
+delete events already received by PostHog. Events are not queued or retried,
+and past activity is not reconstructed after activation.
 
-L'extension n'émet aucune autre requête réseau.
+## Local storage
 
-## Ce qui est stocké sur votre machine
+The main extension stores:
 
-- Vos préférences de lecture (moteur, vitesse, voix), via l'API `storage` du
-  navigateur. Elles servent aussi à ce que les onglets se coordonnent : un seul
-  peut parler à la fois.
-- Les modèles Supertonic dans l'OPFS de l'extension, si vous avez activé ce
-  moteur. C'est la raison de la permission `unlimitedStorage`.
-- L'état de l'interrupteur « statistiques d'usage anonymes » et, si vous
-  l'avez activé, l'identifiant aléatoire qui l'accompagne (section 3).
+- Reading preferences: engine, voices, speed, follow mode and pill position.
+- Interface theme and language, hidden domains and personal pronunciation
+  rules.
+- Reading progress: page URL, title when available, current block, block
+  count and last update time. These records support resuming a reading.
+  Records older than 30 days are discarded when progress is next loaded;
+  finishing an article clears its saved progress.
+- A coordination token so only one tab reads at a time.
+- Supertonic models and voice styles, if downloaded.
+- The statistics preference and its random UUID while enabled.
 
-Ces données restent locales et disparaissent quand vous désinstallez
-l'extension. Vous pouvez aussi les supprimer à tout moment en effaçant les
-données de site de l'extension dans les réglages de votre navigateur.
+These values use local extension storage, not browser sync. They are not
+included in usage statistics. You can delete downloaded Supertonic models
+from Settings. Uninstalling an extension removes its local storage.
 
-## Permissions et pourquoi elles sont demandées
+## Permissions
 
-| Permission | Raison |
-|---|---|
-| Accès à tous les sites (`<all_urls>`) | Faire apparaître la bulle de sélection et la pastille de lecture sur n'importe quelle page, et y extraire l'article. Aucune page n'est lue tant que vous ne le demandez pas. |
-| `activeTab` | Agir sur l'onglet courant après un clic sur l'icône ou le menu contextuel. |
-| `contextMenus` | Ajouter les entrées « Lire avec Orateur » et « Lire cette page ». |
-| `scripting` | Injecter l'extracteur d'article à la demande. |
-| `storage` | Retenir vos préférences de lecture, coordonner les onglets, et — si vous l'activez — l'interrupteur des statistiques d'usage anonymes. |
-| `unlimitedStorage` | Empêcher le navigateur d'évincer les modèles Supertonic du cache. |
-| `offscreen` | Faire tourner la synthèse vocale, qui a besoin d'un `<audio>` absent du service worker. |
+| Permission | Purpose |
+| --- | --- |
+| Site access (`<all_urls>`) | Display the selection bubble and reading pill on supported pages and extract content when requested. |
+| `activeTab` | Act on the current tab after a toolbar or context-menu action. |
+| `contextMenus` | Add reading and read-later actions. |
+| `scripting` (Chrome MV3) | Inject the extractor or reader when needed. |
+| `storage` | Save preferences, pronunciation rules, reading progress and statistics settings; coordinate reading tabs. |
+| `unlimitedStorage` | Allow the Supertonic model cache to exceed ordinary storage limits. |
+| `offscreen` (Chrome MV3) | Run Supertonic audio playback in a document outside the service worker. Firefox uses its persistent background page. |
+| `technicalAndInteraction` (Firefox, optional) | Allow usage statistics in addition to the extension's own switch. |
 
 ## Contact
 
-Une question, un doute, un problème :
-<https://github.com/ekimkael/orateur-extension/issues>
+Questions or issues: [Orateur extension issue tracker](https://github.com/ekimkael/orateur-extension/issues).

@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.cache/puppeteer/
 .output
 stats.html
 stats-*.json
@@ -20,6 +21,9 @@ scratchpad
 
 # Secrets des stores, générés par `npx wxt submit init`
 .env.submit
+.env
+.env.*
+!.env.example
 
 # Runtime onnxruntime-web recopié dans public/ au build par copyOrtAssets
 /public/ort/

@@ -96,6 +96,7 @@ function liveRead() {
   const prepared: [number, boolean][] = []
   const prefetched: number[] = []
   const errors: [string, string][] = []
+  const failures: [string, string][] = []
   let folds = 0
   const context = vm.createContext({
     blocks: [EN, EN], blockLangs: ["en", "en"], lang: "en",
@@ -111,6 +112,8 @@ function liveRead() {
     },
     persistProgress: () => {},
     follower: { show: () => {} },
+    trackReadingStarted: () => {},
+    trackReadingFailed: (engine: string, reason: string) => failures.push([engine, reason]),
     detectLang, expandText, toSupertonicLang,
     SpeechSynthesisUtterance: Utterance,
     speechSynthesis: {
@@ -121,7 +124,7 @@ function liveRead() {
     pill: { setState: (state: string, title: string) => errors.push([state, title]) },
   })
   vm.runInContext(outputText, context)
-  return { pending, context, spoken, prepared, prefetched, errors, folds: () => folds,
+  return { pending, context, spoken, prepared, prefetched, errors, failures, folds: () => folds,
     play: (block = 1, from = 0) => vm.runInContext(`play(${block}, ${from})`, context) as Promise<void>,
   }
 }
@@ -197,16 +200,22 @@ test("failed live preparation reports an error instead of reading the English sn
   assert.deepEqual(h.spoken, [])
   assert.equal(h.folds(), 1)
   assert.deepEqual(h.errors, [["error", "Article"]])
+  assert.deepEqual(h.failures, [["system", "preparation"]])
 })
 
 test("a preparation failure from an invalidated session cannot fold the current reader", async () => {
-  const h = liveRead()
-  const playback = h.play()
-  h.context.startGeneration++
-  h.pending.reject(new Error("Reading stopped"))
-  await playback
+  for (const invalidated of ["generation", "startGeneration", "pageSource", "reading"] as const) {
+    const h = liveRead()
+    const playback = h.play()
+    if (invalidated === "pageSource") h.context.pageSource = null
+    else if (invalidated === "reading") h.context.reading = false
+    else h.context[invalidated]++
+    h.pending.reject(new Error("Reading stopped"))
+    await playback
 
-  assert.deepEqual(h.spoken, [])
-  assert.equal(h.folds(), 0)
-  assert.deepEqual(h.errors, [])
+    assert.deepEqual(h.spoken, [], invalidated)
+    assert.equal(h.folds(), 0, invalidated)
+    assert.deepEqual(h.errors, [], invalidated)
+    assert.deepEqual(h.failures, [], invalidated)
+  }
 })

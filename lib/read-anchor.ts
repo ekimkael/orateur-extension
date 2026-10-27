@@ -95,12 +95,26 @@ export function createAnchorFinder(root: ParentNode) {
   }
 }
 
+/**
+ * Index du bloc lu qui commence là où l'utilisateur a cliqué.
+ *
+ * On remonte depuis la cible plutôt que de rejouer `createAnchorFinder` depuis
+ * le début : sur Wikipédia, les cellules courtes de l'infobox (« Proconsul. »)
+ * trouvent un écho bien plus loin dans la page — un titre de section — et le
+ * curseur, qui ne recule jamais, saute par-dessus le paragraphe visé. Partir
+ * de la cible ne dépend d'aucun bloc antérieur. Parmi les empreintes qui
+ * conviennent, la plus longue : « Cicéron » est aussi le début de « Cicéron,
+ * dont le nom romain… ».
+ */
 export function findBlockIndex(root: ParentNode, blocks: string[], target: Element | null) {
-  if (!target) return -1
-  const findAnchor = createAnchorFinder(root)
-  for (let index = 0; index < blocks.length; index++) {
-    const anchor = findAnchor(blocks[index]!)
-    if (anchor && (anchor === target || anchor.contains(target) || target.contains(anchor))) return index
+  const marks = blocks.map(fingerprint)
+  for (let element = target?.closest(TEXT_BLOCKS); element && root.contains(element); element = element.parentElement?.closest(TEXT_BLOCKS)) {
+    const text = normalize(element.textContent ?? "")
+    let best = -1
+    marks.forEach((mark, index) => {
+      if (mark && text.startsWith(mark) && (best < 0 || mark.length > marks[best]!.length)) best = index
+    })
+    if (best >= 0) return best
   }
   return -1
 }
