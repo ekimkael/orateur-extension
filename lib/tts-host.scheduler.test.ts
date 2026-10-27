@@ -521,6 +521,80 @@ test("le dernier chunk active une préparation passive sans remplacer deux fois 
   host.control("stop")
 })
 
+test("l'activation ne révèle pas un corps au-delà d'un long paragraphe déjà préparé", async () => {
+  const body = Promise.withResolvers<{ text: string; lang: "fr" }>()
+  const requested: { paragraph: number; prefetch: boolean | undefined }[] = []
+  const long = "Ce paragraphe français laisse assez de temps pour préparer la suite sans déplacer la page trop loin pendant la lecture. ".repeat(4)
+  const host = createTtsHost(() => {})
+  host.speak({
+    text: article(4), lang: "en", voice: "F1", speed: 1,
+    prepareParagraph: async (paragraph, prefetch) => {
+      requested.push({ paragraph, prefetch })
+      if (paragraph === 3) return body.promise
+      return { text: paragraph === 2 ? "Détails." : long, lang: "fr" }
+    },
+  })
+  await settle()
+  assert.deepEqual(requested.filter((request) => request.paragraph === 3), [{ paragraph: 3, prefetch: true }])
+  audios.find((audio) => !audio.paused)!.finish()
+  await settle()
+  assert.deepEqual(requested.filter((request) => !request.prefetch), [{ paragraph: 0, prefetch: false }],
+    "Les deux unités du paragraphe suivant empêchent de révéler le corps plus loin")
+  host.control("stop")
+  body.resolve({ text: "Cette préparation arrêtée ne doit pas être jouée.", lang: "fr" })
+  await settle(10)
+})
+
+for (const resume of [false, true]) {
+  test(`${resume ? "la reprise" : "le dernier chunk"} active le corps après un titre déjà prêt avant de jouer ce titre`, async () => {
+    const body = Promise.withResolvers<{ text: string; lang: "fr" }>()
+    const translatedBody = "Le corps après le titre est maintenant traduit et son audio doit être prêt avant la fin du titre."
+    const requested: { paragraph: number; prefetch: boolean | undefined }[] = []
+    const playing: number[] = []
+    const loading: string[] = []
+    const host = createTtsHost((state) => {
+      if (state.phase === "playing") playing.push(state.block)
+      if (state.phase === "loading") loading.push(state.reason ?? "")
+    })
+    host.speak({
+      text: article(3), lang: "en", voice: "F1", speed: 1,
+      prepareParagraph: async (paragraph, prefetch) => {
+        requested.push({ paragraph, prefetch })
+        if (paragraph === 0) return {
+          text: "Le paragraphe précédent laisse du temps pour traduire et synthétiser le corps au-delà du titre suivant. ".repeat(resume ? 1 : 6), lang: "fr",
+        }
+        if (paragraph === 1) return { text: "Détails.", lang: "fr" }
+        if (!prefetch) body.resolve({ text: translatedBody, lang: "fr" })
+        return body.promise
+      },
+    })
+    if (resume) host.control("pause")
+    await settle()
+    const firstChunks = contentSynths().indexOf("Détails.")
+    assert.ok(firstChunks >= (resume ? 1 : 2))
+    assert.deepEqual(requested.filter((request) => request.paragraph === 2), [{ paragraph: 2, prefetch: true }])
+    if (resume) host.control("resume")
+    else for (let i = 1; i < firstChunks; i++) {
+      audios.find((audio) => !audio.paused)!.finish()
+      await settle()
+    }
+    await settle()
+    assert.equal(playing.at(-1), 0, "Le titre suivant n'a pas encore commencé")
+    assert.deepEqual(requested.filter((request) => request.paragraph === 2), [
+      { paragraph: 2, prefetch: true }, { paragraph: 2, prefetch: false },
+    ])
+    assert.equal(contentSynths().at(-1), translatedBody)
+    audios.find((audio) => !audio.paused)!.finish()
+    await settle()
+    assert.equal(playing.at(-1), 1)
+    audios.find((audio) => !audio.paused)!.finish()
+    await settle()
+    assert.equal(playing.at(-1), 2)
+    assert.ok(!loading.includes("preparing-next"), "Le titre court rejoint son corps déjà synthétisé")
+    host.control("stop")
+  })
+}
+
 test("une ancienne préparation passive bloquée ne prive pas le déplacement de sa nouvelle avance", async () => {
   const old = Promise.withResolvers<{ text: string; lang: "fr" }>()
   const requested: number[] = []
