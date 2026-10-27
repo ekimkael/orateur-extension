@@ -1,15 +1,18 @@
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
 import { browserTest, waitFor } from "../support/browser.mjs"
 
 browserTest("reads translated text with its detected language instead of a saved foreign voice", async h => {
   await h.install()
   const french = "Orateur permet de lire un article sans quitter sa page. Ce paragraphe contient suffisamment de texte pour vérifier que la lecture utilise bien le français, même lorsque le site déclare encore une langue anglaise."
   const english = "The reader lets you listen to an article without leaving the page. This paragraph contains enough text to verify that the reading uses the English voice selected by the user and keeps that preference for the next article."
+  const digest = readFileSync(new URL("../fixtures/english-digest.txt", import.meta.url), "utf8").trim().replace(/\s+/g, " ")
 
   for (const scenario of [
     { text: french, selected: "english", lang: "fr", voice: null },
     { text: french, selected: "french", lang: "fr", voice: "french" },
     { text: english, selected: "english", lang: "en", voice: "english" },
+    { text: digest, excerpt: "Teams can publish their development tools through a single release workflow.", selected: "french", lang: "en", voice: null, declared: "fr-FR" },
   ]) {
     await h.options.evaluate(async voiceURI => {
       const api = globalThis.browser ?? chrome
@@ -18,8 +21,8 @@ browserTest("reads translated text with its detected language instead of a saved
     }, scenario.selected)
     await h.page.reload()
     await h.page.waitForSelector("orateur-reader-pill")
-    await h.page.evaluate(({ text, lang }) => {
-      document.documentElement.lang = "en-US"
+    await h.page.evaluate(({ text, lang, declared }) => {
+      document.documentElement.lang = declared ?? "en-US"
       document.documentElement.classList.toggle("translated-ltr", lang === "fr")
       document.title = "An article originally written in English"
       document.querySelector("h1").textContent = document.title
@@ -55,7 +58,7 @@ browserTest("reads translated text with its detected language instead of a saved
     })
     await h.click("Read this page with Orateur")
     const spoken = await waitFor(() => h.script(() => globalThis.__translatedSpeech[0]), "Translated article reaches speech engine")
-    assert.ok(spoken.text.includes(scenario.text), "Reads the current DOM text")
+    assert.ok(spoken.text.includes(scenario.excerpt ?? scenario.text), `Reads the current DOM text: ${JSON.stringify(spoken)}`)
     // Live paragraph detection resolves the language; the selected voice keeps its region.
     assert.equal(new Intl.Locale(spoken.lang).language, scenario.lang, "Speech language follows the current text")
     assert.equal(spoken.voice, scenario.voice, "Saved voice applies only to a matching language")

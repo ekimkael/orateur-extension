@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
 import test from "node:test"
 import { detectLang, resolveDocLang } from "./detect-lang.ts"
 
@@ -133,6 +134,17 @@ const ENGLISH =
   "It is impossible to build a failure-proof software system. Sure, a system can go through its lifecycle without any failures. But you can’t provide a guarantee that it will never fail."
 // Job list from a French newsletter: too few words for a verdict.
 const TERSE = "Freelance.\n\nExpert cyber/SOC.\n\n500 - 550 €⁄j.\n\nLille.\n\nFreelance.\n\nDevOps - DBA Expert.\n\n500 - 600 €⁄j.\n\nÎle-de-France."
+
+test("English digest text overrides Gmail's French interface language", () => {
+  const text = readFileSync(new URL("../tests/fixtures/english-digest.txt", import.meta.url), "utf8")
+  assert.equal(resolveDocLang("fr-FR", text), "en")
+  const blocks = text.trim().split(/\n{2,}/)
+  for (const i of [1, 3, 5, 6]) {
+    const block = blocks[i]!
+    assert.equal(detectLang(block, null), "en", block)
+  }
+  assert.equal(detectLang("Doors I Walked Through to Reach DEV", null), "en")
+})
 
 test("resolveDocLang: the text overrides a declaration it clearly contradicts", () => {
   assert.equal(resolveDocLang("fr", ENGLISH), "en")
