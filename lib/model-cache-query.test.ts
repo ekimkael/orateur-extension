@@ -9,13 +9,24 @@ import { ONNX_FILES, SUPERTONIC_VOICES } from "./supertonic/types.ts"
 
 type Listener = (message: { type: string }, sender: { tab: { id: number } }, respond: (cached: boolean) => void) => unknown
 
+let cleanupCalls = 0
+let alarmListeners: ((alarm: { name: string }) => void)[] = []
+let scheduledAlarms: { name: string; periodInMinutes: number }[] = []
+
 function backgroundListeners(firefox: boolean): Listener[] {
+  cleanupCalls = 0
+  alarmListeners = []
+  scheduledAlarms = []
   const listeners: Listener[] = []
   const event = { addListener() {} }
   const browser = {
     runtime: { onMessage: { addListener: (listener: Listener) => listeners.push(listener) }, onInstalled: event },
     contextMenus: { onClicked: event },
     storage: { onChanged: event },
+    alarms: {
+      create: (name: string, options: { periodInMinutes: number }) => scheduledAlarms.push({ name, ...options }),
+      onAlarm: { addListener: (listener: (alarm: { name: string }) => void) => alarmListeners.push(listener) },
+    },
     tabs: { onRemoved: event },
     action: { onClicked: event },
   }
@@ -31,6 +42,10 @@ function backgroundListeners(firefox: boolean): Listener[] {
     browser,
     defineBackground: (configuration: unknown) => configuration,
     require: (name: string) => {
+      if (name === "../lib/reading-progress.ts") return {
+        READING_PROGRESS_ALARM: "orateur:expire-reading-progress",
+        pruneReadingProgress: async () => { cleanupCalls++ },
+      }
       if (name === "../lib/tts-messages") return messages
       if (name === "../lib/supertonic/model-cache") return { isModelCached }
       return {}
@@ -76,3 +91,14 @@ for (const firefox of [false, true]) {
     }
   })
 }
+
+
+test("progress cleanup runs on startup and on its hourly alarm", () => {
+  backgroundListeners(true)
+  assert.equal(cleanupCalls, 1)
+  assert.deepEqual(scheduledAlarms, [{ name: "orateur:expire-reading-progress", periodInMinutes: 60 }])
+  alarmListeners[0]({ name: "other-alarm" })
+  assert.equal(cleanupCalls, 1)
+  alarmListeners[0]({ name: "orateur:expire-reading-progress" })
+  assert.equal(cleanupCalls, 2)
+})
