@@ -81,6 +81,7 @@ const WORD_TABLES: Partial<Record<SupportedLang, Set<string>>> = {
     "the", "of", "and", "to", "in", "is", "was", "that", "for", "on", "with",
     "as", "it", "at", "by", "an", "be", "this", "from", "or", "are", "but",
     "not", "have", "has", "had", "which", "you", "they", "we", "were", "will",
+    "a", "i", "its", "their", "your", "can", "into", "through", "when", "how", "up",
   ]),
   fr: new Set([
     "le", "la", "les", "de", "des", "et", "un", "une", "est", "dans", "que",
