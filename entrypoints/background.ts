@@ -152,10 +152,11 @@ async function handleTtsFromPill(
         speed: message.speed ?? 1,
         startBlock: message.startBlock,
         personalRules: message.personalRules,
-        prepareParagraph: message.livePage ? (block) => browser.tabs.sendMessage(tabId, {
+        prepareParagraph: message.livePage ? (block, prefetch = false) => browser.tabs.sendMessage(tabId, {
           type: TTS_PREPARE_BLOCK,
           token: token!,
           block,
+          prefetch,
         } satisfies TtsPrepareBlockMessage) as Promise<TtsPreparedBlock> : undefined,
       })
     } else if (message.type === TTS_CONTROL && message.action) {
@@ -421,11 +422,13 @@ export default defineBackground({
       if (message?.type !== TTS_PREPARE_BLOCK || sender.tab || sender.id !== browser.runtime.id ||
           !Number.isInteger(message.tabId) || message.tabId! < 0 ||
           !Number.isInteger(message.block) || message.block! < 0 ||
-          typeof message.token !== "string" || !message.token) return
+          typeof message.token !== "string" || !message.token ||
+          (message.prefetch !== undefined && typeof message.prefetch !== "boolean")) return
       void browser.tabs.sendMessage(message.tabId!, {
         type: TTS_PREPARE_BLOCK,
         token: message.token,
         block: message.block!,
+        prefetch: message.prefetch,
       } satisfies TtsPrepareBlockMessage).then(sendResponse, () => sendResponse(null))
       return true
     })

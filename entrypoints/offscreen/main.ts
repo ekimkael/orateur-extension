@@ -157,11 +157,12 @@ browser.runtime.onMessage.addListener((message: IncomingMessage, sender) => {
       speed: message.speed ?? 1,
       startBlock: message.startBlock,
       personalRules: message.personalRules,
-      prepareParagraph: message.livePage ? (block) => browser.runtime.sendMessage({
+      prepareParagraph: message.livePage ? (block, prefetch = false) => browser.runtime.sendMessage({
         type: TTS_PREPARE_BLOCK,
         tabId,
         token: token!,
         block,
+        prefetch,
       } satisfies TtsPrepareBlockMessage) as Promise<TtsPreparedBlock> : undefined,
     })
     return

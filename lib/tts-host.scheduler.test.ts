@@ -265,19 +265,21 @@ test("une erreur tardive de l'ancienne tête n'arrête pas le déplacement", asy
   host.control("stop")
 })
 
-test("la préparation attend le français courant et remplace tous les chunks sans précharger le paragraphe suivant", async () => {
+test("la préparation attend le français puis précharge un seul paragraphe suivant sans attente à la frontière", async () => {
   const first = Promise.withResolvers<{ text: string; lang: "fr" }>()
   const requested: number[] = []
   const playing: { block: number; total: number }[] = []
+  const loading: string[] = []
   const host = createTtsHost((state) => {
     if (state.phase === "playing") playing.push(state)
+    if (state.phase === "loading") loading.push(state.reason ?? "")
   })
   host.speak({
-    text: "The original first paragraph.\n\nThe original second paragraph.",
+    text: "The original first paragraph.\n\nThe original second paragraph.\n\nThe original third paragraph.",
     lang: "en", voice: "F1", speed: 1,
     prepareParagraph: async (paragraph) => {
       requested.push(paragraph)
-      return paragraph === 0 ? first.promise : { text: "Le second paragraphe est maintenant traduit.", lang: "fr" }
+      return paragraph === 0 ? first.promise : { text: `Le paragraphe ${paragraph} est maintenant traduit.`, lang: "fr" }
     },
   })
   await settle(10)
@@ -288,17 +290,20 @@ test("la préparation attend le français courant et remplace tous les chunks sa
     lang: "fr",
   })
   await settle()
-  const chunks = contentSynths().length
+  const chunks = contentSynths().length - 1
   assert.ok(chunks > 1 && chunks < 7, "La traduction change le nombre de chunks du paragraphe")
   assert.ok(synthesized.every((request) => request.lang === "fr"))
-  assert.deepEqual(requested, [0], "Aucune préparation ni synthèse du paragraphe suivant")
+  assert.deepEqual(requested, [0, 1], "Le troisième paragraphe reste intact pendant la lecture du premier")
+  assert.equal(contentSynths().at(-1), "Le paragraphe 1 est maintenant traduit.")
+  const loadingBefore = loading.length
   for (let i = 0; i < chunks; i++) {
     audios.find((audio) => !audio.paused)!.finish()
     await settle()
   }
-  assert.deepEqual(requested, [0, 1])
-  assert.deepEqual(contentSynths().slice(chunks), ["Le second paragraphe est maintenant traduit."])
-  assert.deepEqual(playing.at(-1), { phase: "playing", block: 1, total: 2 })
+  assert.deepEqual(requested, [0, 1, 2])
+  assert.deepEqual(contentSynths().slice(chunks), ["Le paragraphe 1 est maintenant traduit.", "Le paragraphe 2 est maintenant traduit."])
+  assert.equal(loading.length, loadingBefore, "Le cache audio traverse la frontière sans attente")
+  assert.deepEqual(playing.at(-1), { phase: "playing", block: 1, total: 3 })
   host.control("stop")
 })
 
@@ -358,7 +363,7 @@ test("un déplacement ignore une préparation bloquée puis relit le DOM même p
     if (state.phase === "playing") playing.push(state.block)
   })
   host.speak({
-    text: article(3), lang: "fr", voice: "F1", speed: 1,
+    text: article(2), lang: "fr", voice: "F1", speed: 1,
     prepareParagraph: async (paragraph) => {
       requested.push(paragraph)
       return paragraph === 0 ? old.promise : { text: `Traduction actualisée ${++revision}.`, lang: "fr" }
@@ -385,7 +390,7 @@ test("une reprise pendant la préparation attend le texte et ne joue pas une tê
   const phases: string[] = []
   const host = createTtsHost((state) => phases.push(state.phase))
   host.speak({
-    text: article(2), lang: "fr", voice: "F1", speed: 1,
+    text: article(1), lang: "fr", voice: "F1", speed: 1,
     prepareParagraph: () => prepared.promise,
   })
   await settle(10)
@@ -414,6 +419,7 @@ test("des déplacements rapides ignorent le refus tardif de l'ancien play", asyn
     prepareParagraph: async (paragraph) => ({ text: `Traduction du paragraphe ${paragraph}.`, lang: "fr" }),
   })
   await settle()
+  const before = contentSynths().length
   host.seek(1, false)
   host.seek(2, false)
   host.seek(3, false)
@@ -421,7 +427,7 @@ test("des déplacements rapides ignorent le refus tardif de l'ancien play", asyn
   await settle()
   assert.deepEqual(playing, [0, 3])
   assert.deepEqual(errors, [])
-  assert.deepEqual(contentSynths(), ["Traduction du paragraphe 0.", "Traduction du paragraphe 3."])
+  assert.deepEqual(contentSynths().slice(before), ["Traduction du paragraphe 3.", "Traduction du paragraphe 4."])
   host.control("stop")
 })
 
@@ -434,7 +440,7 @@ test("un déplacement ignore le rejet tardif d'une ancienne préparation", async
     if (state.phase === "error") errors.push(state.message)
   })
   host.speak({
-    text: article(3), lang: "fr", voice: "F1", speed: 1,
+    text: article(2), lang: "fr", voice: "F1", speed: 1,
     prepareParagraph: async (paragraph) => paragraph === 0 ? old.promise : { text: "Le paragraphe courant est traduit.", lang: "fr" },
   })
   await settle(10)
@@ -444,5 +450,65 @@ test("un déplacement ignore le rejet tardif d'une ancienne préparation", async
   assert.deepEqual(playing, [1])
   assert.deepEqual(errors, [])
   assert.deepEqual(contentSynths(), ["Le paragraphe courant est traduit."])
+  host.control("stop")
+})
+
+test("le dernier chunk active une préparation passive sans remplacer deux fois son paragraphe", async () => {
+  const next = Promise.withResolvers<{ text: string; lang: "fr" }>()
+  const requested: { paragraph: number; prefetch: boolean | undefined }[] = []
+  const host = createTtsHost(() => {})
+  host.speak({
+    text: article(2), lang: "fr", voice: "F1", speed: 1,
+    prepareParagraph: async (paragraph, prefetch) => {
+      requested.push({ paragraph, prefetch })
+      if (paragraph === 0) {
+        return { text: "Le premier paragraphe contient assez de prose française pour jouer plusieurs unités pendant que la traduction suivante se prépare. ".repeat(5), lang: "fr" }
+      }
+      if (prefetch) return next.promise
+      next.resolve({ text: "La traduction partagée du paragraphe suivant.", lang: "fr" })
+      return { text: "La seconde réponse ne doit pas remplacer les unités.", lang: "fr" }
+    },
+  })
+  await settle()
+  const chunks = contentSynths().length
+  assert.ok(chunks > 1)
+  assert.deepEqual(requested.filter((request) => request.paragraph === 1), [{ paragraph: 1, prefetch: true }])
+  for (let i = 1; i < chunks; i++) {
+    audios.find((audio) => !audio.paused)!.finish()
+    await settle()
+  }
+  assert.deepEqual(requested.filter((request) => request.paragraph === 1), [
+    { paragraph: 1, prefetch: true }, { paragraph: 1, prefetch: false },
+  ])
+  assert.deepEqual(contentSynths().slice(chunks), ["La traduction partagée du paragraphe suivant."])
+  host.control("stop")
+})
+
+test("une ancienne préparation passive bloquée ne prive pas le déplacement de sa nouvelle avance", async () => {
+  const old = Promise.withResolvers<{ text: string; lang: "fr" }>()
+  const requested: number[] = []
+  const host = createTtsHost(() => {})
+  host.speak({
+    text: article(4), lang: "fr", voice: "F1", speed: 1,
+    prepareParagraph: async (paragraph) => {
+      requested.push(paragraph)
+      if (paragraph === 1) return old.promise
+      return {
+        text: paragraph === 3 ? "Le prochain paragraphe du déplacement est déjà traduit."
+          : `La traduction du paragraphe ${paragraph} contient plusieurs unités pour laisser une avance audio pendant la lecture. `.repeat(5),
+        lang: "fr",
+      }
+    },
+  })
+  await settle()
+  assert.deepEqual(requested, [0, 1])
+  host.seek(2, false)
+  await settle()
+  assert.deepEqual(requested, [0, 1, 2, 3])
+  assert.equal(contentSynths().at(-1), "Le prochain paragraphe du déplacement est déjà traduit.")
+  const before = contentSynths().length
+  old.resolve({ text: "Cette ancienne traduction ne doit pas être synthétisée.", lang: "fr" })
+  await settle(10)
+  assert.equal(contentSynths().length, before)
   host.control("stop")
 })

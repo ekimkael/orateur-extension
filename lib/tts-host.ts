@@ -65,8 +65,8 @@ export interface SpeakRequest {
   personalRules?: readonly PronunciationRule[]
   /** Rule previews use their explicit language even for a single ambiguous word. */
   detectLanguage?: boolean
-  /** Read translated DOM text only when its paragraph is about to be played. */
-  prepareParagraph?: (paragraph: number) => Promise<TtsPreparedBlock>
+  /** Refresh DOM text before synthesis; passive prefetch must not reveal it. */
+  prepareParagraph?: (paragraph: number, prefetch?: boolean) => Promise<TtsPreparedBlock>
 }
 
 /** Une unité de synthèse : un chunk, et s'il termine son paragraphe. */
@@ -170,7 +170,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   let prepareParagraph: SpeakRequest["prepareParagraph"]
   let personalRules: readonly PronunciationRule[] = []
   const preparedParagraphs = new Set<number>()
-  const preparingParagraphs = new Map<number, Promise<void>>()
+  const preparingParagraphs = new Map<number, { promise: Promise<void>; prefetch: boolean }>()
   /**
    * Incrémenté à chaque `speak()`/`stop()` : une promesse d'une génération
    * révolue devient un no-op à son retour, plutôt que d'agir sur l'état de
@@ -191,7 +191,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   const cache = new Map<number, string>()
   /** Synthèses en vol, pour dédoublonner `pump()` et l'attente de `advance()`. */
   const pending = new Map<number, Promise<void>>()
-  let pumping = false
+  let pumping: number | null = null
 
   let heads: [Head, Head]
 
@@ -308,15 +308,23 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     preparingParagraphs.clear()
   }
 
-  function prepareUnit(gen: number, i: number): Promise<void> {
+  function prepareUnit(gen: number, i: number, prefetch = false): Promise<void> {
     if (gen !== generation) return Promise.resolve()
     const provider = prepareParagraph
     const paragraph = units[i]?.paragraph
     if (!provider || paragraph === undefined || preparedParagraphs.has(paragraph)) return Promise.resolve()
     const inflight = preparingParagraphs.get(paragraph)
-    if (inflight) return inflight
+    if (inflight) {
+      if (inflight.prefetch && !prefetch) {
+        inflight.prefetch = false
+        // The source upgrades its shared wait; the first response alone owns
+        // the replacement, regardless of which transport reply arrives first.
+        void Promise.resolve().then(() => gen === generation ? provider(paragraph, false) : undefined).catch(() => {})
+      }
+      return inflight.promise
+    }
     const p = (async () => {
-      const prepared = await provider(paragraph)
+      const prepared = await provider(paragraph, prefetch)
       if (gen !== generation) return
       if (!prepared || typeof prepared !== "object" || typeof prepared.text !== "string" ||
           !prepared.text.trim() || !AVAILABLE_LANGS.includes(prepared.lang)) {
@@ -330,9 +338,10 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       units.splice(first, (after < 0 ? units.length : after) - first, ...replacement)
       preparedParagraphs.add(paragraph)
     })()
-    preparingParagraphs.set(paragraph, p)
+    const preparation = { promise: p, prefetch }
+    preparingParagraphs.set(paragraph, preparation)
     void p.finally(() => {
-      if (preparingParagraphs.get(paragraph) === p) preparingParagraphs.delete(paragraph)
+      if (preparingParagraphs.get(paragraph) === preparation) preparingParagraphs.delete(paragraph)
     }).catch(() => {})
     return p
   }
@@ -361,7 +370,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       if (seconds >= 0.5) {
         const ms = performance.now() - t0
         console.debug(
-          `[orateur] unité ${i} : ${Math.round(ms)} ms pour ${seconds.toFixed(1)} s d'audio — RTF ${(ms / 1000 / seconds).toFixed(2)}`
+          `[orateur] unité ${i} (paragraphe ${unit.paragraph}, ${unit.lang}) : ${Math.round(ms)} ms pour ${seconds.toFixed(1)} s d'audio — RTF ${(ms / 1000 / seconds).toFixed(2)}`
         )
       }
       const wav = writeWavFile(unit.endsParagraph ? padSilence(pcm, engine.sampleRate) : pcm, engine.sampleRate)
@@ -395,21 +404,25 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
    * protège autrement, en faisant attendre la lecture sur son store).
    */
   async function pump(gen: number) {
-    if (pumping) return
-    pumping = true
+    if (pumping === gen) return
+    pumping = gen
     try {
       for (;;) {
         if (gen !== generation) return
         let target = -1
         const end = Math.min(index + 1 + LOOKAHEAD, units.length)
         for (let i = index; i < end; i++) {
-          if (prepareParagraph && units[i]?.paragraph !== units[index]?.paragraph) break
+          if (prepareParagraph && units[i]!.paragraph > units[index]!.paragraph + 1) break
           if (!cache.has(i) && !pending.has(i)) {
             target = i
             break
           }
         }
         if (target < 0) return
+        if (prepareParagraph) {
+          await prepareUnit(gen, target, units[target]!.paragraph > units[index]!.paragraph)
+          if (gen !== generation) return
+        }
         await synth(gen, target)
         if (gen !== generation) return
         preloadNext()
@@ -422,7 +435,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       // Une synthèse en échec est déjà signalée par qui l'attendait
       // (`advance`/`speak`) ; l'avance, elle, retentera au prochain tour.
     } finally {
-      pumping = false
+      if (pumping === gen) pumping = null
     }
   }
 
@@ -442,7 +455,6 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   /** Charge l'unité suivante sur la tête inactive pour que l'échange coûte une frame. */
   function preloadNext() {
     const next = index + 1
-    if (prepareParagraph && units[next]?.paragraph !== units[index]?.paragraph) return
     if (!cache.has(next)) return
     if (heads[0].unitIndex === next || heads[1].unitIndex === next) return
     load((1 - active) as 0 | 1, next)
@@ -468,6 +480,10 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       if (gen !== generation) return
       onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
     })
+    if (prepareParagraph && units[i]?.endsParagraph) {
+      // Reveal/upgrade only the next paragraph, while this final chunk plays.
+      void prepareUnit(gen, i + 1).catch(() => {})
+    }
     preloadNext()
   }
 
@@ -611,6 +627,9 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
         onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
       })
       onState({ phase: "playing", block: units[index]?.paragraph ?? 0, total: paragraphCount() })
+      if (prepareParagraph && units[index]?.endsParagraph) {
+        void prepareUnit(gen, index + 1).catch(() => {})
+      }
       return
     }
     // "stop" : une nouvelle génération invalide toute promesse en vol, sans

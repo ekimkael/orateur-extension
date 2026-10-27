@@ -94,16 +94,23 @@ function liveRead() {
   const pending = deferredText()
   const spoken: Utterance[] = []
   const prepared: [number, boolean][] = []
+  const prefetched: number[] = []
   const errors: [string, string][] = []
   let folds = 0
   const context = vm.createContext({
     blocks: [EN, EN], blockLangs: ["en", "en"], lang: "en",
     prefs: { voiceURI: english.voiceURI, speed: 1, follow: true },
     generation: 0, startGeneration: 0, reading: true, paused: false, stale: false,
-    blockIndex: 0, charIndex: 0, pageIntro: "", pageRules: [], readingTitle: "Article",
+    blockIndex: 0, charIndex: 0, pageIntro: "", pageRules: [], readingTitle: "Article", readingTotal: 2,
     pageSource: {
-      prepare(index: number, follow: boolean) { prepared.push([index, follow]); return pending.promise },
+      prepare(index: number, follow: boolean, prefetch = false) {
+        if (prefetch) prefetched.push(index)
+        else prepared.push([index, follow])
+        return pending.promise
+      },
     },
+    persistProgress: () => {},
+    follower: { show: () => {} },
     detectLang, expandText, toSupertonicLang,
     SpeechSynthesisUtterance: Utterance,
     speechSynthesis: {
@@ -114,7 +121,7 @@ function liveRead() {
     pill: { setState: (state: string, title: string) => errors.push([state, title]) },
   })
   vm.runInContext(outputText, context)
-  return { pending, context, spoken, prepared, errors, folds: () => folds,
+  return { pending, context, spoken, prepared, prefetched, errors, folds: () => folds,
     play: (block = 1, from = 0) => vm.runInContext(`play(${block}, ${from})`, context) as Promise<void>,
   }
 }
@@ -133,6 +140,16 @@ test("native playback waits for live French text and resets an obsolete English 
   assert.equal(h.spoken[0].voice, null)
   assert.equal(h.context.blocks[1], FR)
   assert.equal(h.context.blockLangs[1], "fr")
+})
+
+test("native playback prepares the next translation while the current paragraph is speaking", async () => {
+  const h = liveRead()
+  const playback = h.play(0)
+  h.pending.resolve(FR)
+  await playback
+  h.spoken[0].dispatchEvent(new Event("start"))
+  assert.deepEqual(h.prefetched, [1])
+  assert.equal(h.spoken.length, 1, "Preparation must not queue overlapping speech")
 })
 
 test("pausing during live preparation keeps the pending paragraph as the resume target", async () => {

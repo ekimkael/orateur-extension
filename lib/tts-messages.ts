@@ -66,6 +66,7 @@ export interface TtsPrepareBlockMessage {
   tabId?: number
   token: string
   block: number
+  prefetch?: boolean
 }
 
 export interface TtsPreparedBlock {

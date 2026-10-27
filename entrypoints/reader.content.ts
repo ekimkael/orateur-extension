@@ -275,9 +275,10 @@ export default defineContentScript({
       if (message?.type !== TTS_PREPARE_BLOCK) return
       const source = pageSource
       if (!source || !reading || !usingSupertonic || message.token !== token ||
-        !Number.isInteger(message.block) || message.block! < 0 || message.block! >= readingTotal) return Promise.resolve(null)
+        !Number.isInteger(message.block) || message.block! < 0 || message.block! >= readingTotal ||
+        (message.prefetch !== undefined && typeof message.prefetch !== "boolean")) return Promise.resolve(null)
       const mine = startGeneration
-      return source.prepare(message.block!, prefs.follow).then((text): TtsPreparedBlock | null => {
+      return source.prepare(message.block!, prefs.follow, !!message.prefetch, message.block! > blockIndex ? "nearest" : "center").then((text): TtsPreparedBlock | null => {
         if (source !== pageSource || mine !== startGeneration) return null
         const lang = resolveDocLang(document.documentElement.lang, text) ?? "na"
         return { text: message.block === 0 && pageIntro ? `${pageIntro} ${text}` : text, lang }
@@ -670,6 +671,9 @@ export default defineContentScript({
         charIndex = from
         void persistProgress(block)
         follower.show(block)
+        if (source && block + 1 < readingTotal) {
+          void source.prepare(block + 1, prefs.follow, true, "nearest").catch(() => {})
+        }
       })
       // `charIndex` est compté depuis le début de l'énoncé, donc depuis le
       // reste du bloc : le rebaser sur le bloc entier, sinon une deuxième

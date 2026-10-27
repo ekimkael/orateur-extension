@@ -46,8 +46,9 @@ test("keeps eager node mappings when translation happens before preparation", as
   live.stop()
 })
 
-test("bounds translation waits and retains extraction cleanup for unchanged English quotes", async () => {
+test("explicitly untranslated quotes retain extraction cleanup without waiting", async () => {
   const { doc, later, blocks } = fixture()
+  later.setAttribute("translate", "no")
   later.append(doc.createElement("button"))
   later.lastChild!.textContent = "Share this quotation"
   const live = createLivePage(doc, blocks, 10, () => true)
@@ -55,7 +56,7 @@ test("bounds translation waits and retains extraction cleanup for unchanged Engl
   later.scrollIntoView = () => { reveals++ }
 
   assert.equal(await live.prepare(1, true), EN)
-  assert.equal(reveals, 1)
+  assert.equal(reveals, 0)
   live.stop()
 })
 
@@ -154,5 +155,132 @@ test("does not delay an ambiguous heading already visible on a translated page",
   const live = createLivePage(doc, ["Reflections."], 5000, () => true)
 
   assert.equal(await live.prepare(0, true), "Reflections.")
+  live.stop()
+})
+
+test("silently prepares one paragraph ahead while the current paragraph can play", async () => {
+  const { doc, later, blocks } = fixture()
+  const live = createLivePage(doc, blocks, 10, () => true)
+  later.scrollIntoView = () => assert.fail("Passive lookahead must not move the viewport")
+  const said = [await live.prepare(0, true)]
+  const future = live.prepare(1, true, true)
+  let ready = false
+  future.then((text) => { ready = true; said.push(text) })
+  await Promise.resolve()
+  assert.deepEqual(said, [FR])
+  assert.equal(ready, false)
+
+  later.textContent = EN.replace("The cat", "The dog")
+  await Promise.resolve()
+  assert.equal(ready, false, "Another English mutation does not make translated audio ready")
+  later.textContent = FR
+  assert.equal(await future, FR)
+  assert.deepEqual(said, [FR, FR])
+  live.stop()
+})
+
+test("active playback upgrades the same passive task with nearest alignment", async () => {
+  const { doc, later, blocks } = fixture()
+  const live = createLivePage(doc, blocks, 5000, () => true)
+  const reveals: unknown[] = []
+  later.scrollIntoView = (options) => { reveals.push(options) }
+  const future = live.prepare(1, true, true)
+  assert.equal(live.prepare(1, true, true), future, "Concurrent lookahead shares its observer and promise")
+  assert.deepEqual(reveals, [])
+
+  assert.equal(live.prepare(1, true, false, "nearest"), future)
+  assert.deepEqual(reveals, [{ block: "nearest", behavior: "instant" }])
+  later.textContent = FR
+  assert.equal(await future, FR)
+  live.stop()
+})
+
+test("passive preparation never expires into an unchanged English snapshot", async () => {
+  const { doc, later, blocks } = fixture()
+  const live = createLivePage(doc, blocks, 5, () => true)
+  later.scrollIntoView = () => assert.fail("Passive lookahead must not scroll")
+  const future = live.prepare(1, true, true)
+  let ready = false
+  const cancelled = assert.rejects(future, /Reading stopped/)
+  future.then(() => { ready = true }, () => {})
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(ready, false, "The active timeout does not apply to passive lookahead")
+
+  live.stop()
+  await cancelled
+})
+
+test("a confident language mismatch times out with an error instead of stale English", async () => {
+  const { doc, later, blocks } = fixture()
+  const live = createLivePage(doc, blocks, 5, () => true)
+  later.scrollIntoView = () => {}
+  await assert.rejects(live.prepare(1, true), /traduction/)
+
+  later.textContent = FR
+  assert.equal(await live.prepare(1, true), FR, "Failed preparation releases its pending task")
+  live.stop()
+})
+
+test("active upgrade releases passive preparation when translation is reverted", async () => {
+  const { doc, later, blocks } = fixture()
+  const live = createLivePage(doc, blocks, 5000, () => doc.documentElement.lang !== "en")
+  later.scrollIntoView = () => assert.fail("Reverted translation must not reveal a stale target")
+  const future = live.prepare(1, true, true)
+  doc.documentElement.lang = "en"
+
+  assert.equal(live.prepare(1, true), future)
+  assert.equal(await future, EN)
+  live.stop()
+})
+
+test("notranslate ancestors bypass translation waits", async () => {
+  const { doc, later, blocks } = fixture()
+  doc.querySelector("article")!.classList.add("notranslate")
+  later.scrollIntoView = () => assert.fail("An explicitly untranslated ancestor must not scroll")
+  const live = createLivePage(doc, blocks, 5, () => true)
+
+  assert.equal(await live.prepare(1, true, true), EN)
+  assert.equal(await live.prepare(1, true), EN)
+  live.stop()
+})
+
+test("ambiguous proper names may retain their original text after an active bounded wait", async () => {
+  const doc = new JSDOM('<html lang="fr"><body><h2>Team Anywhere</h2></body></html>').window.document
+  const heading = doc.querySelector("h2")!
+  heading.getBoundingClientRect = () => new doc.defaultView!.DOMRect(0, 1000, 300, 50)
+  heading.scrollIntoView = () => {}
+  const live = createLivePage(doc, ["Team Anywhere."], 5, () => true)
+  const future = live.prepare(0, true, true)
+
+  assert.equal(live.prepare(0, true, false, "nearest"), future)
+  assert.equal(await future, "Team Anywhere.")
+  live.stop()
+})
+
+test("stopping rejects every passive preparation without moving the page", async () => {
+  const { doc, later, blocks } = fixture()
+  const third = later.cloneNode(true) as Element
+  later.after(third)
+  later.scrollIntoView = () => assert.fail("Stopping passive lookahead must not scroll")
+  third.scrollIntoView = () => assert.fail("Stopping passive lookahead must not scroll")
+  const live = createLivePage(doc, [...blocks, EN], 5, () => true)
+  const first = assert.rejects(live.prepare(1, true, true), /Reading stopped/)
+  const second = assert.rejects(live.prepare(2, true, true), /Reading stopped/)
+
+  live.stop()
+  await Promise.all([first, second])
+})
+
+
+test("waits for successive translation mutations to settle before returning live text", async () => {
+  const { doc, later, blocks } = fixture()
+  const live = createLivePage(doc, blocks, 5000, () => true)
+  const future = live.prepare(1, true, true)
+  later.textContent = FR
+  await Promise.resolve()
+  const complete = `${FR} Un deuxième passage complète la traduction.`
+  later.textContent = complete
+
+  assert.equal(await future, complete)
   live.stop()
 })
