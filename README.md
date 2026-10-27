@@ -30,13 +30,16 @@ using [WXT](https://wxt.dev). Edge uses the Chrome package.
   positions, hidden sites, model downloads and personal pronunciation rules.
 
 Two engines back that in-page reading: the browser's built-in
-`speechSynthesis` (the default, no Orateur model download) and
+`speechSynthesis` (no Orateur model download) and
 [Supertonic](https://huggingface.co/Supertone/supertonic-3), a neural voice
-running locally on ONNX Runtime Web. Supertonic is opt-in from the reading
-pill or settings. First playback, or an explicit download from settings,
+running locally on ONNX Runtime Web. New installations default to Supertonic.
+Updates preserve saved engine choices; existing installations without one keep
+the system engine. Either engine can be selected in the reading pill or settings.
+First Supertonic playback, or an explicit download from the reader or settings,
 downloads ~400 MB of models into the extension's OPFS. Synthesis then works
 offline while that cache remains available.
 It offers ten voices; unsupported languages fall back to the system engine.
+Private windows without cached models also use the system engine.
 System voices depend on the browser and OS; some may use a remote service.
 
 In-page reading does not send article text to the Orateur web app. Explicit

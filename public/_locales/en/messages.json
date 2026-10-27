@@ -137,6 +137,9 @@
   "selectionRead": {
     "message": "Listen"
   },
+  "noticeSupertonicPrivateWindow": {
+    "message": "Private window: reading with the system voice. Download the natural voices from a normal window to use them here."
+  },
   "noticeSupertonicLangUnsupported": {
     "message": "Language not supported by Supertonic: reading with the system voice."
   },

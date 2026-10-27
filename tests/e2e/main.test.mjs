@@ -37,6 +37,52 @@ browserTest("reads an already-open article, then pauses, resumes and stops", asy
   assert.equal(h.blocked.some(url => /posthog|orateur\.digitalekim|huggingface/.test(url)), false, "Local reading needs no external service")
 })
 
+browserTest("a fresh install defaults to the natural voices", async h => {
+  await h.install({ engine: null })
+  const prefs = await waitFor(() => h.options.evaluate(async () => {
+    const stored = (await (globalThis.browser ?? chrome).storage.local.get("orateur:reader-prefs"))["orateur:reader-prefs"]
+    return stored?.engine && stored
+  }), "Initial engine preference saved")
+  assert.equal(prefs.engine, "supertonic")
+})
+
+browserTest("a private context without cached models uses the system voice without downloading", async h => {
+  await h.install({ engine: "supertonic" })
+  await h.page.reload()
+  await h.page.waitForSelector(reader)
+  await h.fakeSpeech()
+  await h.script(() => {
+    Object.defineProperty((globalThis.browser ?? chrome).extension, "inIncognitoContext", { value: true })
+  })
+  await h.click(read)
+  const spoken = await waitFor(() => h.speech().then(state => state.spoken[0]), "Private reading reaches the system engine")
+  assert.match(spoken.text, /Orateur permet de lire/)
+  await waitFor(async () => {
+    const notice = await h.options.evaluate(async () => {
+      const api = globalThis.browser ?? chrome
+      return (api.action ?? api.browserAction).getTitle({})
+    })
+    return /Private window: reading with the system voice/.test(notice)
+  }, "Private fallback notification is visible")
+  assert.equal(h.blocked.some(url => /huggingface/.test(url)), false, "Private reading never requests model downloads")
+})
+
+browserTest("switching engine mid-reading stops the running engine", async h => {
+  await h.install()
+  await h.fakeSpeech()
+  assert.equal(await h.script(() => (globalThis.browser ?? chrome).runtime.sendMessage({ type: "orateur:read-page" })), true)
+  await waitFor(() => h.speech().then(state => state.spoken.length), "System reading starts")
+  await h.click("Pause")
+  await h.options.evaluate(async () => {
+    const api = globalThis.browser ?? chrome
+    const key = "orateur:reader-prefs"
+    const prefs = (await api.storage.local.get(key))[key]
+    await api.storage.local.set({ [key]: { ...prefs, engine: "supertonic" } })
+  })
+  // Before the fix, Play resumed the paused system voice despite the switch.
+  await waitFor(() => h.shadow(reader, `button[aria-label="${read}"]`), "Reader returns to idle after the switch")
+})
+
 browserTest("mouse selection exposes the bubble and reads only the selected text", async h => {
   await h.install()
   await h.page.reload()
