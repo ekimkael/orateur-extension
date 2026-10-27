@@ -84,11 +84,12 @@ jobs:
       - name: Configure Chrome Linux sandbox
         if: matrix.browser == 'chrome'
         run: |
-          orateur_chrome_bin="$(node --input-type=module -e "import puppeteer from 'puppeteer'; console.log(puppeteer.executablePath())")"
+          orateur_chrome_bin="$(node --input-type=module -e "import puppeteer from 'puppeteer'; process.stdout.write(await puppeteer.executablePath())")"
+          test -x "$orateur_chrome_bin"
           sudo tee /etc/apparmor.d/orateur-chrome-testing > /dev/null <<EOF
           abi <abi/4.0>,
           include <tunables/global>
-          profile orateur-chrome-testing $orateur_chrome_bin flags=(unconfined) {
+          profile orateur-chrome-testing "$orateur_chrome_bin" flags=(unconfined) {
             userns,
           }
           EOF
