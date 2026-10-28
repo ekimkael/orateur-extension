@@ -125,3 +125,10 @@ The real extension was tried in Firefox after these changes (AI voice on a
 Gmail newsletter). Trusted Types no longer matter here: Readability only runs
 on a detached copy of the message, and any error falls back to the whole
 message.
+
+Sponsor cards: newsletter markup carries no class to match, so a card is
+found by its printed label ("PROMOTED" on DEV Digest, "Sponsored by…",
+"Together with…", "Publicité"…). `removeSponsorCards` climbs from the label to
+the box holding label and pitch, and drops it before Readability or the
+whole-message fallback sees it. A box over half the message is taken for the
+layout: only the label is dropped then.
