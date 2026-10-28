@@ -15,7 +15,7 @@ import { markTab } from "./tab-title.ts"
 import type { Player, PlayerEvent, ReadFailure } from "./player.ts"
 import { cancelSpeech, createSystemPlayer } from "./system-player.ts"
 import { createSupertonicPlayer } from "./supertonic-player.ts"
-import { MODEL_CACHE_QUERY, TTS_PREPARE_BLOCK, type TtsLoadingReason } from "./tts-messages.ts"
+import { MODEL_CACHE_QUERY, type TtsLoadingReason } from "./tts-messages.ts"
 import { NOTIFY, READ_PAGE, READER_TOKEN, type NotifyMessage, type ReadPagePayload } from "./reader-messages.ts"
 import { track } from "./telemetry.ts"
 import { moveReadingBlock } from "./reading-navigation.ts"
@@ -69,6 +69,10 @@ export interface ReadingSessionOptions {
 
 export type ReadingSession = ReturnType<typeof createReadingSession>
 
+/**
+ * Creates the reading session of one tab. The content script forwards user
+ * actions, extension messages and page lifecycle events to it.
+ */
 export function createReadingSession({ token, view, follower, page, prefs }: ReadingSessionOptions) {
   let reading = false
   let paused = false
@@ -317,17 +321,23 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
   }
 
   return {
+    /** A reading is under way (playing, paused or loading its voice). */
     get reading() {
       return reading
     },
+    /** Starts reading `payload`; `fromHere` begins at the right-clicked paragraph. */
     start,
+    /** ▶/⏸: starts the page (asking the background to extract it), pauses or resumes. */
     toggle,
+    /** ⏹: silences the engine and folds the pill. */
     stop,
+    /** Previous/next paragraph. */
     navigate,
     /** Abandons a start still on its way (the pill was dismissed meanwhile). */
     cancel() {
       startGeneration++
     },
+    /** Settings changed (any tab); `previous` holds the values before. */
     prefsChanged(previous: ReaderPreferences) {
       if (!reading) return
       // Neither engine can take over the other's queue: without this, Play
@@ -341,19 +351,13 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
       if (!(READER_TOKEN in changes) || changes[READER_TOKEN]?.newValue === token) return
       fold()
     },
-    /** Messages for the engine (TTS host events, live block requests). */
-    receive(message: { type?: string } | undefined) {
-      if (!message) return
-      const reply = reading ? player?.receive?.(message) : undefined
-      // A block request always gets an answer, if only "nothing to read".
-      return reply ?? (message.type === TTS_PREPARE_BLOCK ? Promise.resolve(null) : undefined)
-    },
     // La synthèse survit au déchargement de la page : sans ça la lecture
     // continue après un rechargement, hors de portée de la nouvelle pastille.
     // Pour Supertonic, `tabs.onRemoved` ne couvre que la fermeture de
     // l'onglet — un rechargement le laisse ouvert, donc sans ce signal
     // l'audio continuerait indéfiniment, sans plus aucune pastille pour
     // l'arrêter : le même risque que l'onglet fermé, côté rechargement.
+    /** `pagehide`: stops the engine, which would otherwise outlive the page. */
     pageHidden() {
       startGeneration++
       pageSource?.stop()

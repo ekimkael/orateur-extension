@@ -61,15 +61,22 @@ and [the analytics guide](docs/analytics.md).
 
 Two content scripts provide the reading pill and selection bubble. The
 article extractor is injected on demand. The options page is a separate
-extension page. System speech runs in the page reader; Supertonic requests
-go through the background to a TTS host in an offscreen document (Chrome) or
-the persistent background page (Firefox). That host owns chunk scheduling
+extension page.
+
+The reader pill is a view over a reading session (`lib/reading-session.ts`),
+which drives one `Player` per reading. System speech runs in the page
+(`lib/system-player.ts`). Supertonic (`lib/supertonic-player.ts`) asks the
+background to open the TTS host, an offscreen document on Chrome or the
+persistent background page on Firefox, then talks to it over its own
+`runtime.connect` port (`lib/tts-port.ts`). That host owns chunk scheduling
 and dual-`<audio>` playback, and delegates inference to ONNX Runtime Web.
 Preferences and reading progress live in `storage.local`; the Supertonic
 model cache lives in the extension's OPFS.
 
-See [docs/architecture.html](docs/architecture.html) for the main extension's
-interactive diagram (open it directly in a browser, no server needed).
+See [docs/reading-architecture.md](docs/reading-architecture.md) for the
+reading flow and its invariants, and
+[docs/architecture.html](docs/architecture.html) for the interactive diagram
+of the whole extension (open it directly in a browser, no server needed).
 
 ## Development
 

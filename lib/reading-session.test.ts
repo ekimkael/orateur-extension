@@ -154,8 +154,3 @@ test("changing engine mid-reading stops the running one", async () => {
   assert.equal(s.reader.reading, false)
   assert.ok(speech.cancelled > 0)
 })
-
-test("a block request without a reading still gets an answer", async () => {
-  const s = session()
-  assert.equal(await s.reader.receive({ type: "orateur:tts:prepare-block" }), null)
-})

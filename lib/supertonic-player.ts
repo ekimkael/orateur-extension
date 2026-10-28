@@ -1,8 +1,8 @@
 /**
  * Supertonic, from the page's side: the TTS host (offscreen document on
  * Chrome, background page on Firefox) synthesizes, schedules and keeps the
- * position; this player only sends commands and translates the host's
- * `TTS_EVENT`s into `PlayerEvent`s.
+ * position; this player opens its own port to it (`lib/tts-port.ts`), sends
+ * commands and translates the host's `TTS_EVENT`s into `PlayerEvent`s.
  *
  * Value imports stay out of `lib/supertonic/*`: they would pull the engine
  * into the bundle of a script loaded on every page.
@@ -16,7 +16,10 @@ import { track } from "./telemetry.ts"
 import {
   TTS_CONTROL,
   TTS_EVENT,
+  TTS_OPEN,
+  TTS_PORT,
   TTS_PREPARE_BLOCK,
+  TTS_PREPARED,
   TTS_SEEK,
   TTS_SET_SPEED,
   TTS_SPEAK,
@@ -24,6 +27,7 @@ import {
   type TtsEventMessage,
   type TtsPrepareBlockMessage,
   type TtsPreparedBlock,
+  type TtsPreparedMessage,
   type TtsSeekMessage,
   type TtsSetSpeedMessage,
   type TtsSpeakMessage,
@@ -31,6 +35,13 @@ import {
 } from "./tts-messages.ts"
 import type { Player, PlayerOptions } from "./player.ts"
 
+/**
+ * Reads with Supertonic through the TTS host.
+ *
+ * @param options.lang The language already resolved for the whole text.
+ * @param options.token This tab's reader token, which the host compares with
+ *   `READER_TOKEN` to stop when another tab takes the floor.
+ */
 export function createSupertonicPlayer(options: PlayerOptions & { lang: SupportedLang; token: string }): Player {
   const { paragraphs, text, title, lang, startBlock, personalRules, source, token, prefs, emit } = options
 
@@ -55,9 +66,48 @@ export function createSupertonicPlayer(options: PlayerOptions & { lang: Supporte
    * pas à chaque lecture qui trouve le modèle déjà en cache.
    */
   let sawDownload = false
+  /** Resolves to the open port, or to null once the reading is over. */
+  let connection: Promise<Browser.runtime.Port | null> = Promise.resolve(null)
+  let port: Browser.runtime.Port | null = null
 
-  function control(action: TtsControlMessage["action"]) {
-    void browser.runtime.sendMessage({ type: TTS_CONTROL, action } satisfies TtsControlMessage)
+  /** Commands sent before the port opens wait for it, in order; a closed port takes nothing. */
+  function send(message: TtsSpeakMessage | TtsControlMessage | TtsSeekMessage | TtsSetSpeedMessage | TtsPreparedMessage) {
+    void connection.then((open) => {
+      if (open && open === port) open.postMessage(message)
+    })
+  }
+
+  function open() {
+    return browser.runtime.sendMessage({ type: TTS_OPEN }).catch(() => false).then((ready) => {
+      if (disposed) return null
+      if (!ready) {
+        emit({ phase: "error", reason: "preparation", message: browser.i18n.getMessage("errorSupertonicStartFailed") })
+        return null
+      }
+      const opened = browser.runtime.connect({ name: TTS_PORT })
+      opened.onMessage.addListener(receive)
+      // The host went away mid-reading (Chrome closes an idle offscreen
+      // document): nothing will answer this pill anymore.
+      opened.onDisconnect.addListener(() => {
+        port = null
+        if (!disposed) emit({ phase: "error", reason: "preparation" })
+      })
+      port = opened
+      return opened
+    })
+  }
+
+  function receive(message: Partial<TtsEventMessage> | Partial<TtsPrepareBlockMessage>) {
+    if (disposed) return
+    if (message.type === TTS_EVENT) {
+      const { state } = message as Partial<TtsEventMessage>
+      if (state) onState(state)
+    } else if (message.type === TTS_PREPARE_BLOCK) {
+      const request = message as Partial<TtsPrepareBlockMessage>
+      void prepare(request).catch(() => null).then((prepared) => {
+        send({ type: TTS_PREPARED, id: request.id!, prepared })
+      })
+    }
   }
 
   function onState(state: TtsState) {
@@ -101,7 +151,7 @@ export function createSupertonicPlayer(options: PlayerOptions & { lang: Supporte
 
   function prepare(message: Partial<TtsPrepareBlockMessage>): Promise<TtsPreparedBlock | null> {
     const index = message.block!
-    if (!source || message.token !== token ||
+    if (!source || !Number.isInteger(message.id) ||
       !Number.isInteger(index) || index < 0 || index >= paragraphs.length ||
       (message.prefetch !== undefined && typeof message.prefetch !== "boolean")) return Promise.resolve(null)
     return source.prepare(index, prefs().follow, !!message.prefetch, index > block ? "nearest" : "center").then((text): TtsPreparedBlock | null => {
@@ -114,15 +164,23 @@ export function createSupertonicPlayer(options: PlayerOptions & { lang: Supporte
     })
   }
 
+  /** Closing the port is what releases the host: it stops this reading. */
   function dispose() {
     disposed = true
+    try {
+      port?.disconnect()
+    } catch {
+      // Extension context invalidated: the port is already gone.
+    }
+    port = null
   }
 
   return {
     engine: "supertonic",
     start() {
       emit({ phase: "loading" })
-      void browser.runtime.sendMessage({
+      connection = open()
+      send({
         type: TTS_SPEAK,
         // Sur le texte de la page, l'annonce du titre n'y est écrite nulle
         // part : l'hôte la recolle au premier paragraphe (`splitBlocks`),
@@ -136,21 +194,19 @@ export function createSupertonicPlayer(options: PlayerOptions & { lang: Supporte
         personalRules,
         token,
         livePage: !!source,
-      } satisfies Partial<TtsSpeakMessage>).catch(() => {
-        if (!disposed) emit({ phase: "error", reason: "preparation" })
       })
     },
     pause() {
       paused = true
-      control("pause")
+      send({ type: TTS_CONTROL, action: "pause" })
     },
     resume() {
       paused = false
-      control("resume")
+      send({ type: TTS_CONTROL, action: "resume" })
     },
     seek(target) {
       block = target
-      void browser.runtime.sendMessage({ type: TTS_SEEK, block: target, paused } satisfies TtsSeekMessage)
+      send({ type: TTS_SEEK, block: target, paused })
     },
     update(previous) {
       // La vitesse s'applique tout de suite (audio.playbackRate, jamais de
@@ -163,23 +219,11 @@ export function createSupertonicPlayer(options: PlayerOptions & { lang: Supporte
       // pour l'entendre.
       const { speed } = prefs()
       if (speed !== previous.speed) {
-        void browser.runtime.sendMessage({ type: TTS_SET_SPEED, speed } satisfies TtsSetSpeedMessage)
+        send({ type: TTS_SET_SPEED, speed })
       }
     },
-    stop() {
-      dispose()
-      control("stop")
-    },
+    stop: dispose,
     dispose,
-    receive(message) {
-      if (disposed) return
-      if (message.type === TTS_EVENT) {
-        const { state } = message as Partial<TtsEventMessage>
-        if (state) onState(state)
-      } else if (message.type === TTS_PREPARE_BLOCK) {
-        return prepare(message as Partial<TtsPrepareBlockMessage>)
-      }
-    },
   }
 }
 

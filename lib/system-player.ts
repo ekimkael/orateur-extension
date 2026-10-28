@@ -10,6 +10,11 @@ import { toSupertonicLang } from "./supertonic-lang.ts"
 import { detectLang } from "./detect-lang.ts"
 import type { Player, PlayerOptions } from "./player.ts"
 
+/**
+ * Reads with `speechSynthesis`, one utterance per paragraph.
+ *
+ * @param options.lang The page's declared language; the text may override it.
+ */
 export function createSystemPlayer(options: PlayerOptions & { lang?: string }): Player {
   const { paragraphs, text: pageText, title, startBlock, personalRules, source, prefs, emit } = options
 

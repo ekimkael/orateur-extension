@@ -76,7 +76,6 @@ export default defineContentScript({
     })
 
     browser.runtime.onMessage.addListener(onMessage)
-    browser.runtime.onMessage.addListener(session.receive)
     browser.storage.onChanged.addListener(session.storageChanged)
     document.addEventListener("contextmenu", rememberContextTarget, true)
     const unsubscribeHiddenSites = onHiddenSitesChanged((sites) => {
@@ -94,7 +93,6 @@ export default defineContentScript({
     ctx.addEventListener(window, "pagehide", () => session.pageHidden())
     ctx.onInvalidated(() => {
       browser.runtime.onMessage.removeListener(onMessage)
-      browser.runtime.onMessage.removeListener(session.receive)
       browser.storage.onChanged.removeListener(session.storageChanged)
       document.removeEventListener("contextmenu", rememberContextTarget, true)
       unsubscribePrefs()

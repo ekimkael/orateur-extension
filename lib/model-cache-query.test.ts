@@ -13,7 +13,7 @@ function backgroundListeners(firefox: boolean): Listener[] {
   const listeners: Listener[] = []
   const event = { addListener() {} }
   const browser = {
-    runtime: { onMessage: { addListener: (listener: Listener) => listeners.push(listener) }, onInstalled: event },
+    runtime: { onMessage: { addListener: (listener: Listener) => listeners.push(listener) }, onInstalled: event, onConnect: event },
     contextMenus: { onClicked: event },
     storage: { onChanged: event },
     tabs: { onRemoved: event },
