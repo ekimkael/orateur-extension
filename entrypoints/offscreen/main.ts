@@ -1,11 +1,14 @@
 /**
  * L'hôte Supertonic côté Chrome : un document offscreen, seul contexte MV3
- * capable de DOM + `<audio>` hors d'un onglet. Le service worker relaie tout
- * dans les deux sens — ce document n'a que `chrome.runtime`, ni `tabs` ni
- * `storage` (vérifié en phase 0). Sur Firefox, l'hôte vit directement dans
- * la page de fond (voir background.ts) : ce fichier n'existe pas là-bas.
+ * capable de DOM + `<audio>` hors d'un onglet. Les lectures s'y connectent
+ * directement par port (`lib/tts-port.ts`) ; le service worker ne fait que
+ * l'ouvrir et lui relayer ce qu'il ne voit pas — ce document n'a que
+ * `chrome.runtime`, ni `tabs` ni `storage` (vérifié en phase 0). Sur Firefox,
+ * l'hôte vit directement dans la page de fond (voir background.ts) : ce
+ * fichier n'existe pas là-bas.
  */
 import { createTtsHost } from "../../lib/tts-host"
+import { createTtsServer } from "../../lib/tts-port"
 import { loadModelFiles } from "../../lib/supertonic/model-cache"
 import {
   MODEL_DOWNLOAD_CANCEL,
@@ -13,28 +16,12 @@ import {
   MODEL_PROGRESS,
   MODEL_STATE_QUERY,
   TTS_CLOSE,
-  TTS_CONTROL,
-  TTS_EVENT,
-  TTS_PREPARE_BLOCK,
-  TTS_SEEK,
-  TTS_SET_SPEED,
-  TTS_SPEAK,
   TTS_TAB_REMOVED,
   TTS_TOKEN_CHANGED,
   type ModelProgressState,
-  type TtsControlMessage,
-  type TtsEventMessage,
-  type TtsPrepareBlockMessage,
-  type TtsPreparedBlock,
-  type TtsSeekMessage,
-  type TtsSetSpeedMessage,
-  type TtsSpeakMessage,
   type TtsTabRemovedMessage,
   type TtsTokenChangedMessage,
 } from "../../lib/tts-messages"
-
-let currentTabId: number | null = null
-let currentToken: string | null = null
 
 /**
  * ponytail: hôte gardé au chaud 3 min après le dernier événement — trop
@@ -60,7 +47,7 @@ function scheduleIdleClose() {
     }
     // Défensif : `stop()` a déjà tout révoqué à la fin normale d'une
     // lecture, mais un hôte resté en pause n'a jamais purgé ses créneaux.
-    host.control("stop")
+    server.stop()
     void browser.runtime.sendMessage({ type: TTS_CLOSE }).catch(() => {})
   }, IDLE_CLOSE_MS)
 }
@@ -111,97 +98,25 @@ async function runModelDownload() {
   }
 }
 
-const host = createTtsHost((state) => {
+const server = createTtsServer((forward) => createTtsHost((state) => {
   scheduleIdleClose()
-  if (currentTabId == null) return
-  const event: TtsEventMessage = { type: TTS_EVENT, tabId: currentTabId, state }
-  void browser.runtime.sendMessage(event).catch(() => {})
-  if (state.phase === "ended" || state.phase === "error") {
-    currentTabId = null
-    currentToken = null
-  }
-})
+  forward(state)
+}))
+browser.runtime.onConnect.addListener(server.connect)
 
 // Un document sans lecture ne doit pas non plus rester ouvert indéfiniment
 // — l'arrivée du premier TTS_SPEAK relance le compte comme n'importe quel
 // autre événement.
 scheduleIdleClose()
 
-type IncomingMessage =
-  | Partial<TtsSpeakMessage>
-  | Partial<TtsControlMessage>
-  | Partial<TtsSetSpeedMessage>
-  | Partial<TtsSeekMessage>
-  | Partial<TtsTokenChangedMessage>
-  | Partial<TtsTabRemovedMessage>
-
-browser.runtime.onMessage.addListener((message: IncomingMessage, sender) => {
-  // Un message envoyé par une pastille arrive ici en double : une fois tel
-  // quel (diffusion directe aux contextes de l'extension, `sender.tab`
-  // renseigné), une fois relayé par le service worker (`sender.tab` absent —
-  // c'est lui l'expéditeur de ce second envoi). Seul le relais compte : lui
-  // seul porte le `tabId` que le service worker y a ajouté.
+browser.runtime.onMessage.addListener((message: Partial<TtsTokenChangedMessage> | Partial<TtsTabRemovedMessage>, sender) => {
+  // Seul le service worker relaie ces signaux ; une pastille n'a rien à dire ici.
   if (sender.tab) return
-
-  if (message?.type === TTS_SPEAK) {
-    if (message.tabId == null || !message.text || !message.lang || !message.voice) return
-    const tabId = message.tabId
-    const token = message.token
-    if (message.livePage && (typeof token !== "string" || !token)) return
-    currentTabId = message.tabId
-    currentToken = message.token ?? null
-    host.speak({
-      text: message.text,
-      lang: message.lang,
-      voice: message.voice,
-      speed: message.speed ?? 1,
-      startBlock: message.startBlock,
-      personalRules: message.personalRules,
-      prepareParagraph: message.livePage ? (block, prefetch = false) => browser.runtime.sendMessage({
-        type: TTS_PREPARE_BLOCK,
-        tabId,
-        token: token!,
-        block,
-        prefetch,
-      } satisfies TtsPrepareBlockMessage) as Promise<TtsPreparedBlock> : undefined,
-    })
-    return
-  }
-  if (message?.type === TTS_CONTROL && message.action) {
-    host.control(message.action)
-    return
-  }
-  if (message?.type === TTS_SET_SPEED && message.speed != null) {
-    host.setSpeed(message.speed)
-    return
-  }
-  if (message?.type === TTS_SEEK && Number.isInteger(message.block) && message.block! >= 0 && typeof message.paused === "boolean") {
-    host.seek(message.block!, message.paused)
-    return
-  }
-  if (message?.type === TTS_TOKEN_CHANGED) {
-    // Notre propre jeton qui repasse (rien à faire), ou un autre onglet qui
-    // vient de prendre la parole : dans ce dernier cas l'audio continuerait
-    // sans plus aucune pastille pour l'arrêter si on ne coupait pas ici.
-    if (message.token === currentToken) return
-    host.control("stop")
-    currentTabId = null
-    currentToken = null
-    return
-  }
-  if (message?.type === TTS_TAB_REMOVED) {
-    // Filet complémentaire à READER_TOKEN : l'onglet qui lisait a pu être
-    // fermé sans qu'aucun autre n'ait pris la parole entre-temps.
-    if (message.tabId !== currentTabId) return
-    host.control("stop")
-    currentTabId = null
-    currentToken = null
-  }
+  if (message?.type === TTS_TOKEN_CHANGED) server.tokenChanged(message.token)
+  else if (message?.type === TTS_TAB_REMOVED && message.tabId != null) server.tabRemoved(message.tabId)
 })
 
-// Téléchargement du modèle : START/CANCEL/STATE_QUERY n'ont pas le problème
-// de double réception ci-dessus (voir l'en-tête de tts-messages.ts), pas de
-// garde sur `sender.tab` à faire ici.
+// Téléchargement du modèle : START/CANCEL/STATE_QUERY, reçus directement.
 browser.runtime.onMessage.addListener(
   (message: { type?: string }, _sender, sendResponse) => {
     if (message?.type === MODEL_DOWNLOAD_START) {

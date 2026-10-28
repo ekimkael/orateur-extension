@@ -75,14 +75,14 @@ export default defineContentScript({
     // Site exclu (réglages → Sites) : ni pastille ni bulle sur ce domaine.
     // ponytail: pas d'abonnement aux changements ici, contrairement à la
     // pastille — retirer un site ramène la bulle au prochain rechargement.
-    if (isHidden(location.hostname, await loadHiddenSites())) return
+    const [hiddenSites, theme] = await Promise.all([loadHiddenSites(), loadUiPrefs()])
+    if (isHidden(location.hostname, hiddenSites)) return
 
     let captured: SelectionPayload | null = null
     /** Écouteurs de courte durée, actifs seulement quand la bulle est visible. */
     let watching: AbortController | null = null
     let pending = 0
 
-    const theme = await loadUiPrefs()
     const bubble = createBubble((action) => {
       if (captured) void browser.runtime.sendMessage(message(action, captured))
       dismiss()

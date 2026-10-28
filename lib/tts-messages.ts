@@ -2,6 +2,12 @@
  * Protocole entre la pastille (content script), le service worker et l'hôte
  * Supertonic (document offscreen sur Chrome, page de fond sur Firefox).
  *
+ * A reading talks to the host over its own `runtime.connect` port
+ * (`TTS_PORT`): commands one way, events and paragraph requests the other,
+ * with no relay through the service worker. The background only opens the
+ * host (`TTS_OPEN`) and forwards what the host cannot see by itself
+ * (`TTS_TOKEN_CHANGED`, `TTS_TAB_REMOVED`).
+ *
  * Seul module de ce lot que `reader.content.ts` a le droit d'importer avec
  * `supertonic-lang.ts` : aucune dépendance vers `lib/supertonic/*` ni
  * `lib/tts-host.ts`, pour que le moteur ne fuie jamais dans le bundle chargé
@@ -13,7 +19,13 @@ import type { SupertonicVoice } from "./supertonic/types"
 import type { SupportedLang } from "./supertonic-lang"
 import type { PronunciationRule } from "./pronunciation/personal.ts"
 
+/** Name of the port a reading opens to the host. */
+export const TTS_PORT = "orateur:tts"
+/** Asks the background to make sure the host exists; answers a boolean. */
+export const TTS_OPEN = "orateur:tts:open"
 export const TTS_SPEAK = "orateur:tts:speak"
+/** The tab's answer to a `TTS_PREPARE_BLOCK` request, matched by `id`. */
+export const TTS_PREPARED = "orateur:tts:prepared"
 export const TTS_PREPARE_BLOCK = "orateur:tts:prepare-block"
 export const TTS_CONTROL = "orateur:tts:control"
 export const TTS_EVENT = "orateur:tts:event"
@@ -53,18 +65,12 @@ export interface TtsSpeakMessage {
   personalRules?: PronunciationRule[]
   /** Le jeton de la pastille émettrice — même mécanisme que READER_TOKEN. */
   token: string
-  /**
-   * Absent quand la pastille envoie ce message : elle ne connaît pas son
-   * propre onglet. Le service worker le renseigne depuis `sender.tab.id`
-   * avant de relayer vers l'hôte, qui en a besoin pour savoir à qui répondre.
-   */
-  tabId?: number
 }
 
+/** Host to tab: re-read paragraph `block` from the live page. */
 export interface TtsPrepareBlockMessage {
   type: typeof TTS_PREPARE_BLOCK
-  tabId?: number
-  token: string
+  id: number
   block: number
   prefetch?: boolean
 }
@@ -112,8 +118,14 @@ export type TtsState =
 
 export interface TtsEventMessage {
   type: typeof TTS_EVENT
-  tabId: number
   state: TtsState
+}
+
+export interface TtsPreparedMessage {
+  type: typeof TTS_PREPARED
+  id: number
+  /** `null`: nothing to read there anymore. */
+  prepared: TtsPreparedBlock | null
 }
 
 export interface TtsTokenChangedMessage {
@@ -151,8 +163,8 @@ export interface TtsCloseMessage {
  * REQUEST et START sont volontairement deux constantes distinctes : sur
  * Chrome, `runtime.sendMessage` depuis la page d'options atteint TOUS les
  * contextes de l'extension, document offscreen compris (aucun `sender.tab`
- * pour les distinguer, contrairement à TTS_SPEAK depuis une pastille — voir
- * plus haut). Si le document offscreen écoutait REQUEST directement, un
+ * pour les distinguer ; les pastilles, elles, passent par leur propre port
+ * — voir plus haut). Si le document offscreen écoutait REQUEST directement, un
  * appel arrivant alors qu'aucun document n'existe encore serait perdu, ET
  * une fois le document créé, il verrait la même REQUEST une seconde fois.
  * Seul le service worker (qui peut créer le document) écoute REQUEST ; seul

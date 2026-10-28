@@ -54,9 +54,9 @@ test("le moteur neuronal reçoit le sigle brut, capitales comprises", () => {
   assert.equal(expandText("du JSON en HTML", { language: "fr", skipPhonetic: true }), "du JSON en HTML")
 })
 
-test("deux-points : pause sur la prose, intact sur les heures et les URL", () => {
+test("deux-points : pause sur la prose, heures verbalisées, intact sur les rapports et les URL", () => {
   assert.equal(expandText("Titre : sous-titre", { language: "fr" }), "Titre, sous-titre")
-  assert.equal(expandText("14:30 et 3:1", { language: "fr" }), "14:30 et 3:1")
+  assert.equal(expandText("14:30 et 3:1", { language: "fr" }), "14 heures 30 et 3:1")
   assert.equal(expandText("https://exemple.fr", { language: "fr" }), "https://exemple.fr")
 })
 

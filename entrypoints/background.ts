@@ -7,7 +7,7 @@ import {
   type NotifyMessage,
   type ReadPagePayload,
   type StartReadingMessage,
-} from "./reader.content"
+} from "../lib/reader-messages.ts"
 import {
   GET_SELECTION,
   SELECTION_ACTION,
@@ -33,22 +33,10 @@ import {
   MODEL_PROGRESS,
   MODEL_STATE_QUERY,
   TTS_CLOSE,
-  TTS_CONTROL,
-  TTS_EVENT,
-  TTS_PREPARE_BLOCK,
-  TTS_SEEK,
-  TTS_SET_SPEED,
-  TTS_SPEAK,
+  TTS_OPEN,
   TTS_TAB_REMOVED,
   TTS_TOKEN_CHANGED,
   type ModelProgressState,
-  type TtsControlMessage,
-  type TtsEventMessage,
-  type TtsPrepareBlockMessage,
-  type TtsPreparedBlock,
-  type TtsSeekMessage,
-  type TtsSetSpeedMessage,
-  type TtsSpeakMessage,
 } from "../lib/tts-messages"
 import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessage } from "../lib/telemetry"
 // Importé sans condition, mais retiré du bundle Chrome par l'élimination de
@@ -57,6 +45,7 @@ import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessag
 // (entrypoints/offscreen/main.ts) — jamais ici, où il alourdirait le service
 // worker pour rien.
 import { createTtsHost } from "../lib/tts-host"
+import { createTtsServer } from "../lib/tts-port"
 import { seedEngine } from "../lib/reader-prefs"
 // Même garde `import.meta.env.FIREFOX` : côté Chrome, c'est le document
 // offscreen qui appelle loadModelFiles(), jamais ce fichier.
@@ -85,16 +74,17 @@ const SELECTION_ERROR_KEYS: Record<SelectionError, MessageKey> = {
 }
 
 /**
- * Relais Supertonic entre les pastilles et l'hôte.
+ * Ouverture de l'hôte Supertonic, auquel chaque lecture se connecte ensuite
+ * directement par port (voir lib/tts-port.ts).
  *
  * Chrome MV3 : l'hôte vit dans un document offscreen — seul contexte capable
  * de DOM et `<audio>` hors d'un onglet, mais sans `tabs` ni `storage`
- * (vérifié en phase 0). Le service worker fait le pont dans les deux sens,
- * et reste lui-même sans état : `chrome.offscreen.hasDocument()` est sa
- * seule mémoire, pour survivre à son propre redémarrage en pleine lecture.
+ * (vérifié en phase 0). Le service worker le crée, puis ne lui relaie que le
+ * jeton et la fermeture d'onglets, et reste lui-même sans état :
+ * `chrome.offscreen.hasDocument()` est sa seule mémoire.
  *
  * Firefox MV2 : pas de document offscreen. La page de fond persistante a
- * déjà tout ce qu'il faut — c'est elle l'hôte, directement, sans relais.
+ * déjà tout ce qu'il faut — c'est elle l'hôte, directement.
  */
 
 /** Faux si le document n'a pas pu être créé — l'appelant doit alors renoncer plutôt que relayer dans le vide. */
@@ -115,85 +105,17 @@ async function ensureOffscreen(): Promise<boolean> {
 }
 
 /** L'hôte Firefox — une seule instance, gardée en mémoire par la page de fond persistante. */
-let firefoxHost: ReturnType<typeof createTtsHost> | null = null
-let firefoxTabId: number | null = null
-let firefoxToken: string | null = null
-
-function ensureFirefoxHost() {
-  if (firefoxHost) return firefoxHost
-  firefoxHost = createTtsHost((state) => {
-    if (firefoxTabId == null) return
-    const event: TtsEventMessage = { type: TTS_EVENT, tabId: firefoxTabId, state }
-    void browser.tabs.sendMessage(firefoxTabId, event).catch(() => {})
-    if (state.phase === "ended" || state.phase === "error") {
-      firefoxTabId = null
-      firefoxToken = null
-    }
-  })
-  return firefoxHost
-}
-
-/** TTS_SPEAK / TTS_CONTROL / TTS_SET_SPEED envoyés par une pastille — toujours reçus ici avec `sender.tab`. */
-async function handleTtsFromPill(
-  message: Partial<TtsSpeakMessage> | Partial<TtsControlMessage> | Partial<TtsSetSpeedMessage> | Partial<TtsSeekMessage>,
-  tabId: number | undefined
-) {
-  if (import.meta.env.FIREFOX) {
-    const host = ensureFirefoxHost()
-    if (message.type === TTS_SPEAK) {
-      if (tabId == null || !message.text || !message.lang || !message.voice) return
-      const token = message.token
-      if (message.livePage && (typeof token !== "string" || !token)) return
-      firefoxTabId = tabId
-      firefoxToken = message.token ?? null
-      host.speak({
-        text: message.text,
-        lang: message.lang,
-        voice: message.voice,
-        speed: message.speed ?? 1,
-        startBlock: message.startBlock,
-        personalRules: message.personalRules,
-        prepareParagraph: message.livePage ? (block, prefetch = false) => browser.tabs.sendMessage(tabId, {
-          type: TTS_PREPARE_BLOCK,
-          token: token!,
-          block,
-          prefetch,
-        } satisfies TtsPrepareBlockMessage) as Promise<TtsPreparedBlock> : undefined,
-      })
-    } else if (message.type === TTS_CONTROL && message.action) {
-      host.control(message.action)
-    } else if (message.type === TTS_SET_SPEED && message.speed != null) {
-      host.setSpeed(message.speed)
-    } else if (message.type === TTS_SEEK && Number.isInteger(message.block) && message.block! >= 0 && typeof message.paused === "boolean") {
-      host.seek(message.block!, message.paused)
-    }
-    return
-  }
-
-  if (!(await ensureOffscreen())) {
-    // Sans document offscreen, aucun TTS_EVENT ne viendra jamais — sans ce
-    // relais direct, la pastille resterait sur "…" indéfiniment.
-    if (message.type === TTS_SPEAK && tabId != null) {
-      const event: TtsEventMessage = {
-        type: TTS_EVENT,
-        tabId,
-        state: { phase: "error", message: browser.i18n.getMessage("errorSupertonicStartFailed") },
-      }
-      void browser.tabs.sendMessage(tabId, event).catch(() => {})
-    }
-    return
-  }
-  await browser.runtime.sendMessage({ ...message, tabId }).catch(() => {})
-}
+let firefoxServer: ReturnType<typeof createTtsServer> | null = null
+const ensureFirefoxServer = () => (firefoxServer ??= createTtsServer(createTtsHost))
 
 /**
  * Téléchargement explicite du modèle depuis la page d'options (jalon 1d).
  *
  * Chrome : ce fichier ne fait que créer le document offscreen puis lui
- * relayer START, exactement comme `handleTtsFromPill` — l'état du
+ * relayer START — l'état du
  * téléchargement (et la réponse à MODEL_STATE_QUERY) vit là-bas, pas ici,
  * un service worker MV3 pouvant être redémarré en plein téléchargement.
- * Firefox : ce fichier EST l'hôte, comme pour `ensureFirefoxHost` — l'état
+ * Firefox : ce fichier EST l'hôte, comme pour `ensureFirefoxServer` — l'état
  * vit dans les variables `firefoxModel*` ci-dessous, à la même durée de vie
  * que la page de fond persistante.
  */
@@ -362,18 +284,21 @@ export default defineBackground({
     void handleTelemetryTrack(message.event)
   })
 
-  // TTS_SPEAK / TTS_CONTROL depuis une pastille : toujours reçus ici en
-  // premier, `sender.tab` fiable (contrairement au document offscreen, qui
-  // reçoit la même diffusion en double — voir offscreen/main.ts).
+  // Une lecture Supertonic s'apprête à se connecter : l'hôte doit exister.
+  // `return true` maintient le canal ouvert le temps de créer le document.
   browser.runtime.onMessage.addListener(
-    (
-      message: Partial<TtsSpeakMessage> | Partial<TtsControlMessage> | Partial<TtsSetSpeedMessage> | Partial<TtsSeekMessage>,
-      sender
-    ) => {
-      if (message?.type !== TTS_SPEAK && message?.type !== TTS_CONTROL && message?.type !== TTS_SET_SPEED && message?.type !== TTS_SEEK) return
-      void handleTtsFromPill(message, sender.tab?.id)
+    (message: { type?: string }, _sender, sendResponse) => {
+      if (message?.type !== TTS_OPEN) return
+      if (import.meta.env.FIREFOX) {
+        ensureFirefoxServer()
+        sendResponse(true)
+        return
+      }
+      void ensureOffscreen().then(sendResponse)
+      return true
     }
   )
+  if (import.meta.env.FIREFOX) browser.runtime.onConnect.addListener((port) => ensureFirefoxServer().connect(port))
 
   // Content scripts share the page's OPFS; only extension contexts can inspect this cache.
   browser.runtime.onMessage.addListener(
@@ -417,30 +342,7 @@ export default defineBackground({
     }
   )
 
-  // TTS_EVENT : dans l'autre sens, du document offscreen vers l'onglet
-  // propriétaire. N'existe que côté Chrome — la page de fond Firefox parle
-  // déjà directement à l'onglet dans `ensureFirefoxHost`.
   if (!import.meta.env.FIREFOX) {
-    browser.runtime.onMessage.addListener((message: Partial<TtsPrepareBlockMessage>, sender, sendResponse) => {
-      if (message?.type !== TTS_PREPARE_BLOCK || sender.tab || sender.id !== browser.runtime.id ||
-          !Number.isInteger(message.tabId) || message.tabId! < 0 ||
-          !Number.isInteger(message.block) || message.block! < 0 ||
-          typeof message.token !== "string" || !message.token ||
-          (message.prefetch !== undefined && typeof message.prefetch !== "boolean")) return
-      void browser.tabs.sendMessage(message.tabId!, {
-        type: TTS_PREPARE_BLOCK,
-        token: message.token,
-        block: message.block!,
-        prefetch: message.prefetch,
-      } satisfies TtsPrepareBlockMessage).then(sendResponse, () => sendResponse(null))
-      return true
-    })
-
-    browser.runtime.onMessage.addListener((message: Partial<TtsEventMessage>) => {
-      if (message?.type !== TTS_EVENT || message.tabId == null) return
-      void browser.tabs.sendMessage(message.tabId, message).catch(() => {})
-    })
-
     // Démontage : l'hôte demande sa propre fermeture après une inactivité
     // prolongée (voir offscreen/main.ts). Rien d'équivalent sur Firefox — la
     // page de fond persistante n'a pas de pendant à `closeDocument()`, et
@@ -458,26 +360,14 @@ export default defineBackground({
   browser.storage.onChanged.addListener((changes) => {
     if (!(READER_TOKEN in changes)) return
     const token = changes[READER_TOKEN].newValue as string | undefined
-    if (import.meta.env.FIREFOX) {
-      if (token === firefoxToken) return
-      firefoxHost?.control("stop")
-      firefoxTabId = null
-      firefoxToken = null
-      return
-    }
+    if (import.meta.env.FIREFOX) return firefoxServer?.tokenChanged(token)
     void browser.runtime.sendMessage({ type: TTS_TOKEN_CHANGED, token }).catch(() => {})
   })
 
   // Filet complémentaire : l'onglet qui lisait a pu être fermé sans qu'aucun
   // autre n'ait pris la parole — READER_TOKEN ne bouge pas dans ce cas.
   browser.tabs.onRemoved.addListener((tabId) => {
-    if (import.meta.env.FIREFOX) {
-      if (tabId !== firefoxTabId) return
-      firefoxHost?.control("stop")
-      firefoxTabId = null
-      firefoxToken = null
-      return
-    }
+    if (import.meta.env.FIREFOX) return firefoxServer?.tabRemoved(tabId)
     void browser.runtime.sendMessage({ type: TTS_TAB_REMOVED, tabId }).catch(() => {})
   })
 

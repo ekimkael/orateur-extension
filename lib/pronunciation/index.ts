@@ -22,7 +22,7 @@
 import * as en from './en.ts';
 import * as fr from './fr.ts';
 import { splitPronunciationSegments, type PronunciationRule } from './personal.ts';
-import { normalizeSpokenNumbers } from './numbers.ts';
+import { normalizeSpokenNumbers, verbalizeNumericForms } from './numbers.ts';
 
 export type { PronunciationRule } from './personal.ts';
 
@@ -102,7 +102,7 @@ function expandBuiltins(raw: string, language: string, skipPhonetic = false, aft
   // Preserve left context for punctuation ("API : suite") without exposing
   // any personal replacement to the builtins. Every builtin leaves this marker intact.
   const prefix = afterReplacement ? '\uE000' : '';
-  let result = normalizeSpokenNumbers(prefix + raw, language);
+  let result = verbalizeNumericForms(normalizeSpokenNumbers(prefix + raw, language), language);
 
   for (const [pattern, replacement] of UNIVERSAL) result = result.replace(pattern, replacement);
 
