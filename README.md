@@ -178,9 +178,11 @@ a configured extension/product ID are selected; no configured store makes the jo
 
 Release builds require the Actions variables `WXT_POSTHOG_KEY` and
 `WXT_POSTHOG_REGION` (`eu` or `us`); local builds can omit them. Store
-credentials live in repository secrets; configure them with `npx wxt submit init`.
-The workflow also supports a manual `dry_run` to check store authentication
-without submitting. See [analytics release setup](docs/analytics.md) and
+credentials (generated with `npx wxt submit init`) live in the `store` GitHub
+environment, never in repository secrets: restrict its deployment branches and
+tags to `main` and `v*`, and require a reviewer. The workflow also supports a
+manual `dry_run` to check store authentication without submitting; a manual
+real submission must run from `main`. See [analytics release setup](docs/analytics.md) and
 [the testing guide](docs/testing.md) for verification requirements.
 
 ## Documentation
