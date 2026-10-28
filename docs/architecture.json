@@ -1,0 +1,237 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Orateur extension — how reading fits together",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "layout": {
+    "mode": "grid",
+    "cols": 4,
+    "cellW": 200,
+    "cellH": 72,
+    "gapX": 120,
+    "gapY": 100
+  },
+  "components": [
+    {
+      "id": "bubble",
+      "type": "frontend",
+      "label": "Selection bubble",
+      "sublabel": "read or save a selection",
+      "tag": "selection.content.ts",
+      "row": 0,
+      "col": 0,
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "background",
+      "type": "backend",
+      "label": "Background",
+      "sublabel": "menus, extraction, opens host",
+      "tag": "background.ts",
+      "row": 0,
+      "col": 2,
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "pill",
+      "type": "frontend",
+      "label": "Reader pill",
+      "sublabel": "view + listeners",
+      "tag": "reader.content.ts",
+      "row": 1,
+      "col": 0,
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "session",
+      "type": "frontend",
+      "label": "Reading session",
+      "sublabel": "engine, position, progress",
+      "tag": "lib/reading-session.ts",
+      "row": 1,
+      "col": 1,
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "storage",
+      "type": "database",
+      "label": "storage.local",
+      "sublabel": "settings, progress, token",
+      "row": 1,
+      "col": 3,
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "system",
+      "type": "frontend",
+      "label": "SystemPlayer",
+      "sublabel": "paragraph + word",
+      "tag": "lib/system-player.ts",
+      "row": 2,
+      "col": 0,
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "supertonic",
+      "type": "frontend",
+      "label": "SupertonicPlayer",
+      "sublabel": "tab end of the port",
+      "tag": "lib/supertonic-player.ts",
+      "row": 2,
+      "col": 1,
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "host",
+      "type": "backend",
+      "label": "TTS host",
+      "sublabel": "one owner at a time",
+      "tag": "lib/tts-port.ts",
+      "row": 2,
+      "col": 3,
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "speech",
+      "type": "external",
+      "label": "speechSynthesis",
+      "sublabel": "browser voices",
+      "row": 3,
+      "col": 0,
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "onnx",
+      "type": "cloud",
+      "label": "ONNX Runtime Web",
+      "sublabel": "model cached in OPFS",
+      "row": 3,
+      "col": 3,
+      "size": [
+        200,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Content scripts (every page)",
+      "wraps": [
+        "bubble",
+        "pill",
+        "session",
+        "system",
+        "supertonic"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Offscreen doc (Chrome) / bg page (Firefox)",
+      "wraps": [
+        "host",
+        "onnx"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "selection",
+      "from": "bubble",
+      "to": "background",
+      "label": "selection"
+    },
+    {
+      "id": "start-reading",
+      "from": "background",
+      "to": "session",
+      "label": "START_READING"
+    },
+    {
+      "id": "actions",
+      "from": "pill",
+      "to": "session",
+      "label": "actions"
+    },
+    {
+      "id": "persist",
+      "from": "session",
+      "to": "storage",
+      "label": "progress, token"
+    },
+    {
+      "id": "play-system",
+      "from": "session",
+      "to": "system",
+      "label": "Player"
+    },
+    {
+      "id": "play-supertonic",
+      "from": "session",
+      "to": "supertonic",
+      "label": "Player",
+      "labelDy": 24
+    },
+    {
+      "id": "speak",
+      "from": "system",
+      "to": "speech",
+      "label": "utterances",
+      "labelDy": 24
+    },
+    {
+      "id": "port",
+      "from": "supertonic",
+      "to": "host",
+      "label": "port",
+      "variant": "emphasis"
+    },
+    {
+      "id": "signals",
+      "from": "background",
+      "to": "host",
+      "label": "open, token",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "right",
+      "labelDy": 52
+    },
+    {
+      "id": "infer",
+      "from": "host",
+      "to": "onnx",
+      "label": "inference",
+      "labelDy": 24
+    }
+  ]
+}
