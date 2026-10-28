@@ -1,0 +1,125 @@
+{
+  "pdfTitle": {
+    "message": "Orateur PDF"
+  },
+  "pdfDescription": {
+    "message": "Optional Orateur companion: listen to text-based PDFs with a local voice."
+  },
+  "menuReadPdfTitle": {
+    "message": "Read this PDF with Orateur PDF"
+  },
+  "pdfHeading": {
+    "message": "Listen to a PDF"
+  },
+  "pdfPrivacy": {
+    "message": "Your document and its speech are processed on this device."
+  },
+  "pdfChooseFile": {
+    "message": "Choose a PDF on this device"
+  },
+  "pdfPages": {
+    "message": "$1 pages"
+  },
+  "pdfProgress": {
+    "message": "PDF loading progress"
+  },
+  "pdfDownloading": {
+    "message": "Loading the document…"
+  },
+  "pdfExtracting": {
+    "message": "Extracting text: $1 / $2 pages"
+  },
+  "pdfCancel": {
+    "message": "Cancel"
+  },
+  "pdfCancelled": {
+    "message": "Extraction cancelled."
+  },
+  "pdfRetry": {
+    "message": "Try again"
+  },
+  "pdfError_protected": {
+    "message": "This PDF is protected. Open an accessible copy without a password or copying restriction."
+  },
+  "pdfError_no_text": {
+    "message": "This PDF has no text layer. Scanned documents need OCR, which is not available here."
+  },
+  "pdfError_download": {
+    "message": "This PDF could not be loaded. Check your connection and access to the document, or choose a copy on this device."
+  },
+  "pdfError_too_large": {
+    "message": "This PDF exceeds the reader’s limits: 50 MiB, 2,000 pages or 5 million characters. Choose a smaller document."
+  },
+  "pdfError_invalid": {
+    "message": "This file is not a valid PDF or its text cannot be extracted. Choose another PDF."
+  },
+  "pdfError_file_access": {
+    "message": "Access to this file is blocked. In Chrome, allow access to file URLs in the extension’s details, or use “Choose a PDF on this device”."
+  },
+  "pdfPlaybackControls": {
+    "message": "Playback controls"
+  },
+  "pdfEngine": {
+    "message": "Speech engine"
+  },
+  "pdfSystemVoice": {
+    "message": "Local system voice"
+  },
+  "pdfVoice": {
+    "message": "Voice"
+  },
+  "pdfSpeed": {
+    "message": "Speed"
+  },
+  "pdfModelNote": {
+    "message": "Supertonic downloads about 400 MB of models on first playback, then runs locally. This companion has its own cache."
+  },
+  "pdfModelDownloading": {
+    "message": "Downloading the speech model…"
+  },
+  "pdfPreparingVoice": {
+    "message": "Preparing speech…"
+  },
+  "pdfNoLocalVoice": {
+    "message": "No local system voice is available. Install a voice in your device’s settings or choose Supertonic."
+  },
+  "pdfNoLocalVoiceShort": {
+    "message": "No local voice"
+  },
+  "pdfVoiceLanguage": {
+    "message": "Supertonic does not support this language. Choose a local system voice."
+  },
+  "pdfSpeechError": {
+    "message": "Playback could not start. Try again or choose another local voice."
+  },
+  "pdfFinished": {
+    "message": "Playback finished."
+  },
+  "pdfPaused": {
+    "message": "Playback paused."
+  },
+  "pdfReadingParagraph": {
+    "message": "Paragraph $1 of $2"
+  },
+  "pdfPause": {
+    "message": "Pause"
+  },
+  "pdfResume": {
+    "message": "Resume"
+  },
+  "pdfRead": {
+    "message": "Read"
+  },
+  "pdfStop": {
+    "message": "Stop"
+  },
+  "pdfFollow": {
+    "message": "Follow reading"
+  },
+  "pdfExtractedText": {
+    "message": "Extracted PDF text"
+  },
+  "pdfEmpty": {
+    "message": "Open a PDF in your browser, then click the Orateur PDF icon. You can also choose a file here. Text-based PDFs only, up to 50 MiB; no OCR."
+  }
+}

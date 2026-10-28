@@ -105,37 +105,40 @@
     "message": "Default"
   },
   "voiceFemale1": {
-    "message": "Female 1"
+    "message": "Clara"
   },
   "voiceFemale2": {
-    "message": "Female 2"
+    "message": "Emma"
   },
   "voiceFemale3": {
-    "message": "Female 3"
+    "message": "Jade"
   },
   "voiceFemale4": {
-    "message": "Female 4"
+    "message": "Lina"
   },
   "voiceFemale5": {
-    "message": "Female 5"
+    "message": "Nora"
   },
   "voiceMale1": {
-    "message": "Male 1"
+    "message": "Adam"
   },
   "voiceMale2": {
-    "message": "Male 2"
+    "message": "Gabriel"
   },
   "voiceMale3": {
-    "message": "Male 3"
+    "message": "Hugo"
   },
   "voiceMale4": {
-    "message": "Male 4"
+    "message": "Louis"
   },
   "voiceMale5": {
-    "message": "Male 5"
+    "message": "Noah"
   },
   "selectionRead": {
     "message": "Listen"
+  },
+  "noticeSupertonicPrivateWindow": {
+    "message": "Private window: reading with the system voice. Download the natural voices from a normal window to use them here."
   },
   "noticeSupertonicLangUnsupported": {
     "message": "Language not supported by Supertonic: reading with the system voice."
@@ -171,10 +174,10 @@
     "message": "Clearing…"
   },
   "optionsTelemetryDescription": {
-    "message": "Off by default. If you turn it on, Orateur reports when a reading starts, whether the model download succeeded, and when an extraction fails."
+    "message": "On by default. Orateur reports readings, errors and model downloads. You can turn this tracking off at any time."
   },
   "optionsTelemetryEnable": {
-    "message": "Share anonymous usage statistics"
+    "message": "Share usage statistics"
   },
   "optionsHeading": {
     "message": "Settings"
@@ -354,12 +357,22 @@
     "message": "Privacy"
   },
   "optionsTelemetryNever": {
-    "message": "Never the text you listen to, never the pages you visit, never anything that identifies you."
+    "message": "No page text, titles or addresses are sent. A random identifier recognizes your browser while tracking stays enabled."
   },
   "optionsOpenApp": {
     "message": "Open Orateur"
   },
   "optionsSectionPronunciation": { "message": "Pronunciation" },
+  "pdfPronunciationLocal": { "message": "This dictionary belongs to the PDF reader. Rules in the main extension are saved separately." },
+  "pdfPronunciationHelp": { "message": "Correct how names, acronyms and specialist terms are spoken. Rules stay on this device and apply from the next PDF reading, without changing the displayed text." },
+  "pdfPronunciationPreviewHelp": { "message": "Listen uses the PDF reader’s engine, voice and speed. The preview stops the current reading, without resuming it automatically." },
+  "pdfPronunciationModelProgress": { "message": "Downloading the model — file $1 of $2" },
+  "pdfPronunciationModelPreparing": { "message": "Checking model files…" },
+  "pdfPronunciationModelDownloading": { "message": "Downloading" },
+  "pdfPronunciationModelUnavailable": { "message": "Unable to save the model on this device. Open a regular window with storage allowed, or select system voices to listen to rules." },
+  "pdfPronunciationModelDownloadHelp": { "message": "Keep this page open until the download finishes. Cancelling keeps files already downloaded." },
+  "pdfPronunciationModelCancelled": { "message": "Download cancelled. Try again to resume the missing files." },
+  "pdfPronunciationModelHelp": { "message": "Download the model once to listen to rules with natural voices. Files stay in the PDF reader, on this device." },
   "pronunciationHelp": { "message": "Correct how names, acronyms and specialist terms are spoken. Rules stay on this device and apply from the next reading, without changing the displayed text." },
   "pronunciationMatchingHelp": { "message": "Whole words and phrases match the paragraph’s language. Add plurals separately. Apostrophes and hyphens separate words; letters, digits and _ extend them. Accents matter. The longest phrase wins, then the case-sensitive rule. Personal rules take priority over built-in corrections, without cascading replacements." },
   "pronunciationMatchingDetails": { "message": "How rules are applied" },
@@ -383,9 +396,9 @@
   "pronunciationPreviewHelp": { "message": "The preview uses the selected engine, voice and reading speed. It stops the current reading, without resuming it automatically." },
   "pronunciationPreviewLoading": { "message": "Preparing the preview… You can stop it." },
   "pronunciationPreviewError": { "message": "Unable to play this preview. Try Listen again or select another voice." },
-  "pronunciationPreviewError_model-unavailable": { "message": "The AI model is unavailable. Download it to listen to the preview." },
-  "pronunciationPreviewError_invalid-rule": { "message": "Check the written text and its pronunciation, then try Listen again." },
-  "pronunciationPreviewError_no-voice": { "message": "No voice is available. Select another voice, then try again." },
+  "pronunciationPreviewError_model_unavailable": { "message": "The AI model is unavailable. Download it to listen to the preview." },
+  "pronunciationPreviewError_invalid_rule": { "message": "Check the written text and its pronunciation, then try Listen again." },
+  "pronunciationPreviewError_no_voice": { "message": "No voice is available. Select another voice, then try again." },
   "pronunciationModelMissing": { "message": "Download the AI model to listen with natural voices." },
   "pronunciationModelLink": { "message": "Manage the AI model" },
   "pronunciationEdit": { "message": "Edit" },
@@ -402,7 +415,7 @@
   "pronunciationSaved": { "message": "Rule for “$1” saved. It will apply from the next reading." },
   "pronunciationDeleted": { "message": "Rule for “$1” deleted." },
   "pronunciationError_required": { "message": "Enter text with at least one non-space character." },
-  "pronunciationError_too-long": { "message": "Shorten this text to $1 characters or fewer." },
+  "pronunciationError_too_long": { "message": "Shorten this text to $1 characters or fewer." },
   "pronunciationError_control": { "message": "Remove control characters, such as tabs and line breaks." },
   "pronunciationError_duplicate": { "message": "A rule already exists for this text, language and case setting. Edit the saved rule." },
   "pronunciationError_limit": { "message": "The limit of $1 rules has been reached. Delete a rule before adding another." },

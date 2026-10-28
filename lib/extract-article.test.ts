@@ -250,6 +250,23 @@ test("rejette une page trop pauvre en contenu", () => {
   assert.throws(() => extractArticle(doc), /article lisible/)
 })
 
+test("ne lit pas l'écran de blocage Cloudflare, même via le repli texte", () => {
+  // Structure observée sur un article Medium : HTTP 403, prose d'aide assez
+  // longue pour être confondue avec un article par Readability.
+  const doc = docFrom(`<html lang="en"><head><title>Attention Required! | Cloudflare</title></head><body>
+    <div id="cf-wrapper"><div id="cf-error-details">
+      <h1>Sorry, you have been blocked</h1>
+      <h2>Why have I been blocked?</h2>${paragraphs(3, "Security check")}
+      <h2>What can I do to resolve this?</h2>${paragraphs(2, "Contact support")}
+    </div></div>
+  </body></html>`, "https://medium.com/@author/article")
+  const before = doc.documentElement.outerHTML
+
+  assert.throws(() => extractArticle(doc), /article lisible/)
+  assert.equal(visibleText(doc).text, "")
+  assert.equal(doc.documentElement.outerHTML, before)
+})
+
 test("rejette une application web (dashboard)", () => {
   const doc = docFrom(
     `<html><body>

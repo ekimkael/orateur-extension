@@ -180,6 +180,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
    * tout seul.
    */
   let paused = false
+  let playAttempt = 0
 
   /** index d'unité → URL de blob prête à jouer. Ordre d'insertion = ordre de lecture. */
   const cache = new Map<number, string>()
@@ -409,6 +410,26 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     load((1 - active) as 0 | 1, next)
   }
 
+  /**
+   * Confirme la lecture uniquement quand `play()` a réellement démarré.
+   * Une pause ou une autre tentative invalide aussi sa promesse : la
+   * génération seule ne distingue pas deux reprises de la même unité.
+   */
+  function playCurrent(gen: number) {
+    const head = heads[active]
+    const i = index
+    const attempt = ++playAttempt
+    const isCurrent = () => gen === generation && attempt === playAttempt && !paused
+      && heads[active] === head && head.unitIndex === i
+    void head.audio.play().then(() => {
+      if (!isCurrent() || head.audio.paused || head.audio.ended) return
+      onState({ phase: "playing", block: units[i]?.paragraph ?? 0, total: paragraphCount() })
+    }).catch((e: unknown) => {
+      if (!isCurrent()) return
+      onState({ phase: "error", message: e instanceof Error ? e.message : String(e), reason: "audio-playback" })
+    })
+  }
+
   function playUnit(gen: number, i: number) {
     if (gen !== generation) return
     if (!cache.has(i)) return
@@ -424,11 +445,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       onState({ phase: "paused" })
       return
     }
-    onState({ phase: "playing", block: units[i]?.paragraph ?? 0, total: paragraphCount() })
-    heads[slot].audio.play().catch((e: unknown) => {
-      if (gen !== generation) return
-      onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
-    })
+    playCurrent(gen)
     preloadNext()
   }
 
@@ -534,6 +551,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   function control(action: TtsControlAction) {
     if (action === "pause") {
       paused = true
+      playAttempt++
       heads[active].audio.pause()
       onState({ phase: "paused" })
       return
@@ -551,12 +569,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       // ni en cours, `ended` y est faux, donc on tombe bien après ce retour
       // et `play()` plus bas la démarre.
       if (heads[active].audio.ended) return
-      const gen = generation
-      heads[active].audio.play().catch((e: unknown) => {
-        if (gen !== generation) return
-        onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
-      })
-      onState({ phase: "playing", block: units[index]?.paragraph ?? 0, total: paragraphCount() })
+      playCurrent(generation)
       return
     }
     // "stop" : une nouvelle génération invalide toute promesse en vol, sans

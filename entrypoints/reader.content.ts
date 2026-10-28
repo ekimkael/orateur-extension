@@ -158,6 +158,8 @@ export default defineContentScript({
      * eu lieu, pas à chaque lecture qui trouve le modèle déjà en cache.
      */
     let sawSupertonicDownload = false
+    let readingTelemetryStarted = false
+    let readingTelemetryFailed = false
     const token = Math.random().toString(36).slice(2)
     // Réassigné, pas figé : une lecture doit partir sur les réglages du moment,
     // y compris ceux changés depuis un autre onglet.
@@ -182,10 +184,16 @@ export default defineContentScript({
     const unsubscribePrefs = onPrefsChanged((newPrefs) => {
       const speedChanged = newPrefs.speed !== prefs.speed
       const voiceChanged = newPrefs.voiceURI !== prefs.voiceURI
+      const engineChanged = newPrefs.engine !== prefs.engine
       prefs = newPrefs
       pill.updatePrefs(newPrefs)
       follower.setEnabled(newPrefs.follow)
       if (!reading) return
+
+      // Neither engine can take over the other's queue: without this, Play
+      // resumed the old engine and the new choice was silently ignored. The
+      // saved progress lets the next start offer to pick up where it stopped.
+      if (engineChanged) return stop()
 
       if (usingSupertonic) {
         // La vitesse s'applique tout de suite (audio.playbackRate, jamais de
@@ -279,6 +287,7 @@ export default defineContentScript({
           label ? { label, percent: state.progress, reason: state.reason } : undefined
         )
       } else if (state.phase === "playing") {
+        trackReadingStarted("supertonic")
         if (sawSupertonicDownload) {
           sawSupertonicDownload = false
           track({ name: "supertonic_download_completed" })
@@ -293,10 +302,11 @@ export default defineContentScript({
         paused = true
         pill.setState("paused")
       } else if (state.phase === "ended") {
-        track({ name: "read_completed" })
+        trackReadingCompleted("supertonic")
         void clearReadingProgress(readingUrl)
         fold()
       } else if (state.phase === "error") {
+        trackReadingFailed("supertonic", state.reason === "audio-playback" ? "audio_playback" : "preparation")
         if (sawSupertonicDownload) {
           sawSupertonicDownload = false
           track({ name: "supertonic_download_failed", properties: { reason: classifyTtsError(state.message) } })
@@ -438,7 +448,14 @@ export default defineContentScript({
         // the text clearly contradicts it (Gmail declares its UI language,
         // not the message's), detection alone when nothing is declared.
         const supertonicLang = resolveDocLang(payload.lang, payload.text)
-        if (supertonicLang) {
+        // A private window must not trigger the 398 MB first download: the
+        // model may not persist there (OPFS is blocked in Firefox private
+        // browsing). An already cached model is still used.
+        const privateWithoutModel =
+          browser.extension.inIncognitoContext &&
+          !(await browser.runtime.sendMessage({ type: MODEL_CACHE_QUERY }).catch(() => false))
+        if (mine !== startGeneration) return
+        if (supertonicLang && !privateWithoutModel) {
           startSupertonic(payload, supertonicLang, startBlock, personalRules)
           return
         }
@@ -447,7 +464,9 @@ export default defineContentScript({
         // place.
         void browser.runtime.sendMessage({
           type: NOTIFY,
-          message: browser.i18n.getMessage("noticeSupertonicLangUnsupported"),
+          message: browser.i18n.getMessage(
+            supertonicLang ? "noticeSupertonicPrivateWindow" : "noticeSupertonicLangUnsupported"
+          ),
         } satisfies NotifyMessage)
       }
       startSystem(payload, startBlock, personalRules)
@@ -475,13 +494,15 @@ export default defineContentScript({
       paused = false
       markTab(true)
       sawSupertonicDownload = false
+      readingTelemetryStarted = false
+      readingTelemetryFailed = false
       supertonicTitle = payload.title ?? ""
-      track({ name: "read_started", properties: { engine: "supertonic" } })
       void browser.storage.local.set({ [READER_TOKEN]: token })
       pill.attach()
       pill.setState("loading", supertonicTitle, true)
       pill.setPosition(startBlock, readingTotal)
       void persistProgress(startBlock)
+      const mine = startGeneration
       void browser.runtime.sendMessage({
         type: TTS_SPEAK,
         text,
@@ -492,7 +513,12 @@ export default defineContentScript({
         startBlock,
         personalRules,
         token,
-      } satisfies Partial<TtsSpeakMessage>)
+      } satisfies Partial<TtsSpeakMessage>).catch(() => {
+        if (mine !== startGeneration || !reading || !usingSupertonic) return
+        trackReadingFailed("supertonic", "preparation")
+        fold()
+        pill.setState("error", readingTitle)
+      })
     }
 
     function startSystem(payload: ReadPagePayload, startBlock: number, personalRules: PronunciationRule[]) {
@@ -540,7 +566,8 @@ export default defineContentScript({
       paused = false
       stale = false
       markTab(true)
-      track({ name: "read_started", properties: { engine: "system" } })
+      readingTelemetryStarted = false
+      readingTelemetryFailed = false
       // Prendre la parole : les pastilles des autres onglets s'en déduisent.
       void browser.storage.local.set({ [READER_TOKEN]: token })
       // La pastille a pu être masquée : une lecture lancée depuis le menu
@@ -550,6 +577,30 @@ export default defineContentScript({
       pill.setPosition(startBlock, readingTotal)
       void persistProgress(startBlock)
       speak()
+    }
+
+    /**
+     * Compte une écoute au premier son confirmé, une seule fois par demande.
+     * Les réglages, paragraphes et reprises réutilisent ces gardes ; les
+     * générations des moteurs écartent leurs callbacks devenus obsolètes.
+     */
+    function trackReadingStarted(engine: ReaderEngine) {
+      if (readingTelemetryStarted) return
+      readingTelemetryStarted = true
+      track({ name: "read_started", properties: { engine } })
+    }
+
+    /** Une catégorie fermée par lecture suffit à repérer les écoutes en échec. */
+    function trackReadingFailed(engine: ReaderEngine, reason: "synthesis" | "audio_playback" | "preparation") {
+      if (readingTelemetryFailed) return
+      readingTelemetryFailed = true
+      track({ name: "read_failed", properties: { engine, reason } })
+    }
+
+    /** Arrivée en fin de file après un son, y compris après navigation ou erreurs. */
+    function trackReadingCompleted(engine: ReaderEngine) {
+      if (!readingTelemetryStarted) return
+      track({ name: "read_completed", properties: { engine, had_errors: readingTelemetryFailed } })
     }
 
     /**
@@ -575,7 +626,7 @@ export default defineContentScript({
     function play(block: number, from: number) {
       const text = blocks[block]
       if (text === undefined) {
-        track({ name: "read_completed" })
+        trackReadingCompleted("system")
         void clearReadingProgress(readingUrl)
         fold()
         return
@@ -592,10 +643,15 @@ export default defineContentScript({
       const spokenLang = blockLangs[block] ?? lang
       if (spokenLang && spokenLang !== "na") utterance.lang = spokenLang
       utterance.rate = prefs.speed
-      if (voice) utterance.voice = voice
+      // A saved voice overrides `lang`, including on a translated page.
+      // Let the browser choose when that voice speaks another language.
+      if (voice && (!utterance.lang || voice.lang.toLowerCase().split(/[-_]/)[0] === utterance.lang.toLowerCase().split(/[-_]/)[0])) {
+        utterance.voice = voice
+      }
 
       utterance.addEventListener("start", () => {
         if (mine !== generation) return
+        trackReadingStarted("system")
         blockIndex = block
         charIndex = from
         void persistProgress(block)
@@ -620,6 +676,7 @@ export default defineContentScript({
       // reste de l'article : avancer quand même, comme une fin naturelle.
       utterance.addEventListener("error", () => {
         if (mine !== generation) return
+        trackReadingFailed("system", "synthesis")
         play(block + 1, 0)
       })
       speechSynthesis.speak(utterance)
@@ -1013,6 +1070,21 @@ input.settings-control { margin: 2px 0 }
   color: var(--muted-foreground);
 }
 .settings-note strong { color: var(--foreground); font-weight: 600 }
+.settings-download {
+  width: 100%;
+  height: auto;
+  min-height: 36px;
+  margin-top: 8px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+.settings-download:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 88%, black) }
+.settings-download:focus-visible { outline-color: var(--foreground) }
 `
 
 /** Libellé et intitulé accessible de chaque bouton, état par état. */
@@ -1379,7 +1451,17 @@ function createPill(
   supertonicNote.className = "settings-note"
   const noteLead = document.createElement("strong")
   const noteRest = document.createElement("div")
-  supertonicNote.append(noteLead, noteRest)
+  // The download happens on the first Supertonic reading, so the button just
+  // starts one: progress then shows in the pill, where the eye already is.
+  const noteDownload = document.createElement("button")
+  noteDownload.type = "button"
+  noteDownload.className = "settings-download"
+  noteDownload.addEventListener("click", () => {
+    closePopover()
+    // Already loading or reading: onPrimary would pause, not download.
+    if (currentState === "idle" || currentState === "error") onPrimary()
+  })
+  supertonicNote.append(noteLead, noteRest, noteDownload)
   popover.append(supertonicNote)
 
   const speed = document.createElement("input")
@@ -1505,6 +1587,7 @@ function createPill(
     if (supertonicNote.hidden) return
     noteLead.textContent = browser.i18n.getMessage("optionsModelAlertPendingLead")
     noteRest.textContent = browser.i18n.getMessage("optionsModelAlertPending")
+    noteDownload.textContent = browser.i18n.getMessage("optionsModelDownloadCta")
   }
 
   async function refreshModelCached() {

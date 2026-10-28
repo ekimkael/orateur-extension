@@ -105,37 +105,40 @@
     "message": "Par défaut"
   },
   "voiceFemale1": {
-    "message": "Femme 1"
+    "message": "Clara"
   },
   "voiceFemale2": {
-    "message": "Femme 2"
+    "message": "Emma"
   },
   "voiceFemale3": {
-    "message": "Femme 3"
+    "message": "Jade"
   },
   "voiceFemale4": {
-    "message": "Femme 4"
+    "message": "Lina"
   },
   "voiceFemale5": {
-    "message": "Femme 5"
+    "message": "Nora"
   },
   "voiceMale1": {
-    "message": "Homme 1"
+    "message": "Adam"
   },
   "voiceMale2": {
-    "message": "Homme 2"
+    "message": "Gabriel"
   },
   "voiceMale3": {
-    "message": "Homme 3"
+    "message": "Hugo"
   },
   "voiceMale4": {
-    "message": "Homme 4"
+    "message": "Louis"
   },
   "voiceMale5": {
-    "message": "Homme 5"
+    "message": "Noah"
   },
   "selectionRead": {
     "message": "Lire"
+  },
+  "noticeSupertonicPrivateWindow": {
+    "message": "Fenêtre privée : lecture avec la voix système. Téléchargez les voix naturelles depuis une fenêtre normale pour les utiliser ici."
   },
   "noticeSupertonicLangUnsupported": {
     "message": "Langue non prise en charge par Supertonic : lecture avec la voix système."
@@ -171,10 +174,10 @@
     "message": "Effacement…"
   },
   "optionsTelemetryDescription": {
-    "message": "Désactivé par défaut. Si vous l'activez, Orateur signale quand une lecture démarre, si le téléchargement du modèle a réussi, et quand une extraction échoue."
+    "message": "Activé par défaut. Orateur signale les lectures, les erreurs et les téléchargements du modèle. Vous pouvez désactiver ce suivi à tout moment."
   },
   "optionsTelemetryEnable": {
-    "message": "Partager des statistiques d'usage anonymes"
+    "message": "Partager des statistiques d'usage"
   },
   "optionsHeading": {
     "message": "Réglages"
@@ -354,12 +357,22 @@
     "message": "Confidentialité"
   },
   "optionsTelemetryNever": {
-    "message": "Jamais le texte que vous écoutez, jamais les pages que vous visitez, jamais rien qui vous identifie."
+    "message": "Aucun texte, titre ou adresse de page envoyé. Un identifiant aléatoire permet de reconnaître votre navigateur tant que le suivi reste activé."
   },
   "optionsOpenApp": {
     "message": "Ouvrir Orateur"
   },
   "optionsSectionPronunciation": { "message": "Prononciation" },
+  "pdfPronunciationLocal": { "message": "Ce dictionnaire est propre au lecteur PDF. Les règles de l’extension principale sont enregistrées séparément." },
+  "pdfPronunciationHelp": { "message": "Corrigez la prononciation des noms, sigles et termes métier. Ces règles restent sur cet appareil et s’appliquent dès la prochaine lecture PDF, sans changer le texte affiché." },
+  "pdfPronunciationPreviewHelp": { "message": "Écouter utilise le moteur, la voix et la vitesse du lecteur PDF. L’aperçu arrête la lecture en cours, sans reprise automatique." },
+  "pdfPronunciationModelProgress": { "message": "Téléchargement du modèle — fichier $1 sur $2" },
+  "pdfPronunciationModelPreparing": { "message": "Vérification des fichiers du modèle…" },
+  "pdfPronunciationModelDownloading": { "message": "Téléchargement en cours" },
+  "pdfPronunciationModelUnavailable": { "message": "Impossible de conserver le modèle sur cet appareil. Ouvrez une fenêtre normale avec le stockage autorisé, ou choisissez les voix système pour écouter les règles." },
+  "pdfPronunciationModelDownloadHelp": { "message": "Gardez cette page ouverte jusqu’à la fin. Annuler conserve les fichiers déjà téléchargés." },
+  "pdfPronunciationModelCancelled": { "message": "Téléchargement annulé. Réessayez pour reprendre les fichiers manquants." },
+  "pdfPronunciationModelHelp": { "message": "Téléchargez le modèle une fois pour écouter les règles avec les voix naturelles. Les fichiers restent dans le lecteur PDF, sur cet appareil." },
   "pronunciationHelp": { "message": "Corrigez la prononciation des noms, sigles et termes métier. Ces règles restent sur cet appareil et s’appliquent dès la prochaine lecture, sans changer le texte affiché." },
   "pronunciationMatchingHelp": { "message": "Les mots et expressions entiers sont reconnus dans la langue du paragraphe. Ajoutez les pluriels séparément. Apostrophes et tirets séparent les mots ; lettres, chiffres et _ les prolongent. Les accents comptent. L’expression la plus longue gagne, puis la règle respectant la casse. Vos règles passent avant les corrections intégrées, sans remplacement en cascade." },
   "pronunciationMatchingDetails": { "message": "Comment les règles s’appliquent" },
@@ -383,9 +396,9 @@
   "pronunciationPreviewHelp": { "message": "L’aperçu utilise le moteur, la voix et la vitesse de lecture sélectionnés. Il arrête la lecture en cours, sans reprise automatique." },
   "pronunciationPreviewLoading": { "message": "Préparation de l’aperçu… Vous pouvez l’arrêter." },
   "pronunciationPreviewError": { "message": "Impossible de lire cet aperçu. Réessayez avec Écouter ou choisissez une autre voix." },
-  "pronunciationPreviewError_model-unavailable": { "message": "Le modèle IA n’est pas disponible. Téléchargez-le pour écouter l’aperçu." },
-  "pronunciationPreviewError_invalid-rule": { "message": "Vérifiez le texte écrit et sa prononciation, puis réessayez avec Écouter." },
-  "pronunciationPreviewError_no-voice": { "message": "Aucune voix n’est disponible. Choisissez une autre voix, puis réessayez." },
+  "pronunciationPreviewError_model_unavailable": { "message": "Le modèle IA n’est pas disponible. Téléchargez-le pour écouter l’aperçu." },
+  "pronunciationPreviewError_invalid_rule": { "message": "Vérifiez le texte écrit et sa prononciation, puis réessayez avec Écouter." },
+  "pronunciationPreviewError_no_voice": { "message": "Aucune voix n’est disponible. Choisissez une autre voix, puis réessayez." },
   "pronunciationModelMissing": { "message": "Téléchargez le modèle IA pour écouter avec les voix naturelles." },
   "pronunciationModelLink": { "message": "Gérer le modèle IA" },
   "pronunciationEdit": { "message": "Modifier" },
@@ -402,7 +415,7 @@
   "pronunciationSaved": { "message": "Règle pour « $1 » enregistrée. Elle s’appliquera dès la prochaine lecture." },
   "pronunciationDeleted": { "message": "Règle pour « $1 » supprimée." },
   "pronunciationError_required": { "message": "Saisissez un texte contenant au moins un caractère autre qu’un espace." },
-  "pronunciationError_too-long": { "message": "Raccourcissez ce texte à $1 caractères maximum." },
+  "pronunciationError_too_long": { "message": "Raccourcissez ce texte à $1 caractères maximum." },
   "pronunciationError_control": { "message": "Retirez les caractères de contrôle, comme les tabulations et les retours à la ligne." },
   "pronunciationError_duplicate": { "message": "Une règle existe déjà pour ce texte, cette langue et ce mode de casse. Modifiez la règle enregistrée." },
   "pronunciationError_limit": { "message": "La limite de $1 règles est atteinte. Supprimez une règle avant d’en ajouter une." },

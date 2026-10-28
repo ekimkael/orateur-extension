@@ -11,8 +11,17 @@
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
+    "dev:pdf": "wxt -c wxt.pdf.config.ts",
+    "dev:pdf:firefox": "wxt -c wxt.pdf.config.ts -b firefox",
+    "build:pdf": "wxt build -c wxt.pdf.config.ts",
+    "build:pdf:firefox": "wxt build -c wxt.pdf.config.ts -b firefox",
+    "zip:pdf": "wxt zip -c wxt.pdf.config.ts",
+    "zip:pdf:firefox": "wxt zip -c wxt.pdf.config.ts -b firefox",
     "compile": "wxt prepare && tsc --noEmit",
-    "test": "node --test --experimental-test-module-mocks \"lib/**/*.test.ts\"",
+    "test": "node --test --experimental-test-module-mocks \"lib/**/*.test.ts\" \"tests/*.test.mjs\"",
+    "test:packages": "node scripts/check-packages.mjs",
+    "test:e2e": "node scripts/test-browser.mjs",
+    "test:e2e:firefox": "node scripts/test-browser.mjs firefox",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
@@ -26,6 +35,8 @@
     "@wxt-dev/module-react": "^1.2.2",
     "jsdom": "^29.1.1",
     "onnxruntime-web": "^1.26.0",
+    "pdfjs-dist": "6.4.299",
+    "puppeteer": "25.14.0",
     "typescript": "^5.9.3",
     "web-ext": "^10.6.0",
     "wxt": "^0.21.4"

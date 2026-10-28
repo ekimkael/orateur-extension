@@ -1,16 +1,21 @@
 # Selected-text reading
 
-Select text on any page and have Orateur read it, either via the context
+Select text on a supported page and have Orateur read it, either via the context
 menu or a floating bubble. Two actions, but only the context menu offers both:
 
 - **Read** — read the selection out loud right there, on the page. Same
   pastille, same engines (system voice or Supertonic), as "Read this page"
-  (see `entrypoints/reader.content.ts`). No network call. Available from the
+  (see `entrypoints/reader.content.ts`). Available from the
   bubble and the context menu.
 - **Read later** — hand the selection off to the Orateur web app, to listen
-  to whenever. This is the only path of the two that leaves the browser.
+  to whenever. This action transfers the selected content to the web app.
   Context menu only: the bubble is a shortcut for reading right away, not a
   queue manager.
+
+In-place reading does not send the selected text to the Orateur web app.
+Supertonic requires an initial model download; browser system voices may use
+their provider's online service. Configured usage analytics follow the privacy
+setting and exclude selected text. See [privacy](../PRIVACY.md).
 
 ## What the feature does — and doesn't do
 
@@ -35,7 +40,7 @@ Nothing is duplicated with the article-saving flow.
 | --- | --- |
 | `lib/selection-text.ts` | DOM extraction → plain text, normalization, validation, truncation. Pure, tested. |
 | `lib/bubble-position.ts` | Bubble placement within the viewport. Pure, tested. |
-| `lib/handoff.ts` | Adds `textToParagraphHtml()` to the existing code: text → escaped paragraphs. |
+| `lib/handoff.ts` | Builds import URLs and converts text into escaped HTML paragraphs. |
 | `entrypoints/selection.content.ts` | Selection detection, floating bubble, response to the background. |
 | `entrypoints/background.ts` | Context-menu entry, action handling, opening the reader. |
 
@@ -51,10 +56,11 @@ back to `info.selectionText` if the script isn't there.
 `mousedown` and `keyup` on the document. On release, it reads the
 selection on the next tick (it isn't settled yet), and shows the bubble
 with its single "Read" button. Clicking it sends
-`{ type: "orateur:selection-action", action: "read", text, title, lang }`
+`{ type: "orateur:selection-action", action: "read", text, truncated, title, lang }`
 to the background, which routes to `read()`. The message shape still
-carries `action: "read" | "save"` — the context menu is the other sender,
-and its "save" reaches the same listener via `selectionFromMenu()`.
+carries `action: "read" | "save"`; context-menu clicks call
+`selectionFromMenu()` directly, which routes to the same reading and saving
+functions.
 
 ## Decisions
 
@@ -67,13 +73,18 @@ wraps each block in a `<p>` — the trip is reversible and no fragment of
 the page can come back as markup. The selection is treated as untrusted
 data end to end; nothing is ever built with `innerHTML`.
 
-**The bubble costs access to all pages.** The rest of the extension runs
-on `activeTab` alone, with no install-time warning. The bubble has to be
-present *before* the user's gesture, so its content script declares
-`matches: ["<all_urls>"]` — which triggers the "read and change your data
-on all websites" warning. The context menu, on the other hand, costs
-nothing. Removing the bubble would make the permission unnecessary; the
-reverse isn't true.
+**The bubble and reader require website access.** Both content scripts
+declare `matches: ["<all_urls>"]` so their controls are available before
+the user's gesture. The manifest also requests `<all_urls>` host access
+so the reading pill can trigger article extraction. `activeTab` remains
+available for toolbar and context-menu gestures when website access is
+restricted to clicks. Removing the bubble alone would not remove the
+permission requirement.
+
+**Site exclusions suppress the bubble at page load.** The bubble reads
+Settings → Sites when its content script starts. Reload the page after
+changing an exclusion to update the bubble; it does not subscribe to those
+changes. Its color theme does follow settings changes immediately.
 
 **"Read later" doesn't check for an in-progress read.** It always opens a
 tab to `/articles/new`, just like saving an article. Orateur is the one
@@ -117,25 +128,15 @@ Focus is never stolen: taking it would clear the selection.
 | --- | --- |
 | Same-origin **and** cross-origin iframes | Bubble and text extraction work: `allFrames: true` gives each frame its own instance. "Read" plays fine too, but the reading pill lives in the main frame, so the paragraph-follow highlight (`createFollower` in `entrypoints/reader.content.ts`) can't find the source element there — `findAnchor` returns `null` and nothing gets painted, same as any unmatched block. |
 | A selection starting mid-paragraph | Reads and saves fine — the extracted text just starts wherever the selection did. The follow highlight won't necessarily find the exact same substring in the DOM; same "no match, nothing painted" fallback as above. |
-| Open shadow DOM | Works, selection passes through. |
-| Closed shadow DOM | Selection isn't exposed by the browser; the bubble doesn't show. |
-| PDF viewer | No content script runs there, so neither the bubble nor "Read" is available. The context menu still shows both entries, falling back to `info.selectionText`: "Listen to selection later" opens Orateur as usual, but "Read" can't reach a pastille to read with and shows the `errorPageNotInjectable` badge instead. |
+| Shadow DOM | Depends on what the browser exposes through `window.getSelection()` and cloned ranges; closed roots are not traversed. |
+| Built-in PDF viewer | No content script runs there, so the bubble is unavailable. If the browser exposes selected text to the context menu, "Listen to selection later" can send it to Orateur. In-place "Read" cannot reach the reading pill and reports `errorPageNotInjectable`. For document reading, use the separate [PDF companion](pdf-reader.md). |
 | Google Docs | Text is painted on a canvas, nothing selectable in the DOM sense. No effect. |
-| `<input>` / `<textarea>` | Supported via `selectionStart`/`selectionEnd`; the bubble anchors to the field. |
+| `<input>` / `<textarea>` | Supported when the field exposes `selectionStart`/`selectionEnd`; the bubble anchors to the field. Input types such as `number` and `email` do not expose this API. |
 | `contenteditable` (Notion, CMS) | Supported through the normal path. |
 | Internal pages (`about:`, extension stores) | No content script possible, by browser design. |
 | SPAs (React, Vue, Angular) | No dependency on the initial DOM: listeners are on `document`, client-side navigation breaks nothing. |
-| Selection > 20,000 characters | Truncated at a word boundary, with a warning badge. Never rejected. |
-
-## Adding an action
-
-"Translate", "Summarize", and the like:
-
-1. Add an entry to `ACTIONS` in `entrypoints/selection.content.ts`.
-2. Add a case to the background's `if (message.action === …)`.
-
-The bubble and context menu carry no business logic: they pass along an
-action id and text.
+| Selection shorter than 3 UTF-16 code units after normalization | No bubble; the context-menu action reports an empty or too-short selection. |
+| Selection > 20,000 UTF-16 code units | Truncated at a nearby word boundary when available; otherwise cut without splitting a surrogate pair. A warning badge reports truncation. |
 
 ## Tests
 
@@ -146,6 +147,11 @@ pair), Firefox's multiple ranges, HTML escaping, and bubble placement
 (top/bottom flip, left/right clamping, viewport smaller than the
 bubble).
 
-The rest — the bubble actually appearing, the reader opening — is
-manual: `npm run dev`, then the scenarios in the limitations table
-above.
+Production-package browser tests now cover mouse selection, bubble activation
+and the selected text reaching the speech engine. After building the Chrome
+and Firefox ZIPs, run `npm run test:e2e` and `npm run test:e2e:firefox`.
+The speech engine is simulated; these tests do not prove audible playback.
+
+Check iframe selections, editable fields, built-in PDF viewer behavior and
+actual audio manually with `npm run dev` or `npm run dev:firefox`.
+See [testing](testing.md) for browser installation and package prerequisites.

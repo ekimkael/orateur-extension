@@ -1,0 +1,125 @@
+{
+  "pdfTitle": {
+    "message": "Orateur PDF"
+  },
+  "pdfDescription": {
+    "message": "Compagnon facultatif d’Orateur : écoutez les PDF textuels avec une voix locale."
+  },
+  "menuReadPdfTitle": {
+    "message": "Lire ce PDF avec Orateur PDF"
+  },
+  "pdfHeading": {
+    "message": "Écouter un PDF"
+  },
+  "pdfPrivacy": {
+    "message": "Votre document et sa lecture restent sur cet appareil."
+  },
+  "pdfChooseFile": {
+    "message": "Choisir un PDF sur cet appareil"
+  },
+  "pdfPages": {
+    "message": "$1 pages"
+  },
+  "pdfProgress": {
+    "message": "Chargement du PDF"
+  },
+  "pdfDownloading": {
+    "message": "Chargement du document…"
+  },
+  "pdfExtracting": {
+    "message": "Extraction du texte : $1 / $2 pages"
+  },
+  "pdfCancel": {
+    "message": "Annuler"
+  },
+  "pdfCancelled": {
+    "message": "Extraction annulée."
+  },
+  "pdfRetry": {
+    "message": "Réessayer"
+  },
+  "pdfError_protected": {
+    "message": "Ce PDF est protégé. Ouvrez une copie accessible, sans mot de passe ni restriction de copie."
+  },
+  "pdfError_no_text": {
+    "message": "Ce PDF ne contient pas de couche texte. Les documents scannés nécessitent un OCR, non disponible ici."
+  },
+  "pdfError_download": {
+    "message": "Impossible de charger ce PDF. Vérifiez votre connexion et l’accès au document, ou choisissez une copie sur cet appareil."
+  },
+  "pdfError_too_large": {
+    "message": "Ce PDF dépasse les limites du lecteur : 50 Mio, 2 000 pages ou 5 millions de caractères. Choisissez un document plus petit."
+  },
+  "pdfError_invalid": {
+    "message": "Ce fichier n’est pas un PDF valide ou son texte ne peut pas être extrait. Choisissez un autre PDF."
+  },
+  "pdfError_file_access": {
+    "message": "L’accès à ce fichier est bloqué. Sur Chrome, autorisez l’accès aux URL de fichier dans les détails de l’extension, ou utilisez « Choisir un PDF sur cet appareil »."
+  },
+  "pdfPlaybackControls": {
+    "message": "Commandes de lecture"
+  },
+  "pdfEngine": {
+    "message": "Moteur vocal"
+  },
+  "pdfSystemVoice": {
+    "message": "Voix système locale"
+  },
+  "pdfVoice": {
+    "message": "Voix"
+  },
+  "pdfSpeed": {
+    "message": "Vitesse"
+  },
+  "pdfModelNote": {
+    "message": "Supertonic télécharge environ 400 Mo de modèles à la première lecture, puis fonctionne localement. Ce compagnon possède son propre cache."
+  },
+  "pdfModelDownloading": {
+    "message": "Téléchargement du modèle vocal…"
+  },
+  "pdfPreparingVoice": {
+    "message": "Préparation de la voix…"
+  },
+  "pdfNoLocalVoice": {
+    "message": "Aucune voix système locale n’est disponible. Installez une voix dans les réglages de votre appareil ou choisissez Supertonic."
+  },
+  "pdfNoLocalVoiceShort": {
+    "message": "Aucune voix locale"
+  },
+  "pdfVoiceLanguage": {
+    "message": "Cette langue n’est pas prise en charge par Supertonic. Choisissez une voix système locale."
+  },
+  "pdfSpeechError": {
+    "message": "La lecture n’a pas pu démarrer. Réessayez ou choisissez une autre voix locale."
+  },
+  "pdfFinished": {
+    "message": "Lecture terminée."
+  },
+  "pdfPaused": {
+    "message": "Lecture en pause."
+  },
+  "pdfReadingParagraph": {
+    "message": "Paragraphe $1 sur $2"
+  },
+  "pdfPause": {
+    "message": "Pause"
+  },
+  "pdfResume": {
+    "message": "Reprendre"
+  },
+  "pdfRead": {
+    "message": "Lire"
+  },
+  "pdfStop": {
+    "message": "Arrêter"
+  },
+  "pdfFollow": {
+    "message": "Suivre la lecture"
+  },
+  "pdfExtractedText": {
+    "message": "Texte extrait du PDF"
+  },
+  "pdfEmpty": {
+    "message": "Ouvrez un PDF dans le navigateur, puis cliquez sur l’icône Orateur PDF. Vous pouvez aussi choisir un fichier ici. PDF textuels uniquement, jusqu’à 50 Mio ; pas d’OCR."
+  }
+}

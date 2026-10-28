@@ -1,0 +1,49 @@
+.pdf-page { max-width: 58rem; }
+.pdf-header { margin-bottom: 1.5rem; }
+.pdf-header h1 { overflow-wrap: anywhere; }
+.pdf-header .tagline { max-width: 44rem; margin-bottom: 1rem; }
+.pdf-file-label { display: grid; gap: .4rem; width: fit-content; font-weight: 500; }
+.pdf-file-label input { max-width: 100%; font: inherit; color: var(--foreground); }
+.pdf-file-label input::file-selector-button,
+.pdf-page button { padding: .65rem 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); font: inherit; cursor: pointer; }
+.pdf-file-label input::file-selector-button { margin-right: .75rem; }
+.pdf-page button:disabled { cursor: default; opacity: .5; }
+.pdf-page button.pdf-primary { background: #c43e00; color: #fff; border-color: #c43e00; font-weight: 600; }
+.pdf-page :is(button, select, input):focus-visible { outline: 2px solid var(--foreground); outline-offset: 3px; }
+.pdf-source { color: var(--muted-foreground); overflow-wrap: anywhere; font-size: .875rem; }
+.pdf-status { padding: 1.25rem; margin-block: 1.5rem; }
+.pdf-status p { margin-top: 0; }
+.pdf-status progress { display: block; width: 100%; accent-color: var(--primary); margin-bottom: 1rem; }
+.pdf-controls { padding: 1.25rem; position: sticky; top: 0; z-index: 2; box-shadow: 0 3px 14px rgb(0 0 0 / .05); overflow: visible; }
+.pdf-settings { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(9rem, 1.7fr) minmax(5rem, .6fr); gap: .9rem; }
+.pdf-settings label { display: grid; gap: .35rem; font-weight: 500; min-width: 0; }
+.pdf-settings select { width: 100%; font: inherit; padding: .6rem; border-radius: var(--radius); border: 1px solid var(--border); background: var(--background); color: var(--foreground); min-height: 2.75rem; }
+.pdf-help { margin: .75rem 0; font-size: .8125rem; color: var(--muted-foreground); }
+.pdf-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
+.pdf-follow { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; }
+.pdf-follow input { accent-color: var(--primary); width: 1rem; height: 1rem; }
+.pdf-playback-status { min-height: 1.5em; margin: .75rem 0 0; color: var(--muted-foreground); font-size: .875rem; }
+.pdf-text { margin-top: 1.5rem; padding: 1.5rem 2.5rem; font-size: 1.0625rem; line-height: 1.8; }
+.pdf-text p { white-space: pre-line; overflow-wrap: anywhere; padding: .5rem .75rem; border-radius: var(--radius); scroll-margin-top: 18rem; }
+.pdf-text p[aria-current="true"] { background: color-mix(in srgb, var(--primary) 12%, var(--card)); box-shadow: inset 3px 0 0 var(--primary); }
+.pdf-empty { margin-top: 2rem; color: var(--muted-foreground); }
+.pdf-pronunciation { margin-block: 1.5rem; }
+.pdf-pronunciation > summary { padding: 1rem 1.25rem; font-weight: 500; cursor: pointer; }
+.pdf-pronunciation > summary:focus-visible { outline: 2px solid var(--foreground); outline-offset: -4px; }
+.pdf-pronunciation-summary-status { margin-inline-start: .75rem; color: var(--muted-foreground); font-size: .8125rem; font-weight: 400; }
+.pdf-pronunciation-local { margin: 0; padding: 0 1.5rem; }
+.pdf-pronunciation .pronunciation-intro { margin-top: 0; }
+.pdf-pronunciation .pronunciation-list button.btn-danger { color: var(--foreground); border-color: color-mix(in srgb, var(--destructive) 45%, var(--border)); background: transparent; }
+.pdf-pronunciation-model { border-top: 1px solid var(--border); }
+.pdf-pronunciation-model h3 { margin: 0 0 .5rem; font-size: inherit; }
+.pdf-pronunciation-model button { margin-top: .75rem; }
+.pdf-pronunciation-model progress { display: block; margin-top: .75rem; }
+@media (max-width: 600px) {
+  .pdf-page { padding: 1.5rem 1rem 3rem; }
+  .pdf-settings { grid-template-columns: 1fr 1fr; }
+  .pdf-settings label:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+  .pdf-controls { position: static; }
+  .pdf-follow { margin-left: 0; }
+  .pdf-text { padding: .75rem; }
+  .pdf-text p { scroll-margin-top: 1rem; }
+}

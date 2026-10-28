@@ -2,9 +2,11 @@
 
 In settings, add a rule with **French** or **English**, the written text, its spoken replacement and optional **Match case**. Changes apply from the next reading. Rules are stored locally in the browser (`orateur:pronunciation-rules`), without synchronization.
 
+The main extension and the PDF companion use independent storage. Configure the companion dictionary in its **Pronunciation** section; rules are not shared between extensions.
+
 Limits: **200 rules**, **100 characters** for written text and **200 characters** for the spoken replacement, counted as Unicode code points. Both fields are required. Outer whitespace is trimmed, text is normalized to NFC, and invisible control or format characters are rejected.
 
-Rules apply to web pages with both speech engines. Their language follows the language resolved for each paragraph. Short or ambiguous passages inherit nearby context or the document language; an English quotation inside a French paragraph is not detected separately.
+Rules apply to web pages and PDFs with both speech engines. Their language follows the language resolved for each paragraph. Short or ambiguous passages inherit nearby context or the document language; an English quotation inside a French paragraph is not detected separately.
 
 - Matching ignores Unicode case by default. Use strict case to distinguish `API` from `Api`. Accents remain significant: `café` and `cafe` differ, while equivalent Unicode spellings match.
 - Matching is literal, without regular expressions. Letters, numbers, combining marks and `_` extend a word; punctuation, apostrophes and hyphens delimit it. `API` matches in `l’API` and `API-REST`, but not in `APIs`, `API2` or `API_`. Add plurals and other variants explicitly.
@@ -12,6 +14,10 @@ Rules apply to web pages with both speech engines. Their language follows the la
 - Duplicates with the same language, case mode and normalized source are rejected. Case is ignored in duplicate checks for case-insensitive rules.
 
 **Listen** uses the current engine, voice and speed. Preview stops any current reading in the same extension, without resuming it automatically. If the Supertonic model is missing, a link opens its download settings; preview never downloads it automatically. A selected system voice remains the global choice even when its language differs from the rule's language.
+
+Preview works for saved rules and a valid unsaved draft. It applies only the rule being previewed. Click **Stop**, edit the draft, or change the engine, voice or speed to stop it. Listening does not save the draft; use **Save** to apply it to future readings.
+
+Storage failures are shown in settings. A failed save keeps the draft available for retry, and a failed delete leaves the rule in the list. If rules cannot be loaded, use **Retry** before editing them.
 
 ## Numbers
 
@@ -27,3 +33,5 @@ rtk npm run compile
 ```
 
 Tests cover validation, storage, Unicode boundaries, conflicts, replacement protection during preparation and number normalization. Inspecting prepared text does not replace listening with the intended voices.
+
+The [browser suite](testing.md) also covers rule validation, persistence, editing and deletion through the settings UI. Preview pronunciation and voice quality still require listening with the intended engine.
