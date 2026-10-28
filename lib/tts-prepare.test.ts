@@ -5,6 +5,8 @@ import vm from "node:vm"
 import ts from "typescript"
 import type { SpeakRequest } from "./tts-host.ts"
 import * as messages from "./tts-messages.ts"
+import { detectLang, resolveDocLang } from "./detect-lang.ts"
+import { toSupertonicLang } from "./supertonic-lang.ts"
 
 type Listener = (message: unknown, sender: unknown, respond: (value: unknown) => void) => unknown
 
@@ -112,7 +114,8 @@ for (const offscreen of [false, true]) {
   })
 }
 
-test("content preparation preserves passive requests and aligns active forward blocks to the viewport", async () => {
+/** `onPrepareBlock` from the content script, compiled alone so its free variables come from a test context. */
+function prepareBlockHandler(): string {
   const source = ts.createSourceFile("reader.content.ts", readFileSync(new URL("../entrypoints/reader.content.ts", import.meta.url), "utf8"), ts.ScriptTarget.ES2022, true)
   const findHandler = (node: ts.Node): ts.FunctionDeclaration | undefined => {
     if (ts.isFunctionDeclaration(node) && node.name?.text === "onPrepareBlock") return node
@@ -120,7 +123,11 @@ test("content preparation preserves passive requests and aligns active forward b
   }
   const handler = findHandler(source)
   assert.ok(handler)
-  const { outputText } = ts.transpileModule(handler.getText(source), { compilerOptions: { target: ts.ScriptTarget.ES2022 } })
+  return ts.transpileModule(handler.getText(source), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+}
+
+test("content preparation preserves passive requests and aligns active forward blocks to the viewport", async () => {
+  const outputText = prepareBlockHandler()
   const calls: unknown[][] = []
   const context = {
     TTS_PREPARE_BLOCK: messages.TTS_PREPARE_BLOCK,
@@ -128,6 +135,7 @@ test("content preparation preserves passive requests and aligns active forward b
     reading: true, usingSupertonic: true, token: "owner", readingTotal: 3, startGeneration: 0,
     prefs: { follow: true }, blockIndex: 1, pageIntro: "",
     document: { documentElement: { lang: "en" } }, resolveDocLang: () => "fr",
+    blockLangs: [], detectLang: () => null, toSupertonicLang,
   }
   const prepare = vm.runInNewContext(`${outputText}\nonPrepareBlock`, context) as (message: unknown) => Promise<unknown>
   await prepare({ ...request, prefetch: true })
@@ -136,4 +144,19 @@ test("content preparation preserves passive requests and aligns active forward b
   assert.deepEqual(calls, [[2, true, true, "nearest"], [2, true, false, "nearest"], [1, true, false, "center"]])
   assert.equal(await prepare({ ...request, prefetch: "true" }), null)
   assert.equal(calls.length, 3, "Invalid flags never prepare or scroll the page")
+})
+
+test("a re-prepared short block keeps the reading's language, not the page declaration", async () => {
+  // Gmail declares its French UI; the message is English. "Read more" alone
+  // is too short to decide, so it must inherit what the start resolved.
+  const context = {
+    TTS_PREPARE_BLOCK: messages.TTS_PREPARE_BLOCK,
+    pageSource: { prepare: async () => "Read more" },
+    reading: true, usingSupertonic: true, token: "owner", readingTotal: 3, startGeneration: 0,
+    prefs: { follow: true }, blockIndex: 1, pageIntro: "",
+    document: { documentElement: { lang: "fr" } },
+    blockLangs: ["en", "en", "en"], detectLang, resolveDocLang, toSupertonicLang,
+  }
+  const prepare = vm.runInNewContext(`${prepareBlockHandler()}\nonPrepareBlock`, context) as (message: unknown) => Promise<{ lang: string }>
+  assert.equal((await prepare(request)).lang, "en")
 })

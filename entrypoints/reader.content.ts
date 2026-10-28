@@ -288,7 +288,10 @@ export default defineContentScript({
       const mine = startGeneration
       return source.prepare(message.block!, prefs.follow, !!message.prefetch, message.block! > blockIndex ? "nearest" : "center").then((text): TtsPreparedBlock | null => {
         if (source !== pageSource || mine !== startGeneration) return null
-        const lang = resolveDocLang(document.documentElement.lang, text) ?? "na"
+        // A short block decides nothing alone: Gmail's French declaration
+        // would win over the English message the start already resolved.
+        const resolved = toSupertonicLang(blockLangs[message.block!] ?? "")
+        const lang = (resolved ? detectLang(text, resolved) : resolveDocLang(document.documentElement.lang, text)) ?? "na"
         return { text: message.block === 0 && pageIntro ? `${pageIntro} ${text}` : text, lang }
       })
     }
@@ -526,7 +529,11 @@ export default defineContentScript({
       // Sur `payload.text`, pas sur `text` : l'annonce du titre n'est écrite
       // nulle part dans la page. L'hôte la recolle au premier paragraphe
       // (`splitBlocks`), donc les index concordent quand même.
-      follower.begin(splitParagraphs(payload.text), pageSource?.anchors)
+      const paragraphs = splitParagraphs(payload.text)
+      follower.begin(paragraphs, pageSource?.anchors)
+      // Same per-block languages as the host computes: a block re-prepared
+      // from the live page falls back on them, not on the page declaration.
+      blockLangs = resolveBlockLangs(paragraphs, lang)
 
       usingSupertonic = true
       blockIndex = startBlock
