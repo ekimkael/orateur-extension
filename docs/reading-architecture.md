@@ -1,7 +1,8 @@
 # Reading architecture
 
 How the reader pill turns a page into speech, and which module owns what.
-For the whole extension at a glance, open [architecture.html](architecture.html).
+For the whole extension at a glance, open [architecture.html](architecture.html);
+it is generated with archify from [architecture.json](architecture.json).
 
 ## Layers
 
