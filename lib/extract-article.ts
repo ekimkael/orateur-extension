@@ -249,6 +249,15 @@ const GMAIL_TRIMMED = ".adL"
  * the clone, it would open every newsletter.
  */
 const INLINE_HIDDEN = "[style*='display:none' i],[style*='display: none' i]"
+/**
+ * Label a newsletter prints atop its sponsor card ("PROMOTED" on DEV Digest).
+ * Mail markup keeps no class worth matching, so the label is the only trace.
+ */
+const SPONSOR_LABEL =
+  /^(?:promoted|sponsored|sponsor|advertisement|paid partnership|partner content|publicité|sponsorisé|(?:sponsored|presented|brought to you) by\b.*|(?:together|in partnership) with\b.*|en partenariat avec\b.*)$/i
+const MAX_SPONSOR_LABEL_LENGTH = 60
+/** A card taking more than this share of the message is the layout, not a card. */
+const MAX_SPONSOR_SHARE = 0.5
 
 /**
  * Below this share of the whole message, Readability's pick is a fragment of
@@ -296,6 +305,7 @@ export function extractGmailMessage(
   message.querySelectorAll(GMAIL_TRIMMED).forEach((el, i) => folded[i] && el.remove())
   const truncated = message.querySelector(GMAIL_CLIPPED) !== null
   remove(message, `${GMAIL_CLIPPED},${INLINE_HIDDEN}`)
+  removeSponsorCards(message.body)
   const title = doc.querySelector("h2.hP")?.textContent?.trim() || null
   const lang = doc.documentElement.lang || null
 
@@ -327,6 +337,43 @@ export function extractGmailMessage(
     url,
     readingTimeMinutes: Math.max(1, Math.round(countWords(textContent) / WORDS_PER_MINUTE)),
     truncated,
+  }
+}
+
+/**
+ * Drops each newsletter sponsor card: from its label, up through wrappers that
+ * hold nothing else, then one step to the box holding label and pitch, then
+ * through that box's own wrappers.
+ *
+ * ponytail: when that box is most of the message (label and pitch set flat
+ * among the articles), only the label goes and the pitch is still read; a
+ * sibling-based cut if a newsletter does that.
+ */
+function removeSponsorCards(root: Element) {
+  const textOf = (el: Element) => el.textContent?.trim() ?? ""
+  const total = textOf(root).length
+  const labels = [...root.querySelectorAll("*")].filter((el) => {
+    const text = textOf(el)
+    return (
+      text.length <= MAX_SPONSOR_LABEL_LENGTH &&
+      SPONSOR_LABEL.test(text) &&
+      ![...el.children].some((child) => textOf(child) === text)
+    )
+  })
+  for (const label of labels) {
+    const text = textOf(label)
+    const climbWrappers = (el: Element) => {
+      while (el.parentElement && el.parentElement !== root && textOf(el.parentElement) === textOf(el)) {
+        el = el.parentElement
+      }
+      return el
+    }
+    let card = climbWrappers(label)
+    const box = card.parentElement
+    if (box && box !== root && textOf(box).startsWith(text) && textOf(box).length <= total * MAX_SPONSOR_SHARE) {
+      card = climbWrappers(box)
+    }
+    card.remove()
   }
 }
 

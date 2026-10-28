@@ -544,3 +544,35 @@ test("extractGmailMessage lit l'historique cité que le lecteur a déplié", () 
 
   assert.match(extractGmailMessage(doc).textContent, /voici le devis/)
 })
+
+// DEV Digest, trimmed: newsletter tables with inline styles only, so the
+// sponsor card is recognised by its label, not by a class name.
+const PROMOTED = `<div class="a3s aiL"><table><tr><td>
+  <h1>DEV Digest</h1>
+  <p>Hey reader, let’s get you caught up!</p>
+  <table style="border:2px solid #3b49df"><tr><td>
+    <div style="background:#eef0ff"><span>PROMOTED</span></div>
+    <h2><a href="#">Meet the speakers at AI DevCon</a></h2>
+    <p>Three of the people defining agentic development take the stage in Berlin. Use code DEV20 for 20% off your ticket.</p>
+  </td></tr></table>
+  <h2><a href="#">I let an open model delete 1,242 of my saved articles</a></h2>
+  <p>Accumulated read-later lists create psychological pressure through endless deferred reading obligations.</p>
+</td></tr></table></div>`
+
+test("extractGmailMessage skips a newsletter's labelled sponsor card", () => {
+  const { textContent } = extractGmailMessage(gmail(PROMOTED))
+
+  assert.doesNotMatch(textContent, /PROMOTED|AI DevCon|DEV20/)
+  assert.match(textContent, /Hey reader/)
+  assert.match(textContent, /I let an open model delete/)
+  assert.match(textContent, /deferred reading obligations/)
+})
+
+test("extractGmailMessage drops a sponsor card that opens the message, and only the card", () => {
+  // Nothing before the label: climbing must stop at the card, not the message.
+  const top = PROMOTED.replace(/<h1>DEV Digest<\/h1>\s*<p>Hey reader, let’s get you caught up!<\/p>/, "")
+  const { textContent } = extractGmailMessage(gmail(top))
+
+  assert.doesNotMatch(textContent, /AI DevCon/)
+  assert.match(textContent, /deferred reading obligations/)
+})
