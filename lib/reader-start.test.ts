@@ -37,7 +37,7 @@ function readerStart(firefox: boolean, options: { loaded?: boolean; injectionFai
     exports,
     browser,
     defineBackground: (configuration: unknown) => configuration,
-    require: (name: string) => name === "./reader.content" ? { START_READING: "orateur:start-reading" } : {},
+    require: (name: string) => name === "../lib/reader-messages.ts" ? { START_READING: "orateur:start-reading" } : {},
   })
   return { start: exports.startReading!, deliveries, injections }
 }

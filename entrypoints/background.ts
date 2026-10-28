@@ -7,7 +7,7 @@ import {
   type NotifyMessage,
   type ReadPagePayload,
   type StartReadingMessage,
-} from "./reader.content"
+} from "../lib/reader-messages.ts"
 import {
   GET_SELECTION,
   SELECTION_ACTION,

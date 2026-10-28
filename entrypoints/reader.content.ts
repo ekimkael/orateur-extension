@@ -17,21 +17,11 @@ import {
   type ReaderPreferences,
   type PillPosition,
 } from "../lib/reader-prefs"
-import { loadPronunciationRules } from "../lib/pronunciation-rules.ts"
-import type { PronunciationRule } from "../lib/pronunciation/personal.ts"
 import { createLivePage } from "../lib/live-page.ts"
 import { createAnchorFinder, findBlockIndex } from "../lib/read-anchor.ts"
-import type { SupportedLang } from "../lib/supertonic-lang.ts"
-import { resolveDocLang } from "../lib/detect-lang.ts"
-import { markTab } from "../lib/tab-title.ts"
-import type { Player, PlayerEvent } from "../lib/player.ts"
-import { cancelSpeech, createSystemPlayer } from "../lib/system-player.ts"
-import { createSupertonicPlayer } from "../lib/supertonic-player.ts"
-import {
-  MODEL_CACHE_QUERY,
-  TTS_PREPARE_BLOCK,
-  type TtsLoadingReason,
-} from "../lib/tts-messages"
+import { createReadingSession, type ReaderViewState } from "../lib/reading-session.ts"
+import { START_READING, type ReadPagePayload, type StartReadingMessage } from "../lib/reader-messages.ts"
+import { MODEL_CACHE_QUERY, type TtsLoadingReason } from "../lib/tts-messages"
 // Type uniquement — importer la valeur (la liste des 10 voix, ses libellés)
 // depuis lib/supertonic/* ferait entrer le moteur dans ce bundle. La petite
 // liste ci-dessous, plus bas dans ce fichier, est donc dupliquée à dessein.
@@ -41,64 +31,8 @@ import { isHidden, loadHiddenSites, addHiddenSite, onHiddenSitesChanged } from "
 import { charteTokens } from "../lib/charte.ts"
 import { applyTheme } from "../lib/theme.ts"
 import { loadUiPrefs, onUiPrefsChanged, type ColorTheme } from "../lib/ui-prefs.ts"
-import { moveReadingBlock } from "../lib/reading-navigation.ts"
-import {
-  clearReadingProgress,
-  loadReadingProgress,
-  saveReadingProgress,
-} from "../lib/reading-progress.ts"
 
-export interface ReadPagePayload {
-  text: string
-  title?: string
-  lang?: string
-  livePage?: boolean
-}
-
-export interface StartReadingMessage extends ReadPagePayload {
-  type: typeof START_READING
-  fromHere?: boolean
-}
-
-export const START_READING = "orateur:start-reading"
-
-/**
- * Demande d'extraction, envoyée au background au clic sur ▶.
- *
- * L'extraction reste là-bas : Readability ne doit pas entrer dans le bundle
- * d'un script chargé sur toutes les pages.
- */
-export const READ_PAGE = "orateur:read-page"
-
-/**
- * Signale un incident au background, seul contexte à pouvoir toucher le
- * badge de l'icône (`browser.action` n'existe pas dans un content script).
- */
-export const NOTIFY = "orateur:notify"
-
-export interface NotifyMessage {
-  type: typeof NOTIFY
-  message: string
-}
-
-/**
- * Clé de storage portant le jeton de l'onglet qui lit.
- *
- * `speechSynthesis` est partagé par tout le navigateur alors qu'il y a une
- * pastille par onglet : démarrer une lecture coupe celle d'à côté, dont la
- * pastille resterait dépliée sur une lecture morte. Chaque pastille inscrit
- * son jeton en prenant la parole, les autres le voient passer et se replient.
- *
- * Storage plutôt qu'un aiguillage par le background : rien à garder en mémoire
- * dans un service worker MV3 qui s'endort, et aucun onglet à recenser.
- *
- * Exportée : l'hôte Supertonic s'y abonne aussi, pour la même raison — sans
- * ça, un autre onglet qui prend la parole avec le moteur système laisserait
- * l'audio Supertonic tourner, sans plus aucune pastille pour l'arrêter.
- */
-export const READER_TOKEN = "orateur:reading-tab"
-
-type PillState = "idle" | "loading" | "playing" | "paused" | "error"
+type PillState = ReaderViewState
 
 export default defineContentScript({
   // Déclaré dans le manifest, contrairement à l'extracteur : la pastille doit
@@ -113,21 +47,6 @@ export default defineContentScript({
     if (document.readyState === "loading") {
       await new Promise<void>((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }))
     }
-    let reading = false
-    let paused = false
-    /** The engine of the current reading; it alone knows where the voice is. */
-    let player: Player | null = null
-    /** Paragraph shown by the pill, the base for previous/next. */
-    let blockIndex = 0
-    let pageSource: ReturnType<typeof createLivePage> | null = null
-    let startGeneration = 0
-    let readingUrl = ""
-    /** Réinjecté à chaque `playing` : un état de chargement y écrit la
-     *  progression du téléchargement par-dessus, il faut de quoi le restaurer. */
-    let readingTitle = ""
-    let readingTotal = 0
-    let readingTelemetryStarted = false
-    let readingTelemetryFailed = false
     const token = Math.random().toString(36).slice(2)
     // Réassigné, pas figé : une lecture doit partir sur les réglages du moment,
     // y compris ceux changés depuis un autre onglet.
@@ -136,13 +55,29 @@ export default defineContentScript({
     const uiPrefs = await loadUiPrefs()
     let contextTarget: Element | null = null
 
-    const pill = createPill(onPrimary, onSecondary, () => navigate(-1), () => navigate(1), prefs, !isHidden(location.hostname, hiddenSites), uiPrefs.theme)
+    const pill = createPill(() => void session.toggle(), onSecondary, () => session.navigate(-1), () => session.navigate(1), prefs, !isHidden(location.hostname, hiddenSites), uiPrefs.theme)
     const follower = createFollower()
     follower.setEnabled(prefs.follow)
+    const session = createReadingSession({
+      token,
+      view: pill,
+      follower,
+      prefs: () => prefs,
+      page: {
+        liveSource: (paragraphs) => createLivePage(document, paragraphs, 5000, () =>
+          document.documentElement.lang !== initialPageLanguage ||
+          document.documentElement.classList.contains("translated-ltr") ||
+          document.documentElement.classList.contains("translated-rtl")
+        ),
+        url: canonicalUrl,
+        contextBlock: (paragraphs) => findBlockIndex(document, paragraphs, contextTarget),
+        confirmResume: () => confirm(browser.i18n.getMessage("readerResumePrompt")),
+      },
+    })
 
     browser.runtime.onMessage.addListener(onMessage)
-    browser.runtime.onMessage.addListener(onPlayerMessage)
-    browser.storage.onChanged.addListener(onTokenChanged)
+    browser.runtime.onMessage.addListener(session.receive)
+    browser.storage.onChanged.addListener(session.storageChanged)
     document.addEventListener("contextmenu", rememberContextTarget, true)
     const unsubscribeHiddenSites = onHiddenSitesChanged((sites) => {
       if (isHidden(location.hostname, sites)) pill.detach()
@@ -154,316 +89,36 @@ export default defineContentScript({
       prefs = newPrefs
       pill.updatePrefs(newPrefs)
       follower.setEnabled(newPrefs.follow)
-      if (!reading) return
-
-      // Neither engine can take over the other's queue: without this, Play
-      // resumed the old engine and the new choice was silently ignored. The
-      // saved progress lets the next start offer to pick up where it stopped.
-      if (newPrefs.engine !== previous.engine) return stop()
-      player?.update(previous)
+      session.prefsChanged(previous)
     })
-    // La synthèse survit au déchargement de la page : sans ça la lecture
-    // continue après un rechargement, hors de portée de la nouvelle pastille.
-    // Pour Supertonic, `tabs.onRemoved` ne couvre que la fermeture de
-    // l'onglet — un rechargement le laisse ouvert, donc sans ce signal
-    // l'audio continuerait indéfiniment, sans plus aucune pastille pour
-    // l'arrêter : le même risque que l'onglet fermé, côté rechargement.
-    ctx.addEventListener(window, "pagehide", () => {
-      startGeneration++
-      pageSource?.stop()
-      if (!reading) return
-      player?.stop()
-      // The page can come back from bfcache with this same document.title frozen:
-      // without this, navigating back would resurrect the mark on a page
-      // that isn't reading anymore.
-      markTab(false)
-    })
+    ctx.addEventListener(window, "pagehide", () => session.pageHidden())
     ctx.onInvalidated(() => {
-      startGeneration++
       browser.runtime.onMessage.removeListener(onMessage)
-      browser.runtime.onMessage.removeListener(onPlayerMessage)
-      browser.storage.onChanged.removeListener(onTokenChanged)
+      browser.runtime.onMessage.removeListener(session.receive)
+      browser.storage.onChanged.removeListener(session.storageChanged)
       document.removeEventListener("contextmenu", rememberContextTarget, true)
       unsubscribePrefs()
       unsubscribeHiddenSites()
       unsubscribeUiPrefs()
-      pageSource?.stop()
-      // No message can leave an invalidated context: only the page's own
-      // speech can still be silenced.
-      player?.dispose()
-      cancelSpeech()
-      follower.end()
+      session.invalidate()
       pill.remove()
-      // Extension reload or update while reading: `fold()` isn't called,
-      // so the title would stay marked without this.
-      markTab(false)
     })
 
     function onMessage(message: Partial<StartReadingMessage>) {
       if (message?.type !== START_READING || !message.text) return
-      start(message as ReadPagePayload, message.fromHere)
-    }
-
-    /** Messages for the engine (TTS host events, live block requests). */
-    function onPlayerMessage(message: { type?: string } | undefined) {
-      if (!message) return
-      const reply = reading ? player?.receive?.(message) : undefined
-      // A block request always gets an answer, if only "nothing to read".
-      return reply ?? (message.type === TTS_PREPARE_BLOCK ? Promise.resolve(null) : undefined)
+      void session.start(message as ReadPagePayload, message.fromHere)
     }
 
     function rememberContextTarget(event: Event) {
       contextTarget = event.target instanceof Element ? event.target : null
     }
 
-    /** What the engine reports drives the pill, whichever engine it is. */
-    function onPlayerEvent(engine: ReaderEngine, event: PlayerEvent) {
-      if (event.phase === "loading") {
-        // Keep preparation and download feedback inside the compact pill.
-        const label = event.reason ? browser.i18n.getMessage(LOADING_REASON_KEY[event.reason]) : undefined
-        pill.setState(
-          "loading",
-          readingTitle,
-          true,
-          label ? { label, percent: event.progress, reason: event.reason } : undefined
-        )
-      } else if (event.phase === "playing") {
-        trackReadingStarted(engine)
-        paused = false
-        blockIndex = event.block
-        void persistProgress(event.block)
-        follower.show(event.block)
-        pill.setPosition(event.block, event.total)
-        pill.setState("playing", readingTitle)
-      } else if (event.phase === "paused") {
-        paused = true
-        pill.setState("paused")
-      } else if (event.phase === "ended") {
-        trackReadingCompleted(engine)
-        void clearReadingProgress(readingUrl)
-        fold()
-      } else if (event.phase === "error") {
-        trackReadingFailed(engine, event.reason)
-        if (event.recoverable) return
-        if (event.message) {
-          void browser.runtime.sendMessage({ type: NOTIFY, message: event.message } satisfies NotifyMessage)
-        }
-        fold()
-        pill.setState("error", readingTitle)
-      }
-    }
-
-    /** Un autre onglet a pris la parole : se replier, sans toucher au moteur. */
-    function onTokenChanged(changes: Record<string, { newValue?: unknown }>) {
-      const owner = changes[READER_TOKEN]?.newValue
-      if (!(READER_TOKEN in changes) || owner === token) return
-      fold()
-    }
-
-    /** ▶ lance la lecture, ⏸/▶ la met en pause et la reprend. */
-    async function onPrimary() {
-      if (reading) {
-        paused = !paused
-        if (paused) player?.pause()
-        else player?.resume()
-        // Retour immédiat : l'événement que Supertonic renvoie ensuite ne fait
-        // que confirmer le même état, sans le faire attendre.
-        pill.setState(paused ? "paused" : "playing")
-        return
-      }
-
-      pill.setState("loading")
-      // Un rejet (background endormi, onglet non injectable) vaut un échec :
-      // sans ça la pastille resterait bloquée sur son état d'attente.
-      const started = await browser.runtime
-        .sendMessage({ type: READ_PAGE })
-        .catch(() => false)
-      // La réponse peut arriver après START_READING : ne redescendre à l'état
-      // replié que si rien n'a démarré.
-      if (!started && !reading) pill.setState("error", document.title)
-    }
-
     /** ⏹ pendant la lecture, ✕ au repos : ne plus afficher Orateur sur ce domaine. */
     function onSecondary() {
-      if (reading) return stop()
-      startGeneration++
+      if (session.reading) return session.stop()
+      session.cancel()
       pill.detach()
       void addHiddenSite(location.hostname)
-    }
-
-    /** Précédent vise toujours le paragraphe précédent ; suivant, le suivant. */
-    function navigate(delta: -1 | 1) {
-      if (!reading) return
-      const target = moveReadingBlock(blockIndex, readingTotal, delta)
-      if (target != null) seekTo(target)
-    }
-
-    function seekTo(block: number) {
-      if (block < 0 || block >= readingTotal) return
-      blockIndex = block
-      follower.show(block)
-      pill.setPosition(block, readingTotal)
-      void persistProgress(block)
-      player?.seek(block)
-    }
-
-    /** Choisit le moteur, puis démarre — le reste ne se recroise plus. */
-    async function start(payload: ReadPagePayload, fromHere = false) {
-      const mine = ++startGeneration
-      const paragraphs = splitParagraphs(payload.text)
-      const total = paragraphs.length
-      if (!total) return fold()
-      const source = payload.livePage ? createLivePage(document, paragraphs, 5000, () =>
-        document.documentElement.lang !== initialPageLanguage ||
-        document.documentElement.classList.contains("translated-ltr") ||
-        document.documentElement.classList.contains("translated-rtl")
-      ) : null
-      let personalRules: PronunciationRule[]
-      try {
-        personalRules = await loadPronunciationRules()
-      } catch {
-        if (mine === startGeneration) pill.setState("error", payload.title ?? "")
-        return
-      }
-      if (mine !== startGeneration) return
-      const url = canonicalUrl()
-      const title = payload.title ?? ""
-      const targetBlock = fromHere ? findBlockIndex(document, paragraphs, contextTarget) : -1
-      const saved = fromHere ? null : await loadReadingProgress(url, total)
-      if (mine !== startGeneration) return
-      if (saved) {
-        // `confirm` blocks the page: opened mid-transition, it freezes the
-        // pill half-resized (width animates on the main thread).
-        await pill.settled()
-        if (mine !== startGeneration) return
-      }
-      const resume = !!saved && confirm(browser.i18n.getMessage("readerResumePrompt"))
-      const startBlock = targetBlock >= 0 ? targetBlock : resume ? saved.block : 0
-      if (saved && !resume) await clearReadingProgress(url)
-      if (mine !== startGeneration) return
-      readingUrl = url
-      readingTitle = title
-      readingTotal = total
-      pageSource?.stop()
-      pageSource = source
-
-      let supertonicLang: SupportedLang | undefined
-      if (prefs.engine === "supertonic") {
-        // Same rule as the system voice: the page's declaration unless
-        // the text clearly contradicts it (Gmail declares its UI language,
-        // not the message's), detection alone when nothing is declared.
-        const lang = resolveDocLang(payload.lang, payload.text)
-        // A private window must not trigger the 398 MB first download: the
-        // model may not persist there (OPFS is blocked in Firefox private
-        // browsing). An already cached model is still used.
-        const privateWithoutModel =
-          browser.extension.inIncognitoContext &&
-          !(await browser.runtime.sendMessage({ type: MODEL_CACHE_QUERY }).catch(() => false))
-        if (mine !== startGeneration) return
-        if (lang && !privateWithoutModel) supertonicLang = lang
-        else {
-          // Langue hors du modèle même après détection : un repli silencieux
-          // serait déroutant — dire pourquoi la voix système est utilisée à sa
-          // place.
-          void browser.runtime.sendMessage({
-            type: NOTIFY,
-            message: browser.i18n.getMessage(
-              lang ? "noticeSupertonicPrivateWindow" : "noticeSupertonicLangUnsupported"
-            ),
-          } satisfies NotifyMessage)
-        }
-      }
-
-      const options = {
-        paragraphs, text: payload.text, title, startBlock, personalRules, source,
-        prefs: () => prefs,
-        emit: (event: PlayerEvent) => {
-          if (player === next) onPlayerEvent(next.engine, event)
-        },
-      }
-      const next: Player = supertonicLang
-        ? createSupertonicPlayer({ ...options, lang: supertonicLang, token })
-        : createSystemPlayer({ ...options, lang: payload.lang })
-      // Same engine: the new reading replaces the old queue by itself. A
-      // stop sent to the TTS host could even overtake the new start.
-      if (player?.engine !== next.engine) player?.stop()
-      else player?.dispose()
-      player = next
-
-      follower.begin(paragraphs, source?.anchors)
-      blockIndex = startBlock
-      reading = true
-      paused = false
-      markTab(true)
-      readingTelemetryStarted = false
-      readingTelemetryFailed = false
-      // Prendre la parole : les pastilles des autres onglets s'en déduisent.
-      void browser.storage.local.set({ [READER_TOKEN]: token })
-      // La pastille a pu être masquée : une lecture lancée depuis le menu
-      // contextuel doit quand même offrir de quoi l'arrêter.
-      pill.attach()
-      // Supertonic reports its own loading; the page's voices start at once.
-      if (next.engine === "system") pill.setState("playing", title)
-      pill.setPosition(startBlock, readingTotal)
-      void persistProgress(startBlock)
-      next.start()
-    }
-
-    /**
-     * Compte une écoute au premier son confirmé, une seule fois par demande.
-     * Les réglages, paragraphes et reprises réutilisent ces gardes ; les
-     * générations des moteurs écartent leurs callbacks devenus obsolètes.
-     */
-    function trackReadingStarted(engine: ReaderEngine) {
-      if (readingTelemetryStarted) return
-      readingTelemetryStarted = true
-      track({ name: "read_started", properties: { engine } })
-    }
-
-    /** Une catégorie fermée par lecture suffit à repérer les écoutes en échec. */
-    function trackReadingFailed(engine: ReaderEngine, reason: "synthesis" | "audio_playback" | "preparation") {
-      if (readingTelemetryFailed) return
-      readingTelemetryFailed = true
-      track({ name: "read_failed", properties: { engine, reason } })
-    }
-
-    /** Arrivée en fin de file après un son, y compris après navigation ou erreurs. */
-    function trackReadingCompleted(engine: ReaderEngine) {
-      if (!readingTelemetryStarted) return
-      track({ name: "read_completed", properties: { engine, had_errors: readingTelemetryFailed } })
-    }
-
-    /** ⏹ : couper le moteur, puis se replier. */
-    function stop() {
-      player?.stop()
-      fold()
-    }
-
-    /** Revenir au repos sans toucher au moteur de synthèse. */
-    function fold() {
-      startGeneration++
-      pageSource?.stop()
-      pageSource = null
-      // La file coupée ne nous appartient plus : un `end` en retard ne doit pas
-      // replier une lecture relancée entre-temps.
-      player?.dispose()
-      player = null
-      reading = false
-      paused = false
-      markTab(false)
-      follower.end()
-      pill.setState("idle")
-    }
-
-    function persistProgress(block: number) {
-      if (!readingUrl || readingTotal <= 0 || block < 0 || block >= readingTotal) return
-      return saveReadingProgress({
-        url: readingUrl,
-        title: readingTitle,
-        block,
-        total: readingTotal,
-        updatedAt: Date.now(),
-      })
     }
   },
 })
@@ -829,26 +484,6 @@ const LABELS: Record<PillState, { primary: string; secondary: string }> = {
   paused: { primary: "play", secondary: "square" },
   error: { primary: "play", secondary: "x" },
 }
-
-/**
- * Traduit la cause émise par tts-host.ts en clé i18n — voir tts-messages.ts.
- *
- * `MessageKey`, pas `string` : TypeScript prend la dernière surcharge de
- * `getMessage`, celle qui liste toutes les clés de
- * public/_locales/<locale>/messages.json — un `Record<..., string>` trop large
- * romprait l'appel plus bas.
- */
-type MessageKey = Parameters<typeof browser.i18n.getMessage>[0]
-const LOADING_REASON_KEY: Record<TtsLoadingReason, MessageKey> = {
-  "downloading-model": "ttsDownloadingModel",
-  "loading-engine": "ttsLoadingEngine",
-  "loading-voice": "ttsLoadingVoice",
-  "preparing-next": "ttsPreparingNext",
-}
-
-/** Même découpe que `splitBlocks` côté hôte : un bloc par paragraphe. */
-const splitParagraphs = (text: string) =>
-  text.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean)
 
 /** Nom du surlignage dans le registre du document. */
 const HIGHLIGHT_NAME = "orateur-reading"
