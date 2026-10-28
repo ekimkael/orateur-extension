@@ -9,7 +9,9 @@ import {
 } from "./telemetry.ts"
 
 /** Storage local en mémoire — même style que reader-prefs.test.ts. */
-function fakeStorage(initial: Record<string, unknown> = {}) {
+function fakeStorage(initial: Record<string, unknown> = {}, userAgent = "") {
+  Object.defineProperty(navigator, "userAgent", { value: userAgent, configurable: true })
+  Object.defineProperty(navigator, "userAgentData", { value: undefined, configurable: true })
   const data = { ...initial }
   const sent: unknown[] = []
   ;(globalThis as any).browser = {
@@ -243,6 +245,73 @@ test("envoi valide vers la région choisie, avec identité consentante et versio
   })
 })
 
+test("ajoute le navigateur et sa version majeure sans transmettre l'agent brut", async () => {
+  for (const [userAgent, name, version] of [
+    ["Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0", "Firefox", 144],
+    ["Mozilla/5.0 Chrome/141.0.7390.76 Safari/537.36 Edg/141.0.3537.57", "Microsoft Edge", 141],
+    ["Mozilla/5.0 Chrome/141.0.7390.76 Safari/537.36 OPR/123.0.5669.18", "Opera", 123],
+    ["Mozilla/5.0 Chrome/141.0.7390.76 Safari/537.36", "Chrome", 141],
+  ] as const) {
+    fakeStorage({ [KEY]: { enabled: true, distinctId: "un-id" } }, userAgent)
+    await withRequests(async (requests) => {
+      await handleTelemetryTrack({ name: "read_started", properties: { engine: "system" } }, CONFIG)
+      assert.equal(requests.length, 1)
+      assert.deepEqual(requests[0].body.properties, {
+        engine: "system", extension_version: "0.8.0", $browser: name, $browser_version: version,
+      })
+    })
+  }
+})
+
+test("les marques natives distinguent Edge et Brave de Chromium sans collecter les marques inconnues", async () => {
+  for (const [brand, expected] of [["Microsoft Edge", "Microsoft Edge"], ["Brave", "Brave"], ["Google Chrome", "Chrome"], ["Chromium", "Chromium"]]) {
+    fakeStorage({ [KEY]: { enabled: true, distinctId: "un-id" } }, "Mozilla/5.0 Chrome/141.0.0.0 Safari/537.36")
+    Object.defineProperty(navigator, "userAgentData", {
+      configurable: true,
+      value: { brands: [
+        { brand: "Not/A)Brand", version: "99" },
+        { brand: "Chromium", version: "141" },
+        { brand, version: "141.0.7390.76" },
+      ] },
+    })
+    await withRequests(async (requests) => {
+      await handleTelemetryTrack({ name: "telemetry_enabled" }, CONFIG)
+      assert.equal(requests.length, 1)
+      assert.deepEqual(requests[0].body.properties, {
+        extension_version: "0.8.0", $browser: expected, $browser_version: 141,
+      })
+    })
+  }
+})
+
+test("un navigateur inconnu n'empêche pas l'envoi et ne transmet aucune chaîne libre", async () => {
+  fakeStorage({ [KEY]: { enabled: true, distinctId: "un-id" } }, "https://example.com/private")
+  Object.defineProperty(navigator, "userAgentData", {
+    configurable: true, value: { brands: [{ brand: "private brand", version: "private version" }] },
+  })
+  await withRequests(async (requests) => {
+    await handleTelemetryTrack({ name: "telemetry_enabled" }, CONFIG)
+    assert.equal(requests.length, 1)
+    assert.deepEqual(requests[0].body.properties, { extension_version: "0.8.0" })
+  })
+})
+
+test("une marque Chromium générique ne masque pas le navigateur ni sa propre version", async () => {
+  for (const [suffix, name, version] of [["Edg/141.0.3537.57", "Microsoft Edge", 141], ["OPR/123.0.5669.18", "Opera", 123]] as const) {
+    fakeStorage({ [KEY]: { enabled: true, distinctId: "un-id" } }, `Mozilla/5.0 Chrome/141.0.0.0 Safari/537.36 ${suffix}`)
+    Object.defineProperty(navigator, "userAgentData", {
+      configurable: true, value: { brands: [{ brand: "Chromium", version: "141" }] },
+    })
+    await withRequests(async (requests) => {
+      await handleTelemetryTrack({ name: "telemetry_enabled" }, CONFIG)
+      assert.equal(requests.length, 1)
+      assert.deepEqual(requests[0].body.properties, {
+        extension_version: "0.8.0", $browser: name, $browser_version: version,
+      })
+    })
+  }
+})
+
 test("le catalogue accepte uniquement ses événements et leurs propriétés fermées", async () => {
   fakeStorage({ [KEY]: { enabled: true, distinctId: "un-id" } })
   const events = [
@@ -276,6 +345,8 @@ test("refuse événements malformés, champs libres et version fournie par le co
     { name: "read_started", properties: { engine: "system", text: "article" } },
     { name: "read_started", properties: { engine: "system", title: "article" } },
     { name: "read_started", properties: { engine: "system", extension_version: "spoof" } },
+    { name: "read_started", properties: { engine: "system", $browser: "spoof" } },
+    { name: "read_started", properties: { engine: "system", $browser_version: 999 } },
     { name: "read_started", properties: { engine: "system" }, url: "https://example.com" },
     { name: "read_completed", properties: { engine: "system" } },
     { name: "read_completed", properties: { engine: "system", had_errors: "false" } },
