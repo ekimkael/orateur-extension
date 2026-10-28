@@ -5,8 +5,7 @@ import vm from "node:vm"
 import ts from "typescript"
 import type { SpeakRequest } from "./tts-host.ts"
 import * as messages from "./tts-messages.ts"
-import { detectLang, resolveDocLang } from "./detect-lang.ts"
-import { toSupertonicLang } from "./supertonic-lang.ts"
+import { createSupertonicPlayer } from "./supertonic-player.ts"
 
 type Listener = (message: unknown, sender: unknown, respond: (value: unknown) => void) => unknown
 
@@ -114,30 +113,19 @@ for (const offscreen of [false, true]) {
   })
 }
 
-/** `onPrepareBlock` from the content script, compiled alone so its free variables come from a test context. */
-function prepareBlockHandler(): string {
-  const source = ts.createSourceFile("reader.content.ts", readFileSync(new URL("../entrypoints/reader.content.ts", import.meta.url), "utf8"), ts.ScriptTarget.ES2022, true)
-  const findHandler = (node: ts.Node): ts.FunctionDeclaration | undefined => {
-    if (ts.isFunctionDeclaration(node) && node.name?.text === "onPrepareBlock") return node
-    return ts.forEachChild(node, findHandler)
-  }
-  const handler = findHandler(source)
-  assert.ok(handler)
-  return ts.transpileModule(handler.getText(source), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+/** The Supertonic player's answer to the host's live block requests. */
+function prepareBlockHandler(prepare: (...args: unknown[]) => Promise<string>, paragraphs = ["One.", "Two.", "Three."]) {
+  const player = createSupertonicPlayer({
+    paragraphs, text: paragraphs.join("\n\n"), title: "", lang: "en", startBlock: 1, personalRules: [],
+    source: { prepare } as any, token: "owner", prefs: () => ({ follow: true }) as any, emit: () => {},
+  })
+  return (message: unknown) => player.receive!(message as { type?: string })
 }
 
 test("content preparation preserves passive requests and aligns active forward blocks to the viewport", async () => {
-  const outputText = prepareBlockHandler()
   const calls: unknown[][] = []
-  const context = {
-    TTS_PREPARE_BLOCK: messages.TTS_PREPARE_BLOCK,
-    pageSource: { prepare: async (...args: unknown[]) => { calls.push(structuredClone(args)); return "Le texte actuel." } },
-    reading: true, usingSupertonic: true, token: "owner", readingTotal: 3, startGeneration: 0,
-    prefs: { follow: true }, blockIndex: 1, pageIntro: "",
-    document: { documentElement: { lang: "en" } }, resolveDocLang: () => "fr",
-    blockLangs: [], detectLang: () => null, toSupertonicLang,
-  }
-  const prepare = vm.runInNewContext(`${outputText}\nonPrepareBlock`, context) as (message: unknown) => Promise<unknown>
+  ;(globalThis as any).document = { documentElement: { lang: "en" } }
+  const prepare = prepareBlockHandler(async (...args) => { calls.push(structuredClone(args)); return "Le texte actuel." })
   await prepare({ ...request, prefetch: true })
   await prepare(request)
   await prepare({ ...request, block: 1 })
@@ -149,14 +137,8 @@ test("content preparation preserves passive requests and aligns active forward b
 test("a re-prepared short block keeps the reading's language, not the page declaration", async () => {
   // Gmail declares its French UI; the message is English. "Read more" alone
   // is too short to decide, so it must inherit what the start resolved.
-  const context = {
-    TTS_PREPARE_BLOCK: messages.TTS_PREPARE_BLOCK,
-    pageSource: { prepare: async () => "Read more" },
-    reading: true, usingSupertonic: true, token: "owner", readingTotal: 3, startGeneration: 0,
-    prefs: { follow: true }, blockIndex: 1, pageIntro: "",
-    document: { documentElement: { lang: "fr" } },
-    blockLangs: ["en", "en", "en"], detectLang, resolveDocLang, toSupertonicLang,
-  }
-  const prepare = vm.runInNewContext(`${prepareBlockHandler()}\nonPrepareBlock`, context) as (message: unknown) => Promise<{ lang: string }>
-  assert.equal((await prepare(request)).lang, "en")
+  ;(globalThis as any).document = { documentElement: { lang: "fr" } }
+  const english = "The cat is sitting on the mat and watching the window with attention, while the rain falls gently on the roofs of the whole city outside."
+  const prepare = prepareBlockHandler(async () => "Read more", [english, english, english])
+  assert.equal(((await prepare(request)) as { lang: string }).lang, "en")
 })

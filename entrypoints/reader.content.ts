@@ -17,32 +17,20 @@ import {
   type ReaderPreferences,
   type PillPosition,
 } from "../lib/reader-prefs"
-import { expandText } from "../lib/pronunciation/index.ts"
 import { loadPronunciationRules } from "../lib/pronunciation-rules.ts"
 import type { PronunciationRule } from "../lib/pronunciation/personal.ts"
-import { resolveBlockLangs } from "../lib/reading-language.ts"
 import { createLivePage } from "../lib/live-page.ts"
 import { createAnchorFinder, findBlockIndex } from "../lib/read-anchor.ts"
-import { buildReadingIntro } from "../lib/reading-intro"
-import { toSupertonicLang, type SupportedLang } from "../lib/supertonic-lang.ts"
-import { detectLang, resolveDocLang } from "../lib/detect-lang.ts"
+import type { SupportedLang } from "../lib/supertonic-lang.ts"
+import { resolveDocLang } from "../lib/detect-lang.ts"
 import { markTab } from "../lib/tab-title.ts"
+import type { Player, PlayerEvent } from "../lib/player.ts"
+import { cancelSpeech, createSystemPlayer } from "../lib/system-player.ts"
+import { createSupertonicPlayer } from "../lib/supertonic-player.ts"
 import {
   MODEL_CACHE_QUERY,
-  TTS_CONTROL,
-  TTS_EVENT,
-  TTS_SEEK,
-  TTS_SET_SPEED,
-  TTS_SPEAK,
   TTS_PREPARE_BLOCK,
-  type TtsControlMessage,
-  type TtsEventMessage,
   type TtsLoadingReason,
-  type TtsSeekMessage,
-  type TtsSetSpeedMessage,
-  type TtsSpeakMessage,
-  type TtsPrepareBlockMessage,
-  type TtsPreparedBlock,
 } from "../lib/tts-messages"
 // Type uniquement — importer la valeur (la liste des 10 voix, ses libellés)
 // depuis lib/supertonic/* ferait entrer le moteur dans ce bundle. La petite
@@ -127,50 +115,17 @@ export default defineContentScript({
     }
     let reading = false
     let paused = false
-    /** Position de lecture : le bloc en cours, et où la voix en est dedans. */
-    let blocks: string[] = []
-    let blockLangs: string[] = []
+    /** The engine of the current reading; it alone knows where the voice is. */
+    let player: Player | null = null
+    /** Paragraph shown by the pill, the base for previous/next. */
     let blockIndex = 0
-    let charIndex = 0
-    let lang: string | undefined
     let pageSource: ReturnType<typeof createLivePage> | null = null
-    let pageIntro = ""
-    let pageRules: PronunciationRule[] = []
-    /**
-     * Numéro de la file en cours.
-     *
-     * Relancer la lecture passe par `cancel()`, qui fait remonter un `end` sur
-     * l'utterance coupée — indistinguable d'une fin naturelle. Chaque file
-     * garde le numéro qu'elle avait à sa création : celle qui n'est plus la
-     * courante sait que son `end` est un contrecoup et ne replie pas la
-     * pastille.
-     */
-    let generation = 0
     let startGeneration = 0
-    /** Un réglage a changé pendant la pause : à appliquer à la reprise. */
-    let stale = false
-    /**
-     * La lecture en cours utilise Supertonic plutôt que le moteur système.
-     *
-     * `blocks`/`blockIndex`/`charIndex`/`generation`/`stale` ne servent qu'au
-     * chemin système : l'hôte Supertonic garde sa propre position, jamais
-     * exposée ici — juste des événements `TTS_EVENT` à répercuter sur la
-     * pastille.
-     */
-    let usingSupertonic = false
+    let readingUrl = ""
     /** Réinjecté à chaque `playing` : un état de chargement y écrit la
      *  progression du téléchargement par-dessus, il faut de quoi le restaurer. */
-    let supertonicTitle = ""
-    let readingUrl = ""
     let readingTitle = ""
     let readingTotal = 0
-    /**
-     * Vrai dès qu'un `reason: "downloading-model"` est vu pendant la session
-     * Supertonic en cours — sert à ne compter `supertonic_download_completed`/
-     * `_failed` (télémétrie, jalon 1c) que quand un téléchargement a vraiment
-     * eu lieu, pas à chaque lecture qui trouve le modèle déjà en cache.
-     */
-    let sawSupertonicDownload = false
     let readingTelemetryStarted = false
     let readingTelemetryFailed = false
     const token = Math.random().toString(36).slice(2)
@@ -186,8 +141,7 @@ export default defineContentScript({
     follower.setEnabled(prefs.follow)
 
     browser.runtime.onMessage.addListener(onMessage)
-    browser.runtime.onMessage.addListener(onPrepareBlock)
-    browser.runtime.onMessage.addListener(onTtsEvent)
+    browser.runtime.onMessage.addListener(onPlayerMessage)
     browser.storage.onChanged.addListener(onTokenChanged)
     document.addEventListener("contextmenu", rememberContextTarget, true)
     const unsubscribeHiddenSites = onHiddenSitesChanged((sites) => {
@@ -196,9 +150,7 @@ export default defineContentScript({
     })
     const unsubscribeUiPrefs = onUiPrefsChanged((next) => pill.setTheme(next.theme))
     const unsubscribePrefs = onPrefsChanged((newPrefs) => {
-      const speedChanged = newPrefs.speed !== prefs.speed
-      const voiceChanged = newPrefs.voiceURI !== prefs.voiceURI
-      const engineChanged = newPrefs.engine !== prefs.engine
+      const previous = prefs
       prefs = newPrefs
       pill.updatePrefs(newPrefs)
       follower.setEnabled(newPrefs.follow)
@@ -207,33 +159,8 @@ export default defineContentScript({
       // Neither engine can take over the other's queue: without this, Play
       // resumed the old engine and the new choice was silently ignored. The
       // saved progress lets the next start offer to pick up where it stopped.
-      if (engineChanged) return stop()
-
-      if (usingSupertonic) {
-        // La vitesse s'applique tout de suite (audio.playbackRate, jamais de
-        // resynthèse) : aucune raison d'attendre la reprise, contrairement au
-        // chemin système.
-        //
-        // ponytail: un changement de voix Supertonic en cours de lecture
-        // n'est pas repris à la volée — l'hôte ne garde pas de position dans
-        // le texte pour relancer avec une autre voix. Arrêter puis relire
-        // pour l'entendre.
-        if (speedChanged) {
-          void browser.runtime.sendMessage({
-            type: TTS_SET_SPEED,
-            speed: newPrefs.speed,
-          } satisfies TtsSetSpeedMessage)
-        }
-        return
-      }
-
-      if (!speedChanged && !voiceChanged) return
-      // La synthèse ne réaccorde pas un utterance déjà lancé : le seul moyen
-      // d'entendre la nouvelle vitesse est de refaire la file à partir du mot
-      // en cours. En pause, on attend la reprise plutôt que de repartir tout
-      // seul — `cancel()` déferait la pause.
-      if (paused) stale = true
-      else speak()
+      if (newPrefs.engine !== previous.engine) return stop()
+      player?.update(previous)
     })
     // La synthèse survit au déchargement de la page : sans ça la lecture
     // continue après un rechargement, hors de portée de la nouvelle pastille.
@@ -245,11 +172,7 @@ export default defineContentScript({
       startGeneration++
       pageSource?.stop()
       if (!reading) return
-      if (usingSupertonic) {
-        void browser.runtime.sendMessage({ type: TTS_CONTROL, action: "stop" } satisfies TtsControlMessage)
-      } else {
-        cancelSpeech()
-      }
+      player?.stop()
       // The page can come back from bfcache with this same document.title frozen:
       // without this, navigating back would resurrect the mark on a page
       // that isn't reading anymore.
@@ -258,14 +181,16 @@ export default defineContentScript({
     ctx.onInvalidated(() => {
       startGeneration++
       browser.runtime.onMessage.removeListener(onMessage)
-      browser.runtime.onMessage.removeListener(onPrepareBlock)
-      browser.runtime.onMessage.removeListener(onTtsEvent)
+      browser.runtime.onMessage.removeListener(onPlayerMessage)
       browser.storage.onChanged.removeListener(onTokenChanged)
       document.removeEventListener("contextmenu", rememberContextTarget, true)
       unsubscribePrefs()
       unsubscribeHiddenSites()
       unsubscribeUiPrefs()
       pageSource?.stop()
+      // No message can leave an invalidated context: only the page's own
+      // speech can still be silenced.
+      player?.dispose()
       cancelSpeech()
       follower.end()
       pill.remove()
@@ -279,81 +204,50 @@ export default defineContentScript({
       start(message as ReadPagePayload, message.fromHere)
     }
 
-    function onPrepareBlock(message: Partial<TtsPrepareBlockMessage>) {
-      if (message?.type !== TTS_PREPARE_BLOCK) return
-      const source = pageSource
-      if (!source || !reading || !usingSupertonic || message.token !== token ||
-        !Number.isInteger(message.block) || message.block! < 0 || message.block! >= readingTotal ||
-        (message.prefetch !== undefined && typeof message.prefetch !== "boolean")) return Promise.resolve(null)
-      const mine = startGeneration
-      return source.prepare(message.block!, prefs.follow, !!message.prefetch, message.block! > blockIndex ? "nearest" : "center").then((text): TtsPreparedBlock | null => {
-        if (source !== pageSource || mine !== startGeneration) return null
-        // A short block decides nothing alone: Gmail's French declaration
-        // would win over the English message the start already resolved.
-        const resolved = toSupertonicLang(blockLangs[message.block!] ?? "")
-        const lang = (resolved ? detectLang(text, resolved) : resolveDocLang(document.documentElement.lang, text)) ?? "na"
-        return { text: message.block === 0 && pageIntro ? `${pageIntro} ${text}` : text, lang }
-      })
+    /** Messages for the engine (TTS host events, live block requests). */
+    function onPlayerMessage(message: { type?: string } | undefined) {
+      if (!message) return
+      const reply = reading ? player?.receive?.(message) : undefined
+      // A block request always gets an answer, if only "nothing to read".
+      return reply ?? (message.type === TTS_PREPARE_BLOCK ? Promise.resolve(null) : undefined)
     }
 
     function rememberContextTarget(event: Event) {
       contextTarget = event.target instanceof Element ? event.target : null
     }
 
-    /** Événements de l'hôte Supertonic : pilotent directement la pastille. */
-    function onTtsEvent(message: Partial<TtsEventMessage>) {
-      if (message?.type !== TTS_EVENT || !message.state || !reading || !usingSupertonic) return
-      const state = message.state
-      if (state.phase === "loading") {
+    /** What the engine reports drives the pill, whichever engine it is. */
+    function onPlayerEvent(engine: ReaderEngine, event: PlayerEvent) {
+      if (event.phase === "loading") {
         // Keep preparation and download feedback inside the compact pill.
-        const label = state.reason ? browser.i18n.getMessage(LOADING_REASON_KEY[state.reason]) : undefined
-        // Télémétrie (jalon 1c) : une seule fois par session, au tout premier
-        // "downloading-model" — les ticks de progression suivants repassent
-        // par cette même branche sans redéclencher l'événement.
-        if (state.reason === "downloading-model" && !sawSupertonicDownload) {
-          sawSupertonicDownload = true
-          track({ name: "supertonic_download_started" })
-        }
+        const label = event.reason ? browser.i18n.getMessage(LOADING_REASON_KEY[event.reason]) : undefined
         pill.setState(
           "loading",
-          supertonicTitle,
+          readingTitle,
           true,
-          label ? { label, percent: state.progress, reason: state.reason } : undefined
+          label ? { label, percent: event.progress, reason: event.reason } : undefined
         )
-      } else if (state.phase === "playing") {
-        trackReadingStarted("supertonic")
-        if (sawSupertonicDownload) {
-          sawSupertonicDownload = false
-          track({ name: "supertonic_download_completed" })
-        }
+      } else if (event.phase === "playing") {
+        trackReadingStarted(engine)
         paused = false
-        blockIndex = state.block
-        void persistProgress(state.block)
-        follower.show(state.block)
-        pill.setPosition(state.block, state.total)
-        pill.setState("playing", supertonicTitle)
-      } else if (state.phase === "paused") {
+        blockIndex = event.block
+        void persistProgress(event.block)
+        follower.show(event.block)
+        pill.setPosition(event.block, event.total)
+        pill.setState("playing", readingTitle)
+      } else if (event.phase === "paused") {
         paused = true
         pill.setState("paused")
-      } else if (state.phase === "ended") {
-        trackReadingCompleted("supertonic")
+      } else if (event.phase === "ended") {
+        trackReadingCompleted(engine)
         void clearReadingProgress(readingUrl)
         fold()
-      } else if (state.phase === "error") {
-        trackReadingFailed("supertonic", state.reason === "audio-playback" ? "audio_playback" : "preparation")
-        if (sawSupertonicDownload) {
-          sawSupertonicDownload = false
-          track({ name: "supertonic_download_failed", properties: { reason: classifyTtsError(state.message) } })
+      } else if (event.phase === "error") {
+        trackReadingFailed(engine, event.reason)
+        if (event.recoverable) return
+        if (event.message) {
+          void browser.runtime.sendMessage({ type: NOTIFY, message: event.message } satisfies NotifyMessage)
         }
-        void browser.runtime.sendMessage({
-          type: NOTIFY,
-          // `state.message` d'une exception (ONNX, réseau) n'a rien de
-          // traduisible ; seule l'erreur audio statique de tts-host.ts l'est.
-          message:
-            state.reason === "audio-playback"
-              ? browser.i18n.getMessage("ttsAudioError")
-              : state.message,
-        } satisfies NotifyMessage)
         fold()
         pill.setState("error", readingTitle)
       }
@@ -369,26 +263,11 @@ export default defineContentScript({
     /** ▶ lance la lecture, ⏸/▶ la met en pause et la reprend. */
     async function onPrimary() {
       if (reading) {
-        // Notre propre drapeau, jamais `speechSynthesis.paused` : Chrome ne met
-        // le sien à jour qu'après coup, on relirait l'état d'avant le clic.
         paused = !paused
-        if (usingSupertonic) {
-          // Retour immédiat, comme le chemin système : le TTS_EVENT qui suit
-          // ne fait que confirmer le même état, sans le faire attendre.
-          pill.setState(paused ? "paused" : "playing")
-          void browser.runtime.sendMessage({
-            type: TTS_CONTROL,
-            action: paused ? "pause" : "resume",
-          } satisfies TtsControlMessage)
-          return
-        }
-        if (paused) speechSynthesis.pause()
-        // La file en attente porte encore l'ancienne vitesse : la refaire plutôt
-        // que la reprendre, sinon le réglage change au bloc suivant seulement.
-        else if (stale) {
-          stale = false
-          speak()
-        } else speechSynthesis.resume()
+        if (paused) player?.pause()
+        else player?.resume()
+        // Retour immédiat : l'événement que Supertonic renvoie ensuite ne fait
+        // que confirmer le même état, sans le faire attendre.
         pill.setState(paused ? "paused" : "playing")
         return
       }
@@ -422,26 +301,10 @@ export default defineContentScript({
     function seekTo(block: number) {
       if (block < 0 || block >= readingTotal) return
       blockIndex = block
-      charIndex = 0
       follower.show(block)
       pill.setPosition(block, readingTotal)
       void persistProgress(block)
-
-      if (usingSupertonic) {
-        void browser.runtime.sendMessage({
-          type: TTS_SEEK,
-          block,
-          paused,
-        } satisfies TtsSeekMessage)
-        return
-      }
-
-      if (paused) {
-        generation++
-        cancelSpeech()
-        stale = true
-      }
-      else speak()
+      player?.seek(block)
     }
 
     /** Choisit le moteur, puis démarre — le reste ne se recroise plus. */
@@ -483,13 +346,13 @@ export default defineContentScript({
       readingTotal = total
       pageSource?.stop()
       pageSource = source
-      pageRules = personalRules
 
+      let supertonicLang: SupportedLang | undefined
       if (prefs.engine === "supertonic") {
-        // Same rule as the system voice below: the page's declaration unless
+        // Same rule as the system voice: the page's declaration unless
         // the text clearly contradicts it (Gmail declares its UI language,
         // not the message's), detection alone when nothing is declared.
-        const supertonicLang = resolveDocLang(payload.lang, payload.text)
+        const lang = resolveDocLang(payload.lang, payload.text)
         // A private window must not trigger the 398 MB first download: the
         // model may not persist there (OPFS is blocked in Firefox private
         // browsing). An already cached model is still used.
@@ -497,123 +360,40 @@ export default defineContentScript({
           browser.extension.inIncognitoContext &&
           !(await browser.runtime.sendMessage({ type: MODEL_CACHE_QUERY }).catch(() => false))
         if (mine !== startGeneration) return
-        if (supertonicLang && !privateWithoutModel) {
-          startSupertonic(payload, supertonicLang, startBlock, personalRules)
-          return
+        if (lang && !privateWithoutModel) supertonicLang = lang
+        else {
+          // Langue hors du modèle même après détection : un repli silencieux
+          // serait déroutant — dire pourquoi la voix système est utilisée à sa
+          // place.
+          void browser.runtime.sendMessage({
+            type: NOTIFY,
+            message: browser.i18n.getMessage(
+              lang ? "noticeSupertonicPrivateWindow" : "noticeSupertonicLangUnsupported"
+            ),
+          } satisfies NotifyMessage)
         }
-        // Langue hors du modèle même après détection : un repli silencieux
-        // serait déroutant — dire pourquoi la voix système est utilisée à sa
-        // place.
-        void browser.runtime.sendMessage({
-          type: NOTIFY,
-          message: browser.i18n.getMessage(
-            supertonicLang ? "noticeSupertonicPrivateWindow" : "noticeSupertonicLangUnsupported"
-          ),
-        } satisfies NotifyMessage)
       }
-      startSystem(payload, startBlock, personalRules)
-    }
 
-    function startSupertonic(payload: ReadPagePayload, lang: SupportedLang, startBlock: number, personalRules: PronunciationRule[]) {
-      // `lang` est la langue résolue (déclaration ou détection), pas
-      // forcément `payload.lang` : l'annonce du titre doit sonner dans la
-      // langue qui va réellement être lue.
-      //
-      // Même annonce de titre qu'en système (buildReadingIntro), composée ici
-      // plutôt que par l'hôte : lib/tts-host.ts ne connaît ni onglets ni titres,
-      // seulement du texte à synthétiser.
-      const intro = buildReadingIntro(lang, payload.title ?? "")
-      pageIntro = intro
-      const text = intro ? `${intro} ${payload.text}` : payload.text
+      const options = {
+        paragraphs, text: payload.text, title, startBlock, personalRules, source,
+        prefs: () => prefs,
+        emit: (event: PlayerEvent) => {
+          if (player === next) onPlayerEvent(next.engine, event)
+        },
+      }
+      const next: Player = supertonicLang
+        ? createSupertonicPlayer({ ...options, lang: supertonicLang, token })
+        : createSystemPlayer({ ...options, lang: payload.lang })
+      // Same engine: the new reading replaces the old queue by itself. A
+      // stop sent to the TTS host could even overtake the new start.
+      if (player?.engine !== next.engine) player?.stop()
+      else player?.dispose()
+      player = next
 
-      // Sur `payload.text`, pas sur `text` : l'annonce du titre n'est écrite
-      // nulle part dans la page. L'hôte la recolle au premier paragraphe
-      // (`splitBlocks`), donc les index concordent quand même.
-      const paragraphs = splitParagraphs(payload.text)
-      follower.begin(paragraphs, pageSource?.anchors)
-      // Same per-block languages as the host computes: a block re-prepared
-      // from the live page falls back on them, not on the page declaration.
-      blockLangs = resolveBlockLangs(paragraphs, lang)
-
-      usingSupertonic = true
+      follower.begin(paragraphs, source?.anchors)
       blockIndex = startBlock
       reading = true
       paused = false
-      markTab(true)
-      sawSupertonicDownload = false
-      readingTelemetryStarted = false
-      readingTelemetryFailed = false
-      supertonicTitle = payload.title ?? ""
-      void browser.storage.local.set({ [READER_TOKEN]: token })
-      pill.attach()
-      pill.setState("loading", supertonicTitle, true)
-      pill.setPosition(startBlock, readingTotal)
-      void persistProgress(startBlock)
-      const mine = startGeneration
-      void browser.runtime.sendMessage({
-        type: TTS_SPEAK,
-        text,
-        title: payload.title,
-        lang,
-        voice: prefs.supertonicVoice,
-        speed: prefs.speed,
-        startBlock,
-        personalRules,
-        token,
-        livePage: !!pageSource,
-      } satisfies Partial<TtsSpeakMessage>).catch(() => {
-        if (mine !== startGeneration || !reading || !usingSupertonic) return
-        trackReadingFailed("supertonic", "preparation")
-        fold()
-        pill.setState("error", readingTitle)
-      })
-    }
-
-    function startSystem(payload: ReadPagePayload, startBlock: number, personalRules: PronunciationRule[]) {
-      // Un bloc par paragraphe, pour éviter la limite de longueur de Chrome.
-      // Le découpage passe avant `expandText`, qui écrase les blancs — les
-      // frontières de paragraphes n'y survivraient pas.
-      const raw = splitParagraphs(payload.text)
-
-      // Texte des blocs tel qu'il est dans la page : ni l'annonce du titre ni
-      // `expandText` ne s'y appliquent — c'est sur lui que le suivi retrouve
-      // le paragraphe dans le DOM. Il reste aligné sur `blocks` : aucune règle
-      // de `expandText` ne remplace par du vide, donc son `filter(Boolean)`
-      // plus bas ne retire jamais rien.
-      follower.begin([...raw], pageSource?.anchors)
-
-      // La déclaration de la page l'emporte quand la détection ne la
-      // contredit pas — elle porte souvent une région (`en-US`) que la
-      // détection, elle, ne rend jamais. Ne s'en écarter que si le texte
-      // réel dit clairement autre chose : article entier mal étiqueté, ou
-      // page sans `lang` du tout.
-      const declared = toSupertonicLang(payload.lang ?? "")
-      const detected = detectLang(payload.text, declared)
-      const resolvedLang = detected && detected !== declared ? detected : payload.lang
-      const docLang = toSupertonicLang(resolvedLang ?? "") ?? "na"
-      blockLangs = resolveBlockLangs(raw, docLang).map((blockLang) =>
-        blockLang === docLang ? resolvedLang ?? blockLang : blockLang
-      )
-
-      // Le titre n'est pas dans le texte extrait — Readability retire le h1 qui
-      // le répète. L'annoncer en tête du premier bloc plutôt qu'en bloc à part :
-      // il suit alors la même reprise que le reste, comme sur mobile.
-      const intro = buildReadingIntro(resolvedLang ?? "", payload.title ?? "")
-      pageIntro = intro
-      if (intro && raw.length) raw[0] = `${intro} ${raw[0]}`
-
-      // Texte à dire, jamais à afficher : sigles épelés, symboles verbalisés,
-      // anglicismes réécrits pour les voix système. Ce sont les seules
-      // disponibles ici, donc la couche phonétique s'applique toujours.
-      blocks = raw.map((block, i) => expandText(block, { language: blockLangs[i], personalRules }))
-      if (!blocks.length) return fold()
-
-      blockIndex = startBlock
-      charIndex = 0
-      lang = resolvedLang
-      reading = true
-      paused = false
-      stale = false
       markTab(true)
       readingTelemetryStarted = false
       readingTelemetryFailed = false
@@ -622,10 +402,11 @@ export default defineContentScript({
       // La pastille a pu être masquée : une lecture lancée depuis le menu
       // contextuel doit quand même offrir de quoi l'arrêter.
       pill.attach()
-      pill.setState("playing", payload.title ?? "")
+      // Supertonic reports its own loading; the page's voices start at once.
+      if (next.engine === "system") pill.setState("playing", title)
       pill.setPosition(startBlock, readingTotal)
       void persistProgress(startBlock)
-      speak()
+      next.start()
     }
 
     /**
@@ -652,124 +433,9 @@ export default defineContentScript({
       track({ name: "read_completed", properties: { engine, had_errors: readingTelemetryFailed } })
     }
 
-    /**
-     * Relance la lecture à partir de `blockIndex`/`charIndex`, aux réglages
-     * du moment. Appelée au démarrage comme à chaque changement de vitesse
-     * ou de voix : dans les deux cas on repart du mot où la voix en était.
-     *
-     * Un seul énoncé en vol à la fois (`play`), jamais toute la file
-     * poussée d'un coup dans `speechSynthesis.speak()` : sur Chrome/Windows,
-     * plusieurs énoncés mis en file en même temps se chevauchent ou
-     * s'interrompent au hasard — bug connu de la file native. Enchaîner au
-     * `end` du précédent est le contournement standard, et il gagne au
-     * passage la robustesse qui manquait avant : `error` avance aussi à la
-     * suite plutôt que de laisser la pastille dépliée sans plus jamais rien
-     * dire.
-     */
-    function speak() {
-      generation++
-      cancelSpeech()
-      play(blockIndex, charIndex)
-    }
-
-    async function play(block: number, from: number) {
-      let text = blocks[block]
-      if (text === undefined) {
-        trackReadingCompleted("system")
-        void clearReadingProgress(readingUrl)
-        fold()
-        return
-      }
-      const mine = generation
-      const session = startGeneration
-      const source = pageSource
-      if (source) {
-        blockIndex = block
-        charIndex = from
-        try {
-          const current = await source.prepare(block, prefs.follow)
-          if (mine !== generation || session !== startGeneration || source !== pageSource || !reading) return
-          if (paused) {
-            stale = true
-            return
-          }
-          const currentLang = detectLang(current, toSupertonicLang(blockLangs[block] ?? lang ?? ""))
-          if (currentLang) blockLangs[block] = currentLang
-          const spoken = block === 0 && pageIntro ? `${pageIntro} ${current}` : current
-          const expanded = expandText(spoken, { language: blockLangs[block], personalRules: pageRules })
-          if (text !== expanded) from = 0
-          text = blocks[block] = expanded
-        } catch {
-          if (mine !== generation || session !== startGeneration || source !== pageSource || !reading) return
-          trackReadingFailed("system", "preparation")
-          fold()
-          pill.setState("error", readingTitle)
-          return
-        }
-      }
-
-      // Résolue à chaque énoncé : `getVoices()` reconstruit sa liste à
-      // chaque appel. Introuvable (voix désinstallée, autre machine) vaut
-      // défaut.
-      const voice = prefs.voiceURI
-        ? speechSynthesis.getVoices().find((v) => v.voiceURI === prefs.voiceURI)
-        : undefined
-      const utterance = new SpeechSynthesisUtterance(text.slice(from))
-      const spokenLang = blockLangs[block] ?? lang
-      if (spokenLang && spokenLang !== "na") utterance.lang = spokenLang
-      utterance.rate = prefs.speed
-      // A saved voice overrides `lang`, including on a translated page.
-      // Let the browser choose when that voice speaks another language.
-      if (voice && (!utterance.lang || voice.lang.toLowerCase().split(/[-_]/)[0] === utterance.lang.toLowerCase().split(/[-_]/)[0])) {
-        utterance.voice = voice
-      }
-
-      utterance.addEventListener("start", () => {
-        if (mine !== generation) return
-        trackReadingStarted("system")
-        blockIndex = block
-        charIndex = from
-        void persistProgress(block)
-        follower.show(block)
-        if (source && block + 1 < readingTotal) {
-          void source.prepare(block + 1, prefs.follow, true, "nearest").catch(() => {})
-        }
-      })
-      // `charIndex` est compté depuis le début de l'énoncé, donc depuis le
-      // reste du bloc : le rebaser sur le bloc entier, sinon une deuxième
-      // reprise repartirait trop tôt.
-      //
-      // ponytail: les voix distantes n'émettent pas toujours `boundary`. Sans
-      // lui la position reste au dernier départ, et changer la vitesse fait
-      // reprendre le bloc courant depuis là — jamais plus loin que ça.
-      utterance.addEventListener("boundary", (event) => {
-        if (mine !== generation) return
-        charIndex = from + event.charIndex
-      })
-      utterance.addEventListener("end", () => {
-        if (mine !== generation) return
-        play(block + 1, 0)
-      })
-      // Un énoncé qui échoue à se synthétiser ne doit pas taire tout le
-      // reste de l'article : avancer quand même, comme une fin naturelle.
-      utterance.addEventListener("error", () => {
-        if (mine !== generation) return
-        trackReadingFailed("system", "synthesis")
-        play(block + 1, 0)
-      })
-      speechSynthesis.speak(utterance)
-    }
-
     /** ⏹ : couper le moteur, puis se replier. */
     function stop() {
-      if (usingSupertonic) {
-        void browser.runtime.sendMessage({
-          type: TTS_CONTROL,
-          action: "stop",
-        } satisfies TtsControlMessage)
-      } else {
-        cancelSpeech()
-      }
+      player?.stop()
       fold()
     }
 
@@ -778,15 +444,14 @@ export default defineContentScript({
       startGeneration++
       pageSource?.stop()
       pageSource = null
-      reading = false
-      paused = false
-      stale = false
-      usingSupertonic = false
-      markTab(false)
-      follower.end()
       // La file coupée ne nous appartient plus : un `end` en retard ne doit pas
       // replier une lecture relancée entre-temps.
-      generation++
+      player?.dispose()
+      player = null
+      reading = false
+      paused = false
+      markTab(false)
+      follower.end()
       pill.setState("idle")
     }
 
@@ -808,17 +473,6 @@ function canonicalUrl() {
   const url = new URL(href, location.href)
   url.hash = ""
   return url.href
-}
-
-/**
- * Annule la synthèse en cours.
- *
- * Chrome garde sa file quand on annule une lecture en pause : elle repart au
- * `speak()` suivant. Reprendre avant d'annuler la vide pour de bon.
- */
-function cancelSpeech() {
-  speechSynthesis.resume()
-  speechSynthesis.cancel()
 }
 
 /**
@@ -1190,17 +844,6 @@ const LOADING_REASON_KEY: Record<TtsLoadingReason, MessageKey> = {
   "loading-engine": "ttsLoadingEngine",
   "loading-voice": "ttsLoadingVoice",
   "preparing-next": "ttsPreparingNext",
-}
-
-/**
- * Classe grossièrement une erreur de téléchargement pour la télémétrie
- * (jalon 1c) — jamais le texte brut de `state.message` : il peut contenir un
- * chemin, un nom de fichier, une trace, rien de destiné à quitter la machine.
- */
-function classifyTtsError(message: string): "http" | "network" | "unknown" {
-  if (/HTTP \d/.test(message)) return "http"
-  if (/fetch|network/i.test(message)) return "network"
-  return "unknown"
 }
 
 /** Même découpe que `splitBlocks` côté hôte : un bloc par paragraphe. */
