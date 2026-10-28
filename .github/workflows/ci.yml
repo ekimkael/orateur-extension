@@ -5,6 +5,11 @@ on:
   push:
     branches: [main, develop]
 
+# No job writes to the repository: keep the token read-only whatever the
+# repository default is.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

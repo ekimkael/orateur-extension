@@ -14,6 +14,10 @@ jobs:
   submit:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Store secrets live in this environment, not at repository level, so a
+    # workflow pushed on any other branch cannot read them. Its deployment
+    # rules must allow only `main` and `v*` tags, with a required reviewer.
+    environment: store
     permissions:
       contents: write # créer la GitHub Release
     steps:
@@ -30,6 +34,12 @@ jobs:
           git fetch origin main
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
           test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+
+      # The tag check above does not cover manual runs: without this, a manual
+      # run on a feature branch would submit unreviewed code to the stores.
+      - name: A manual submission must run from main
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        run: test "$GITHUB_REF" = "refs/heads/main"
 
       - uses: actions/setup-node@v7
         with:
