@@ -21,7 +21,20 @@ Storage failures are shown in settings. A failed save keeps the draft available 
 
 Built-in preparation removes recognized thousands separators before synthesis: `40 000` becomes `40000`. Regular, nonbreaking and narrow nonbreaking spaces are accepted in French and English; English comma grouping is also accepted. Decimal parts follow the paragraph language: `40 000,50` in French and `40,000.50` in English. Signs are preserved.
 
-Leading-zero codes and common phone number formats are not regrouped. An ambiguous sequence such as `123 456 789` is treated as a quantity. Personal rules match before this preparation step; the selected engine may further preprocess their output. Final pronunciation depends on the engine and voice, so these transformations cannot guarantee every numeric interpretation.
+A separator repeated in 3-digit groups is a thousands separator in both languages: `1.000.000` and `1,000,000` both become `1000000`. Four dot-separated groups of at most 255 are kept as an IP address.
+
+French and English text also gets numeric forms spelled out before synthesis:
+
+- Times: `14:05` and `14h05` become `14 heures 5` in French, `9h-18h` reads `9 heures à 18 heures`; `2:05` becomes `2 oh 5` in English, 24-hour times use the 12-hour clock (`14:00` → `2 PM`), and `am`/`pm` (`9am`, `9 p.m.`) become `AM`/`PM`. `10:1` stays a ratio.
+- Units and currencies after a number (`km`, `kg`, `°C`, `€`, `$`, `£`, `mph`) are spelled out; `$20` is read `20 dollars`.
+- Dates: ISO dates (`2024-03-15`) are read with the month name in both languages. French `01/02/2024`, `15.03.2024` and `le 15/03` are read day first, with `1er` for the first. English slash dates are ambiguous between day and month order, so they are read as numbers without leading zeros and no month is named. A zero-padded day before a month name loses its zero.
+- Slashes: `100 km/h` is read per hour, `24h/24` and `7j/7` in full, common fractions as words (`3/4`), other small fractions as `sur` or `out of`, and `#1` as a number.
+- Roman numerals written with `I`, `V` and `X` (`XIV`, `XIXe`, `Ier`) become digits, so they are neither spelled out nor lowercased. English regnal names are read as cardinals (`Henry 8`).
+- Squared and cubed metric units (`m²`, `km²`, `m³`) are spelled out, and footnote markers glued to a word (`study¹`) are dropped.
+
+Supertonic reads digits poorly, so in French and English its preprocessing then spells every remaining number as words: cardinals (`quatre-vingts`, `vingt et un`), ordinals (`19e` → `dix-neuvième`, `21st` → `twenty-first`), decimals (`trois virgule cinq`, `three point one four`), signs, and English years and decades (`nineteen ninety-nine`, `the nineties`). In English, a bare four-digit number from 1100 to 2099 is read as a year unless it is money or a percentage. Zero-padded runs and numbers beyond twelve digits are read digit by digit. System voices keep reading digits natively.
+
+Leading-zero codes and common phone number formats are not regrouped. With Supertonic, zero-padded parts of times and dates (`14:05`, `01/02`) are not spelled digit by digit. An ambiguous sequence such as `123 456 789` is treated as a quantity. Personal rules match before this preparation step; the selected engine may further preprocess their output. Final pronunciation depends on the engine and voice, so these transformations cannot guarantee every numeric interpretation.
 
 ## Verification
 
