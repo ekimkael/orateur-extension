@@ -102,9 +102,16 @@ mock.module(new URL("./supertonic/engine.ts", import.meta.url).href, {
 
 const { createTtsHost } = await import("./tts-host.ts")
 
+// Simulated clock: a real `setTimeout(0)` costs ~1 ms in Node, which added up
+// to seconds across this suite.
+mock.timers.enable({ apis: ["setTimeout"] })
+
 /** Laisse tourner les synthèses en vol et les `setTimeout(0)` de `pump()`. */
 async function settle(turns = 120) {
-  for (let i = 0; i < turns; i++) await new Promise((r) => setTimeout(r, 0))
+  for (let i = 0; i < turns; i++) {
+    mock.timers.tick(1)
+    await new Promise((r) => setImmediate(r))
+  }
 }
 
 /** Un texte de `n` paragraphes courts, donc `n` unités. */
