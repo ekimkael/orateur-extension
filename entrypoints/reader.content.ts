@@ -50,9 +50,7 @@ export default defineContentScript({
     const token = Math.random().toString(36).slice(2)
     // Réassigné, pas figé : une lecture doit partir sur les réglages du moment,
     // y compris ceux changés depuis un autre onglet.
-    let prefs = await loadPrefs()
-    const hiddenSites = await loadHiddenSites()
-    const uiPrefs = await loadUiPrefs()
+    let [prefs, hiddenSites, uiPrefs] = await Promise.all([loadPrefs(), loadHiddenSites(), loadUiPrefs()])
     let contextTarget: Element | null = null
 
     const pill = createPill(() => void session.toggle(), onSecondary, () => session.navigate(-1), () => session.navigate(1), prefs, !isHidden(location.hostname, hiddenSites), uiPrefs.theme)
@@ -865,11 +863,9 @@ function createPill(
   followRow.append(follow, followText)
   popover.append(followRow)
   follow.addEventListener("change", () => savePrefs({ follow: follow.checked }))
-
-  renderVoices()
-  // Chrome charge ses voix après coup : sans cet événement la liste reste
-  // réduite à « Par défaut » pendant les premières secondes de la page.
-  speechSynthesis.addEventListener("voiceschanged", renderVoices)
+  // The voice list is built on first popover open (see setPopover): calling
+  // getVoices() makes Chrome enumerate voices, too costly for every page load.
+  let voicesWatched = false
 
   // Le shadow root ne voit pas les clics du reste de la page — l'écouteur doit
   // être sur le document. En capture, pour survivre à un `stopPropagation`.
@@ -1118,7 +1114,14 @@ function createPill(
       updateLayout()
       if (open) {
         modelCached = undefined
-        syncControls()
+        if (!voicesWatched) {
+          voicesWatched = true
+          // Chrome charge ses voix après coup : sans cet événement la liste reste
+          // réduite à « Par défaut » pendant les premières secondes de la page.
+          speechSynthesis.addEventListener("voiceschanged", renderVoices)
+        }
+        // Also syncs the controls.
+        renderVoices()
       }
     }, instant)
   }

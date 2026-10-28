@@ -495,20 +495,23 @@ export async function loadTextToSpeechEngine(
    * thread-ci : le tester d'ici répondrait à la mauvaise question. Le coût est
    * une création de session sur le plus petit des quatre modèles.
    */
+  // logSeverityLevel 3 (error): the default warning level prints a node-placement
+  // notice per session through console.error, listed in chrome://extensions as errors.
+  const options = (ep: "webgpu" | "wasm") => ({ executionProviders: [ep], logSeverityLevel: 3 as const })
   let ep: "webgpu" | "wasm" = "webgpu"
   const sessions: ort.InferenceSession[] = []
   for (let i = 0; i < onnxFiles.length; i++) {
     onProgress?.({ name: onnxFiles[i]!.label, index: i, total: onnxFiles.length })
     const buf = await getFile(onnxFiles[i]!.name)
     try {
-      sessions.push(await ORT.InferenceSession.create(buf, { executionProviders: [ep] }))
+      sessions.push(await ORT.InferenceSession.create(buf, options(ep)))
     } catch (e) {
       // Seule la première session est une sonde : une fois l'EP retenu, un
       // échec plus loin est une vraie erreur, pas un verdict de plateforme.
       if (i > 0 || ep === "wasm") throw e
       console.info("[orateur] WebGPU indisponible, repli WASM :", e)
       ep = "wasm"
-      sessions.push(await ORT.InferenceSession.create(buf, { executionProviders: [ep] }))
+      sessions.push(await ORT.InferenceSession.create(buf, options(ep)))
     }
   }
   console.info(`[orateur] moteur ONNX sur ${ep} (numThreads=${ORT.env.wasm.numThreads})`)
