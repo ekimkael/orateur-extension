@@ -32,6 +32,16 @@ const MIN_SCORE = 0.12
 const MIN_MARGIN = 0.04
 /** Sous ce nombre de mots distincts, la table de mots ne prouve plus rien : seule une signature peut trancher. */
 const HARD_MIN_TOKENS = 4
+/**
+ * Denominator cap for the score. The tables hold ~30–45 function words while
+ * an article's distinct vocabulary keeps growing: divided by every distinct
+ * word, a long or content-heavy English text fell under `MIN_SCORE` and kept
+ * Gmail's French declaration.
+ *
+ * ponytail: fixed cap, not a statistical model; recalibrate on real texts if
+ * long texts in a language without a table start to switch.
+ */
+const MAX_SCORED_TOKENS = 30
 
 /**
  * Score et marge exigés pour un texte de `distinct` mots distincts. Ce qu'un
@@ -221,7 +231,7 @@ function bestByWordTable(
       const table = WORD_TABLES[lang]
       if (!table) return null
       const weight = distinct.reduce((sum, t) => sum + (table.has(t) ? (weights.get(t) ?? 1) : 0), 0)
-      return { lang, score: weight / distinct.length }
+      return { lang, score: weight / Math.min(distinct.length, MAX_SCORED_TOKENS) }
     })
     .filter((s): s is { lang: SupportedLang; score: number } => s !== null)
     .sort((a, b) => b.score - a.score)

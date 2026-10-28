@@ -158,3 +158,16 @@ test("resolveDocLang: no declaration and no verdict gives null", () => {
   assert.equal(resolveDocLang(undefined, TERSE), null)
   assert.equal(resolveDocLang("zh", TERSE), null)
 })
+
+// Content-heavy prose: function words are a small share of its distinct words,
+// and that share keeps falling as the article grows.
+const DENSE_EN =
+  "The engineering team at the company shipped a new caching layer this week, and the results were impressive across every service. " +
+  "Latency dropped sharply while throughput climbed beyond expectations, partly because requests now skip redundant database lookups entirely. " +
+  "Engineers credited careful benchmarking, gradual rollouts, feature flags plus extensive observability dashboards."
+
+test("dense English prose overrides a French declaration, whatever its length", () => {
+  assert.equal(detectLang(DENSE_EN, "fr"), "en")
+  const article = readFileSync(new URL("../tests/fixtures/english-digest.txt", import.meta.url), "utf8")
+  assert.equal(detectLang(`${article}\n\n${DENSE_EN}`, "fr"), "en")
+})
