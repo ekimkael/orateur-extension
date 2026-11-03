@@ -1,55 +1,82 @@
 name: Release
 
+# A merge of release/x.y.z or hotfix/x.y.z into main validates, builds, tests and
+# submits to the stores. The tag is then pushed by a repository admin: the
+# "Release tags" ruleset limits `v*` tag creation to admins, so GITHUB_TOKEN
+# cannot create it. That tag push publishes the GitHub Release with the exact
+# ZIPs the main run submitted.
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Vérifier l'authentification des stores sans rien soumettre"
+        description: "Check store authentication without submitting anything"
         type: boolean
         default: true
 
+permissions:
+  contents: read
+
+concurrency:
+  # Releases run one after another; queued ones wait instead of being dropped.
+  # Never cancel a store submission.
+  group: release
+  queue: max
+
 jobs:
-  submit:
+  version:
+    if: github.ref_type == 'branch'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # Store secrets live in this environment, not at repository level, so a
-    # workflow pushed on any other branch cannot read them. Its deployment
-    # rules must allow only `main` and `v*` tags, with a required reviewer.
-    environment: store
-    permissions:
-      contents: write # créer la GitHub Release
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # merge-base a besoin de l'historique
+          persist-credentials: false
 
-      # Les deux ratés classiques d'une release sur tag : le tag posé depuis une
-      # branche de feature, et le tag posé sans avoir bumpé package.json. Les
-      # stores refusent une version déjà soumise, donc mieux vaut échouer ici.
-      - name: Le tag doit être sur main et correspondre à package.json
-        if: startsWith(github.ref, 'refs/tags/')
+      # Stores refuse a version they already have: fail here rather than at submission.
+      - name: Check version, changelog and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-          test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+          version=$(node -p 'require("./package.json").version')
+          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid version $version"; exit 1; }
+          node scripts/validate-changelog.mjs "$version"
+          if [[ $GITHUB_EVENT_NAME == push ]] && gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" --silent 2>/dev/null; then
+            echo "::error::Tag v$version already exists. Bump the version in a release or hotfix branch."
+            exit 1
+          fi
 
-      # The tag check above does not cover manual runs: without this, a manual
-      # run on a feature branch would submit unreviewed code to the stores.
+      # A merge into main always runs from main; this covers manual runs, which
+      # would otherwise submit unreviewed code from any branch.
       - name: A manual submission must run from main
         if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
         run: test "$GITHUB_REF" = "refs/heads/main"
 
-      - uses: actions/setup-node@v7
+  submit:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Store secrets live in this environment, not at repository level, so a
+    # workflow pushed on any other branch cannot read them. Its deployment
+    # rules allow only `main` and `v*` tags.
+    environment: store
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No npm cache: a release must not restore a cache other branches can write.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: npm
+          package-manager-cache: false
 
       - run: npm ci
       - run: npm run compile
       - run: npm test
-      - name: Vérifier la configuration PostHog de production
+      - name: Check the production PostHog configuration
         env:
           WXT_POSTHOG_KEY: ${{ vars.WXT_POSTHOG_KEY }}
           WXT_POSTHOG_REGION: ${{ vars.WXT_POSTHOG_REGION }}
@@ -57,7 +84,7 @@ jobs:
           node --input-type=module -e '
             const { WXT_POSTHOG_KEY: key, WXT_POSTHOG_REGION: region } = process.env
             if (!/^phc_[A-Za-z0-9_-]+$/.test(key ?? "") || /replace|your_project/i.test(key) || !["eu", "us"].includes(region)) {
-              console.error("Configurer les variables Actions WXT_POSTHOG_KEY et WXT_POSTHOG_REGION avant publication.")
+              console.error("Set the WXT_POSTHOG_KEY and WXT_POSTHOG_REGION Actions variables before publishing.")
               process.exit(1)
             }
           '
@@ -70,7 +97,7 @@ jobs:
           WXT_POSTHOG_KEY: ${{ vars.WXT_POSTHOG_KEY }}
           WXT_POSTHOG_REGION: ${{ vars.WXT_POSTHOG_REGION }}
       - run: npm run test:packages
-      # Le runner crée le cache du projet ; root n'installe que les dépendances système.
+      # The runner creates the project cache; root only installs system dependencies.
       - run: npx puppeteer browsers install chrome
       - run: sudo env "PATH=$PATH" "PUPPETEER_CACHE_DIR=$PWD/.cache/puppeteer" npx puppeteer browsers install chrome --install-deps
       - run: npx puppeteer browsers install firefox
@@ -89,32 +116,34 @@ jobs:
       - run: npm run test:e2e
       - run: npm run test:e2e:firefox
 
-      - uses: actions/upload-artifact@v7
-        if: always()
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
         with:
           name: release-tests-${{ github.sha }}
           path: .output/test-results/
           include-hidden-files: true
           retention-days: 7
 
-      - name: Soumettre aux stores dont les secrets sont configurés
+      - name: Submit to the stores whose secrets are set
         run: |
           version=$(node -p "require('./package.json').version")
           args=()
           [[ -n "$CHROME_EXTENSION_ID" ]] && args+=(--chrome-zip ".output/orateur-extension-$version-chrome.zip")
           [[ -n "$FIREFOX_EXTENSION_ID" ]] && args+=(--firefox-zip ".output/orateur-extension-$version-firefox.zip" --firefox-sources-zip ".output/orateur-extension-$version-sources.zip")
-          # Edge réutilise le zip Chrome : le MV3 passe tel quel.
+          # Edge reuses the Chrome ZIP: the MV3 package works as is.
           [[ -n "$EDGE_PRODUCT_ID" ]] && args+=(--edge-zip ".output/orateur-extension-$version-chrome.zip")
           if [[ ${#args[@]} -eq 0 ]]; then
-            echo "Aucun secret de store configuré, rien à soumettre." >&2
+            echo "::error::No store secret is set, nothing to submit."
             exit 1
           fi
-          # Aucun rebuild après les tests : ce sont exactement les ZIP vérifiés.
+          [[ $DRY_RUN == true ]] && args+=(--dry-run)
+          # No rebuild after the tests: these are exactly the validated ZIPs.
           (cd .output && sha256sum --check --strict test-results/packages.sha256)
-          npx wxt submit ${{ inputs.dry_run && '--dry-run' || '' }} "${args[@]}"
+          npx wxt submit "${args[@]}"
         env:
-          # L'API v1.1 (client id / secret / refresh token) est dépréciée dans
-          # publish-browser-extension 6 ; v2 passe par un compte de service.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          # API v1.1 (client id / secret / refresh token) is deprecated in
+          # publish-browser-extension 6; v2 uses a service account.
           CHROME_API_VERSION: v2
           CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
           CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
@@ -127,12 +156,66 @@ jobs:
           EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
           EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
 
-      # `gh` est préinstallé sur les runners : pas d'action tierce à auditer.
-      - name: Publier la release GitHub
-        if: startsWith(github.ref, 'refs/tags/')
+      # The tag push attaches these exact ZIPs to the GitHub Release.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name == 'push'
+        with:
+          name: orateur-release-${{ github.sha }}
+          path: |
+            .output/*.zip
+            .output/test-results/packages.sha256
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        if: github.event_name == 'push'
         run: |
           version=$(node -p "require('./package.json').version")
-          (cd .output && sha256sum --check --strict test-results/packages.sha256)
-          gh release create "$GITHUB_REF_NAME" ".output/orateur-extension-$version-chrome.zip" ".output/orateur-extension-$version-firefox.zip" ".output/orateur-extension-$version-sources.zip" --generate-notes
+          {
+            echo "Submitted $version to the stores from \`$GITHUB_SHA\`."
+            echo
+            echo "Next, as a repository admin: \`git tag -a v$version -m \"Release $version\" $GITHUB_SHA && git push origin v$version\`."
+            echo "The tag push publishes the GitHub Release with these ZIPs."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the GitHub Release
+      actions: read # download the ZIPs from the main run
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # merge-base needs the history
+          persist-credentials: false
+
+      # A tag pushed from a feature branch, or without bumping package.json, never gets a release.
+      - name: The tag must be on main and match package.json
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+
+      # `gh` is preinstalled on the runners: no third-party action to audit.
+      - name: Publish the GitHub Release with the submitted ZIPs
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          run_id=$(gh run list --workflow release.yml --branch main --event push --commit "$GITHUB_SHA" \
+            --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [[ -z $run_id ]]; then
+            echo "::error::No successful Release run on main for $GITHUB_SHA. Tag only the merge commit, after its run succeeds."
+            exit 1
+          fi
+          gh run download "$run_id" --name "orateur-release-$GITHUB_SHA" --dir .output
+          (cd .output && sha256sum --check --strict test-results/packages.sha256)
+          awk -v v="$version" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$version" --notes-file notes.md \
+            ".output/orateur-extension-$version-chrome.zip" \
+            ".output/orateur-extension-$version-firefox.zip" \
+            ".output/orateur-extension-$version-sources.zip"
+          echo "Released [$GITHUB_REF_NAME]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME) from \`$GITHUB_SHA\`." >> "$GITHUB_STEP_SUMMARY"
