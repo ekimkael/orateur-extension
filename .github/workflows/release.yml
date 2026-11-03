@@ -205,17 +205,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./package.json').version")
-          run_id=$(gh run list --workflow release.yml --branch main --event push --commit "$GITHUB_SHA" \
+          # Peel to the commit: the main run and its artifact are keyed by the commit SHA.
+          sha=$(git rev-parse "$GITHUB_SHA^{commit}")
+          run_id=$(gh run list --workflow release.yml --branch main --event push --commit "$sha" \
             --status success --limit 1 --json databaseId --jq '.[0].databaseId')
           if [[ -z $run_id ]]; then
-            echo "::error::No successful Release run on main for $GITHUB_SHA. Tag only the merge commit, after its run succeeds."
+            echo "::error::No successful Release run on main for $sha. Tag only the merge commit, after its run succeeds."
             exit 1
           fi
-          gh run download "$run_id" --name "orateur-release-$GITHUB_SHA" --dir .output
+          gh run download "$run_id" --name "orateur-release-$sha" --dir .output
           (cd .output && sha256sum --check --strict test-results/packages.sha256)
           awk -v v="$version" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
           gh release create "$GITHUB_REF_NAME" --verify-tag --title "$version" --notes-file notes.md \
             ".output/orateur-extension-$version-chrome.zip" \
             ".output/orateur-extension-$version-firefox.zip" \
             ".output/orateur-extension-$version-sources.zip"
-          echo "Released [$GITHUB_REF_NAME]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME) from \`$GITHUB_SHA\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "Released [$GITHUB_REF_NAME]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME) from \`$sha\`." >> "$GITHUB_STEP_SUMMARY"
