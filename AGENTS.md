@@ -26,7 +26,7 @@ Read the docs at these exact versions before changing code that uses them.
 | @mozilla/readability | 0.6.0 | https://github.com/mozilla/readability/tree/0.6.0 |
 | onnxruntime-web | 1.26 | https://onnxruntime.ai/docs/ |
 | Puppeteer (browser tests) | 25.14.0 | https://pptr.dev |
-| web-ext | 10.6 | https://extensionworkshop.com/documentation/develop/web-ext-command-reference/ |
+| web-ext | 10.8 | https://extensionworkshop.com/documentation/develop/web-ext-command-reference/ |
 | jsdom (Node tests) | 29.1 | https://github.com/jsdom/jsdom |
 
 ## Commands
