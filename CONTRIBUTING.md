@@ -21,7 +21,7 @@ Commands, structure and known traps: [AGENTS.md](AGENTS.md). Tests and manual QA
 - `feature/*`, `fix/*`, `refactor/*`, `docs/*`, `chore/*`: branch off `develop`, PR back into `develop`.
 - `release/x.y.z`: branch off `develop`, PR into `main`, then PR into `develop`.
 - `hotfix/x.y.z`: branch off `main`, PR into `main`, then PR into `develop`.
-- Every PR is merged with a merge commit (no squash, no rebase) once CI is green (`build`, `packages`, `browser-tests (chrome)`, `browser-tests (firefox)`).
+- Every PR is merged with a merge commit (no squash, no rebase) once CI is green (`build`, `packages`, `browser-tests (chrome)`, `browser-tests (firefox)`, plus the `guard` Git Flow check and the `Security` workflow: gitleaks, `npm audit --audit-level=high`, actionlint and zizmor).
 - A feature is finished once its PR is merged into `develop`, its branch is deleted locally and remotely, and local `develop` is up to date. Finishing a feature does not publish a release.
 
 ## Commits
