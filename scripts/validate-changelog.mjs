@@ -2,6 +2,7 @@
 // Usage: node scripts/validate-changelog.mjs [x.y.z]
 // With a version, also requires a dated, non-empty section for it.
 import fs from "node:fs"
+import { fileURLToPath } from "node:url"
 
 const SECTIONS = ["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"]
 const VERSION_HEADING = /^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$/
@@ -50,7 +51,7 @@ export function validate(text, requiredVersion) {
   return errors
 }
 
-if (process.argv[1] === new URL(import.meta.url).pathname) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const errors = validate(fs.readFileSync("CHANGELOG.md", "utf-8"), process.argv[2])
   if (errors.length) {
     console.error(`CHANGELOG.md is invalid:\n- ${errors.join("\n- ")}`)
