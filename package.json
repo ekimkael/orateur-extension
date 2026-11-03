@@ -16,7 +16,8 @@
     "test:packages": "node scripts/check-packages.mjs",
     "test:e2e": "node scripts/test-browser.mjs",
     "test:e2e:firefox": "node scripts/test-browser.mjs firefox",
-    "postinstall": "wxt prepare"
+    "postinstall": "wxt prepare",
+    "validate:changelog": "node scripts/validate-changelog.mjs"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
