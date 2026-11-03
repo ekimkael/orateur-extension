@@ -213,6 +213,8 @@ real submission must run from `main`. See [analytics release setup](docs/analyti
 | [Privacy policy](PRIVACY.md) | Local storage, transfers and optional usage statistics |
 | [Store listings: English](docs/store-listing.en.md) / [French](docs/store-listing.fr.md) | Main-extension copy, permissions and reviewer build instructions |
 | [First-user programme](docs/premiers-utilisateurs.md) | Manual onboarding and feedback plan (French) |
+| [Contributing](CONTRIBUTING.md) / [Agents](AGENTS.md) | Git Flow, commits, PRs, conventions and known traps |
+| [Release](docs/release.md) / [Changelog](CHANGELOG.md) | Release steps, store submission and version history |
 
 The [Gmail extraction audit](docs/gmail-newsletter-extraction.md),
 [news extraction audit](docs/extraction-audit.md),
