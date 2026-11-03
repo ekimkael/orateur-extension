@@ -37,7 +37,7 @@ jobs:
           echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
       - name: Scan git history
-        run: $RUNNER_TEMP/gitleaks git --redact --no-banner .
+        run: "$RUNNER_TEMP/gitleaks" git --redact --no-banner .
 
   dependencies:
     runs-on: ubuntu-latest
