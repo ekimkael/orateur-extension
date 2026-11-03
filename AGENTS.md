@@ -26,7 +26,7 @@ Read the docs at these exact versions before changing code that uses them.
 | @mozilla/readability | 0.6.0 | https://github.com/mozilla/readability/tree/0.6.0 |
 | onnxruntime-web | 1.26 | https://onnxruntime.ai/docs/ |
 | Puppeteer (browser tests) | 25.14.0 | https://pptr.dev |
-| web-ext | 10.6 | https://extensionworkshop.com/documentation/develop/web-ext-command-reference/ |
+| web-ext | 10.8 | https://extensionworkshop.com/documentation/develop/web-ext-command-reference/ |
 | jsdom (Node tests) | 29.1 | https://github.com/jsdom/jsdom |
 
 ## Commands
@@ -89,7 +89,7 @@ Layers, the TTS port and the reading invariants: [docs/reading-architecture.md](
 - **Built-in PDF viewers reject the injected reader.** Do not "fix" it: PDF is out of scope unless asked.
 - **Lockfile:** regenerate `package-lock.json` with npm 11. Another npm can drop Linux optional-dependency entries and break `npm ci` in CI (fixed in 0.8.4).
 - **Release builds need the `WXT_POSTHOG_KEY` and `WXT_POSTHOG_REGION` Actions variables**; local builds work without them. Never commit `.env.local` or `.env.submit`.
-- **Stores refuse a version they already have.** The tag must match `package.json` and sit on `main`; re-running the release job resubmits everywhere ([docs/release.md](docs/release.md)).
+- **Stores refuse a version they already have.** A merge into `main` submits to the stores; re-running that release run resubmits everywhere. An admin then tags the merge commit by hand ([docs/release.md](docs/release.md)).
 
 ## Definition of done
 
