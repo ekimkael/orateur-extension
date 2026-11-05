@@ -154,3 +154,10 @@ test("changing engine mid-reading stops the running one", async () => {
   assert.equal(s.reader.reading, false)
   assert.ok(speech.cancelled > 0)
 })
+
+test("a post asks for no spoken intro but keeps its label", async () => {
+  const s = session()
+  await s.reader.start({ ...ARTICLE, announceTitle: false })
+  assert.deepEqual(s.states.at(-1), ["playing", "Rainy cat"])
+  assert.equal(spoken[0].text, EN)
+})

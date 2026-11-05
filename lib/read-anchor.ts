@@ -19,8 +19,14 @@
  */
 const TEXT_BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,pre,div,section,td,th"
 
+/**
+ * Emoji, as `extract-article.ts` drops them from X posts: the read text loses
+ * a leading 🛑 the page keeps. Duplicated for the same reason as TEXT_BLOCKS.
+ */
+const EMOJI = /[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\u200D\uFE0F\u20E3\u{E0020}-\u{E007F}]/gu
+
 /** Même normalisation que l'extracteur, sinon rien ne se compare. */
-const normalize = (text: string) => text.replace(/\s+/g, " ").trim()
+const normalize = (text: string) => text.replace(EMOJI, "").replace(/\s+/g, " ").trim()
 
 /**
  * Longueur de l'empreinte comparée.
@@ -117,4 +123,90 @@ export function findBlockIndex(root: ParentNode, blocks: string[], target: Eleme
     if (best >= 0) return best
   }
   return -1
+}
+
+/** Letters and digits: what survives every cleaning the extractor applies. */
+const WORD = /[\p{L}\p{N}]/u
+
+/** How many letters and digits identify a block inside its element. */
+const RANGE_MARK = 24
+
+const letters = (text: string) => text.split("").filter((c) => WORD.test(c)).join("")
+
+/**
+ * The letters and digits of an element's text, each with the text node and
+ * offset it sits at, and whether it opens a line (no letter or digit between
+ * it and the previous "\n" or the element's start).
+ */
+function skeleton(element: Element) {
+  const chars: string[] = []
+  const nodes: Text[] = []
+  const offsets: number[] = []
+  const opens: boolean[] = []
+  let fresh = true
+  const walker = element.ownerDocument.createTreeWalker(element, 4 /* NodeFilter.SHOW_TEXT */)
+  for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+    for (let i = 0; i < node.data.length; i++) {
+      const c = node.data[i]!
+      if (c === "\n") fresh = true
+      else if (WORD.test(c)) {
+        chars.push(c)
+        nodes.push(node)
+        offsets.push(i)
+        opens.push(fresh)
+        fresh = false
+      }
+    }
+  }
+  return { text: chars.join(""), nodes, offsets, opens }
+}
+
+/**
+ * The part of `element` that reads `block`: from the line where it starts to
+ * where `next` starts, or to the element's end.
+ *
+ * An X post keeps all its paragraphs in one element, split by "\n", so the
+ * element alone would light the whole post while one paragraph is read.
+ * Blocks are matched on letters and digits only, because the read text has
+ * lost the post's emoji, URLs and `#`/`@` signs. A block must open a line:
+ * a short heading ("Introduction") also appears mid-sentence in the paragraph
+ * before it. Null when the block does not start a line of the element, or
+ * when it is the whole element.
+ */
+export function blockRange(element: Element, block: string, next?: string): Range | null {
+  const found = locate(element, block, next)
+  if (!found) return null
+  const { page, start, end } = found
+  // The block is the whole element: the caller lights and scrolls the
+  // element itself, which also follows nested scrollers.
+  if (start === 0 && end < 0) return null
+  const range = element.ownerDocument.createRange()
+  range.setStart(page.nodes[start]!, page.offsets[start]!)
+  if (end < 0) range.setEnd(element, element.childNodes.length)
+  else range.setEnd(page.nodes[end]!, page.offsets[end]!)
+  return range
+}
+
+/**
+ * Whether `element` also holds `next` after `block`: an X post's lines. Same
+ * matching as `blockRange`, so the follower and live-page agree on it.
+ */
+export function holdsNext(element: Element, block: string, next: string): boolean {
+  return (locate(element, block, next)?.end ?? -1) >= 0
+}
+
+/** Where `block`, then `next`, open a line of `element`, in skeleton indexes. */
+function locate(element: Element, block: string, next?: string) {
+  const page = skeleton(element)
+  const find = (text: string, from: number) => {
+    const mark = letters(text).slice(0, RANGE_MARK)
+    if (!mark) return -1
+    for (let at = page.text.indexOf(mark, from); at >= 0; at = page.text.indexOf(mark, at + 1)) {
+      if (page.opens[at]) return at
+    }
+    return -1
+  }
+  const start = find(block, 0)
+  if (start < 0) return null
+  return { page, start, end: next === undefined ? -1 : find(next, start + 1) }
 }

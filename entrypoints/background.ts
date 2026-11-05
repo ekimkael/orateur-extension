@@ -539,6 +539,7 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined, f
     title: result.article.title ?? undefined,
     lang: result.article.lang ?? undefined,
     livePage: true,
+    announceTitle: result.article.announceTitle,
   }, fromHere)
 }
 
