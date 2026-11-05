@@ -170,7 +170,8 @@ function skeleton(element: Element) {
  * Blocks are matched on letters and digits only, because the read text has
  * lost the post's emoji, URLs and `#`/`@` signs. A block must open a line:
  * a short heading ("Introduction") also appears mid-sentence in the paragraph
- * before it. Null when the block does not start a line of the element.
+ * before it. Null when the block does not start a line of the element, or
+ * when it is the whole element.
  */
 export function blockRange(element: Element, block: string, next?: string): Range | null {
   const page = skeleton(element)
@@ -185,6 +186,9 @@ export function blockRange(element: Element, block: string, next?: string): Rang
   const start = find(block, 0)
   if (start < 0) return null
   const end = next === undefined ? -1 : find(next, start + 1)
+  // The block is the whole element: the caller lights and scrolls the
+  // element itself, which also follows nested scrollers.
+  if (start === 0 && end < 0) return null
   const range = element.ownerDocument.createRange()
   range.setStart(page.nodes[start]!, page.offsets[start]!)
   if (end < 0) range.setEnd(element, element.childNodes.length)

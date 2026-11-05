@@ -120,3 +120,8 @@ test("blockRange only matches a block that starts a line", () => {
   assert.equal(blockRange(document.querySelector("p")!, "Introduction"), null)
   assert.equal(blockRange(document.querySelector("p")!, "Absent"), null)
 })
+
+test("blockRange leaves an element that holds only its block to the element", () => {
+  const { document } = new JSDOM(`<p>Un paragraphe ordinaire.</p>`).window
+  assert.equal(blockRange(document.querySelector("p")!, "Un paragraphe ordinaire.", "Le suivant."), null)
+})
