@@ -17,6 +17,10 @@ Preview works for saved rules and a valid unsaved draft. It applies only the rul
 
 Storage failures are shown in settings. A failed save keeps the draft available for retry, and a failed delete leaves the rule in the list. If rules cannot be loaded, use **Retry** before editing them.
 
+## Capitals and acronyms
+
+Words of four or more capitals are read as words (`BÉNIN` → `Bénin`, `CŒUR` → `Cœur`) with both engines; `HTML` and `JSON` stay acronyms. For system voices only, tokens of two or three capital letters or digits are spelled letter by letter (`API` → `A P I`), except a short list of shouted words (`OK`, `NON`, `PAS`…) and, in French, the function words of all-caps headlines (`LE`, `DES`, `ET`…), so `LE BÉNIN` is not read `L E`. A one-off acronym read as a word, such as `BIR`, takes a personal rule (`BIR` → `Bir`, strict case). Word edges are Unicode-aware, so an accented capital is part of the word: `BÉNIN` is never split into `BÉ` and a spelled `NIN`. Supertonic receives acronyms unchanged.
+
 ## Numbers
 
 Built-in preparation removes recognized thousands separators before synthesis: `40 000` becomes `40000`. Regular, nonbreaking and narrow nonbreaking spaces are accepted in French and English; English comma grouping is also accepted. Decimal parts follow the paragraph language: `40 000,50` in French and `40,000.50` in English. Signs are preserved.
@@ -32,7 +36,7 @@ French and English text also gets numeric forms spelled out before synthesis:
 - Roman numerals written with `I`, `V` and `X` (`XIV`, `XIXe`, `Ier`) become digits, so they are neither spelled out nor lowercased. English regnal names are read as cardinals (`Henry 8`).
 - Squared and cubed metric units (`m²`, `km²`, `m³`) are spelled out, and footnote markers glued to a word (`study¹`) are dropped.
 
-Supertonic reads digits poorly, so in French and English its preprocessing then spells every remaining number as words: cardinals (`quatre-vingts`, `vingt et un`), ordinals (`19e` → `dix-neuvième`, `21st` → `twenty-first`), decimals (`trois virgule cinq`, `three point one four`), signs, and English years and decades (`nineteen ninety-nine`, `the nineties`). In English, a bare four-digit number from 1100 to 2099 is read as a year unless it is money or a percentage. Zero-padded runs and numbers beyond twelve digits are read digit by digit. System voices keep reading digits natively.
+Supertonic reads digits poorly, so in French and English its preprocessing then spells every remaining number as words: cardinals (`quatre-vingts`, `vingt et un`; 17 is written `dissète`, because the voice reads `dix-sept` as « dis-sept »), ordinals (`19e` → `dix-neuvième`, `21st` → `twenty-first`), decimals (`trois virgule cinq`, `three point one four`), signs, and English years and decades (`nineteen ninety-nine`, `the nineties`). In English, a bare four-digit number from 1100 to 2099 is read as a year unless it is money or a percentage. Zero-padded runs and numbers beyond twelve digits are read digit by digit. System voices keep reading digits natively.
 
 Leading-zero codes and common phone number formats are not regrouped. With Supertonic, zero-padded parts of times and dates (`14:05`, `01/02`) are not spelled digit by digit. An ambiguous sequence such as `123 456 789` is treated as a quantity. Personal rules match before this preparation step; the selected engine may further preprocess their output. Final pronunciation depends on the engine and voice, so these transformations cannot guarantee every numeric interpretation.
 
