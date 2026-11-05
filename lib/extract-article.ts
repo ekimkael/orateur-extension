@@ -133,6 +133,12 @@ export interface ExtractedArticle extends ReadabilityMetadata {
   readingTimeMinutes: number
   /** Gmail clipped the message: only its beginning is in `textContent`. */
   truncated?: boolean
+  /**
+   * `false` when the title must not be spoken before the text (an X post:
+   * its "title" is its own first line). It still labels the pill and the
+   * saved item.
+   */
+  announceTitle?: false
 }
 
 /**
@@ -338,6 +344,148 @@ export function extractGmailMessage(
     readingTimeMinutes: Math.max(1, Math.round(countWords(textContent) / WORDS_PER_MINUTE)),
     truncated,
   }
+}
+
+/** X under both names, desktop and mobile. */
+const X_HOST = /^(?:mobile\.)?(?:x|twitter)\.com$/
+
+/** True on X (x.com, twitter.com and their mobile hosts). */
+export function isXHost(hostname: string): boolean {
+  return X_HOST.test(hostname.replace(/^www\./, ""))
+}
+
+/** A status path, `/<handle>/status/<id>` or `/i/web/status/<id>`, with or without a suffix. */
+const STATUS_PATH = /\/status\/(\d+)/
+/** The same path with nothing after the id: a post's own permalink, not its photo or analytics. */
+const PERMALINK = /^\/[^/]+\/status\/(\d+)\/?$/
+
+/** The numeric post id of an X status URL, whatever its prefix or suffix. */
+export function xStatusId(url: string): string | null {
+  try {
+    return new URL(url).pathname.match(STATUS_PATH)?.[1] ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Longest title (display name and first line) before it is cut on a word. */
+const X_TITLE_LENGTH = 100
+/** Pictographs and what glues them: decoration, and some system voices read their names aloud. */
+const EMOJI = /[\p{Extended_Pictographic}\p{Regional_Indicator}‍️]/gu
+const BARE_URL = /https?:\/\/\S+/g
+/** "#EsbiMedia" closing a post: a tag for the feed, not part of the text. */
+const TRAILING_HASHTAGS = /(?:\s*#[\p{L}\p{N}_]+)+[\s.]*$/u
+/** "@EsBi_Media …" opening a reply: the addressee, which X already shows apart. */
+const LEADING_MENTIONS = /^\s*(?:@\w+\s*)+/
+/** The sign of a hashtag or mention kept in a sentence: "#titre" is read "titre". */
+const TAG_SIGN = /(^|[\s(])[#@](?=[\p{L}\p{N}_])/gu
+
+/**
+ * The X post (or X Article) the URL points at, and nothing else on the page.
+ *
+ * A status page also holds the parent of a reply, the posts it quotes, the
+ * replies and the app around them. Readability scored all of that together and
+ * picked the longest text: often the parent or a quote, and short posts fell
+ * under its `charThreshold` into the whole-page fallback. The post is found by
+ * its permalink instead, and nothing falls back to the page: on X a wrong
+ * reading is worse than none.
+ *
+ * Two apps serve the same URL: logged in, the react-native-web app
+ * (`data-testid`, quotes under `[role=link]`); logged out, the redesign (no
+ * test ids, quotes as nested `article`s). Both keep a post's paragraphs as
+ * `\n` in one text node, so lines are split here. See docs/x-extraction.md.
+ *
+ * The document is never modified. A post's "title" is its author and first
+ * line: it names the saved item and the pill, and `announceTitle: false`
+ * keeps it from being spoken before that same line.
+ *
+ * @throws {Error} off a status page, before the post is rendered, or when it
+ * holds nothing to read (media, links).
+ */
+export function extractXPost(doc: Document, url = doc.location?.href ?? ""): ExtractedArticle {
+  const id = xStatusId(url)
+  const link = id
+    ? [...doc.querySelectorAll("article a[href]")].find(
+        (a) => a.getAttribute("href")!.match(PERMALINK)?.[1] === id
+      )
+    : undefined
+  const post = link?.closest("article")
+  if (!link || !post) throw new Error(NOT_AN_ARTICLE)
+  const handle = link.getAttribute("href")!.split("/")[1]!
+
+  // The opened post's own text: not one under a quote (a nested article, or a
+  // [role=link] card). Test ids first: the logged-in app also sets dir=auto on
+  // names and labels.
+  const own = (el: Element) => {
+    for (let node = el.parentElement; node && node !== post; node = node.parentElement) {
+      if (node.matches("article, [role='link']")) return false
+    }
+    return true
+  }
+  const source =
+    [...post.querySelectorAll("[data-testid='tweetText']")].find(own) ??
+    [...post.querySelectorAll("div[dir='auto']")].find(own)
+  if (!source) throw new Error(NOT_AN_ARTICLE)
+
+  const lang = source.getAttribute("lang") || doc.documentElement.lang || null
+  const root = postParagraphs(doc, source)
+  const textContent = toSpeakableText(root, lang ?? "", { pruneResidue: false })
+  if (!textContent) throw new Error(NOT_AN_ARTICLE)
+
+  const name = [...post.querySelectorAll(`a[href="/${handle}" i]`)]
+    .map((a) => normalize((a.textContent ?? "").replace(EMOJI, "")))
+    .find((text) => text && !text.startsWith("@"))
+  const first = textContent.split("\n\n")[0]!.replace(/\.$/, "")
+  return {
+    title: cutTitle(name ? `${name} : ${first}` : first),
+    byline: name ?? null,
+    dir: null,
+    excerpt: null,
+    siteName: "X",
+    publishedTime: null,
+    lang,
+    content: root.innerHTML,
+    textContent,
+    length: textContent.length,
+    url,
+    readingTimeMinutes: Math.max(1, Math.round(countWords(textContent) / WORDS_PER_MINUTE)),
+    announceTitle: false,
+  }
+}
+
+/**
+ * One `<p>` per line of a post, with links, URLs, emoji, the closing hashtags
+ * and the opening mentions taken out. Built detached, from a copy.
+ */
+function postParagraphs(doc: Document, source: Element): Element {
+  const copy = source.cloneNode(true) as Element
+  // Absolute links are URLs (t.co, shown shortened); relative ones are
+  // mentions and hashtags, whose word stays.
+  for (const a of copy.querySelectorAll("a[href]")) if (!a.getAttribute("href")!.startsWith("/")) a.remove()
+  const text = (copy.textContent ?? "")
+    .replace(BARE_URL, "")
+    .replace(EMOJI, "")
+    .replace(TRAILING_HASHTAGS, "")
+    .replace(LEADING_MENTIONS, "")
+    .replace(TAG_SIGN, "$1")
+
+  const root = doc.createElement("div")
+  for (const line of text.split("\n")) {
+    const clean = normalize(line)
+    if (!clean) continue
+    const p = doc.createElement("p")
+    p.textContent = clean
+    root.append(p)
+  }
+  return root
+}
+
+/** Cuts a title on the last word that fits, and says so with an ellipsis. */
+function cutTitle(title: string): string {
+  if (title.length <= X_TITLE_LENGTH) return title
+  const cut = title.slice(0, X_TITLE_LENGTH)
+  const space = cut.lastIndexOf(" ")
+  return `${(space > 0 ? cut.slice(0, space) : cut).trimEnd()}…`
 }
 
 /**
@@ -599,7 +747,7 @@ function clean(root: Element) {
  * `textContent` seul collerait la fin d'un titre au début du paragraphe suivant.
  * Les espaces internes sont normalisés pour éviter les coupures artificielles.
  */
-function toSpeakableText(root: Element, lang: string) {
+function toSpeakableText(root: Element, lang: string, { pruneResidue = true } = {}) {
   const notice = CODE_NOTICE_BY_LANGUAGE[lang.slice(0, 2)] ?? CODE_NOTICE
   const collected: Array<{ el: Element; text: string }> = []
   let buffer = ""
@@ -653,7 +801,7 @@ function toSpeakableText(root: Element, lang: string) {
   // jamais par un point dans le HTML, et la voix enchaîne alors sur le bloc
   // suivant comme si la phrase continuait. Après le rognage, lui, qui reconnaît
   // les étiquettes de fin d'article *à* leur absence de ponctuation.
-  const text = pruneTrailingResidue(blocks)
+  const text = (pruneResidue ? pruneTrailingResidue(blocks) : blocks)
     .map(({ text }) => withStop(text))
     .join("\n\n")
 
