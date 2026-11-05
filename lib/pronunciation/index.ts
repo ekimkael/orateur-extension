@@ -26,7 +26,7 @@ import { normalizeSpokenNumbers, verbalizeNumericForms } from './numbers.ts';
 
 export type { PronunciationRule } from './personal.ts';
 
-type LanguageRules = { VERBALIZE: [RegExp, string][]; PHONETIC: [RegExp, string][] };
+type LanguageRules = { VERBALIZE: [RegExp, string][]; PHONETIC: [RegExp, string][]; NEVER_SPELLED?: ReadonlySet<string> };
 
 const LANGUAGES: Record<string, LanguageRules> = { en, fr };
 
@@ -72,11 +72,11 @@ const ALWAYS_SPELLED = new Set(['HTML', 'JSON']);
  * capitalisation pass below, so « STOP » or « BREF » stay words. Needs at least
  * two capitals, which keeps numbers (`30`, `2024`) out.
  */
-function spellAcronyms(text: string): string {
+function spellAcronyms(text: string, neverSpelled?: ReadonlySet<string>): string {
   // Unicode word edges, not `\b`: JavaScript's `\b` is ASCII-only and would
   // spell the « NIN » of « BÉNIN ».
   return text.replace(/(?<![\p{L}\p{M}\p{N}_])([A-Z0-9]{2,4})(s?)(?![\p{L}\p{M}\p{N}_])/gu, (match, token: string, plural: string) => {
-    if (NEVER_SPELLED.has(token)) return match;
+    if (NEVER_SPELLED.has(token) || neverSpelled?.has(token)) return match;
     if (token.replace(/[^A-Z]/g, '').length < 2) return match;
     if (token.length === 4 && !ALWAYS_SPELLED.has(token)) return match;
     // The plural `s` gets its own space too: glued on, « A P Is » is read as the
@@ -120,7 +120,7 @@ function expandBuiltins(raw: string, language: string, skipPhonetic = false, aft
         result = result.replace(pattern, replacement);
       }
     }
-    result = spellAcronyms(result);
+    result = spellAcronyms(result, rules?.NEVER_SPELLED);
   }
 
   // Lowercasing long all-caps words applies in every case: without it the voices

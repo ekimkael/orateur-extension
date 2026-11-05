@@ -19,7 +19,7 @@ Storage failures are shown in settings. A failed save keeps the draft available 
 
 ## Capitals and acronyms
 
-Words of four or more capitals are read as words (`BÉNIN` → `Bénin`, `CŒUR` → `Cœur`) with both engines; `HTML` and `JSON` stay acronyms. For system voices only, tokens of two or three capital letters or digits are spelled letter by letter (`API` → `A P I`), except a short list of shouted words (`OK`, `NON`, `PAS`…). Word edges are Unicode-aware, so an accented capital is part of the word: `BÉNIN` is never split into `BÉ` and a spelled `NIN`. Supertonic receives acronyms unchanged.
+Words of four or more capitals are read as words (`BÉNIN` → `Bénin`, `CŒUR` → `Cœur`) with both engines; `HTML` and `JSON` stay acronyms. For system voices only, tokens of two or three capital letters or digits are spelled letter by letter (`API` → `A P I`), except a short list of shouted words (`OK`, `NON`, `PAS`…) and, in French, the function words of all-caps headlines (`LE`, `DES`, `ET`…), so `LE BÉNIN` is not read `L E`. A one-off acronym read as a word, such as `BIR`, takes a personal rule (`BIR` → `Bir`, strict case). Word edges are Unicode-aware, so an accented capital is part of the word: `BÉNIN` is never split into `BÉ` and a spelled `NIN`. Supertonic receives acronyms unchanged.
 
 ## Numbers
 

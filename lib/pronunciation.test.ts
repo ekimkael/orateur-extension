@@ -60,6 +60,16 @@ test("les mots criés accentués restent des mots, sans sigle épelé en leur mi
   assert.equal(expandText("l’ÉTÉ de l’API", { language: "fr" }), "l’ÉTÉ de l’A P I")
 })
 
+test("un titre en capitales n'épelle pas les mots outils français", () => {
+  assert.equal(expandText("LE BÉNIN DÉFIE YAOUNDÉ", { language: "fr" }), "LE Bénin Défie Yaoundé")
+  assert.equal(
+    expandText("UN EX-GARDE DU BIR ET DES ÉLUS AU NORD", { language: "fr" }),
+    "UN EX-Garde DU B I R ET DES Élus AU Nord"
+  )
+  // The list is French only: in English, « UN » is the United Nations.
+  assert.equal(expandText("the UN vote", { language: "en" }), "the U N vote")
+})
+
 test("le moteur neuronal reçoit le sigle brut, capitales comprises", () => {
   assert.equal(expandText("une API", { language: "fr", skipPhonetic: true }), "une API")
   assert.equal(expandText("du JSON en HTML", { language: "fr", skipPhonetic: true }), "du JSON en HTML")
