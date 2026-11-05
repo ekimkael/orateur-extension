@@ -152,3 +152,25 @@ for (const view of ["in", "out"]) {
     assert.match(blockRange(post, read.at(-1)!)!.toString(), /rebondissements spectaculaires\./)
   })
 }
+
+test("X Article keeps a short line ending in a colon that lost no link", () => {
+  const doc = new JSDOM(`<html lang="en"><body><main><article>
+    <a href="/someone/status/42">2:00 PM</a>
+    <h1>Learning plan</h1>
+    <div class="x-article-body">
+      <p>What you'll learn:</p>
+      <ul><li>Kinematics</li></ul>
+      <p>Link: https://example.com/course</p>
+    </div>
+  </article></main></body></html>`, { url: "https://x.com/someone/status/42" }).window.document
+  const article = extractXPost(doc)
+  assert.deepEqual(blocks(article), ["What you'll learn:", "Kinematics."])
+})
+
+test("X's non-language codes fall back to the page language", () => {
+  for (const code of ["und", "qme", "qht", "zxx"]) {
+    const doc = post("Un caporal chef n’est pas un sous-officier.")
+    doc.querySelector("[data-testid='tweetText']")!.setAttribute("lang", code)
+    assert.equal(extractXPost(doc).lang, "fr", code)
+  }
+})

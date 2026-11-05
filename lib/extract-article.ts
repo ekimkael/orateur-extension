@@ -368,6 +368,11 @@ export function xStatusId(url: string): string | null {
   }
 }
 
+/**
+ * Codes X puts in a post's `lang` that name no language: undetermined, no
+ * linguistic content, and the private-use `q…` codes (media, hashtags only).
+ */
+const X_NO_LANG = /^(?:und|zxx|q[a-t][a-z])$/i
 /** Longest title (display name and first line) before it is cut on a word. */
 const X_TITLE_LENGTH = 100
 /**
@@ -438,7 +443,8 @@ export function extractXPost(doc: Document, url = doc.location?.href ?? ""): Ext
     [...post.querySelectorAll("div[dir='auto']")].find(own)
   if (!source) throw new Error(NOT_AN_ARTICLE)
 
-  const lang = source.getAttribute("lang") || doc.documentElement.lang || null
+  const tagged = source.getAttribute("lang")
+  const lang = (tagged && !X_NO_LANG.test(tagged) ? tagged : null) || doc.documentElement.lang || null
   const root = postParagraphs(doc, source)
   const textContent = toSpeakableText(root, lang ?? "", { pruneResidue: false })
   if (!textContent) throw new Error(NOT_AN_ARTICLE)
@@ -458,6 +464,8 @@ export function extractXPost(doc: Document, url = doc.location?.href ?? ""): Ext
 const X_ARTICLE_BODY = ".x-article-body, [data-testid='twitterArticleRichTextView']"
 /** Its title, beside the body: logged-in test id, then the redesign's `h1`. */
 const X_ARTICLE_TITLE = "[data-testid='twitter-article-title'], h1"
+/** The blocks of an Article body a removed link can leave as a bare label. */
+const LABEL_BLOCKS = "p, li, h1, h2, h3, h4, h5, h6, [data-block]"
 /** What a removed link leaves of its line: "Link:", "Follow me:". */
 const LABEL_ONLY = /^[^.!?]{1,30}:$/
 
@@ -473,15 +481,19 @@ const LABEL_ONLY = /^[^.!?]{1,30}:$/
 function xArticle(doc: Document, post: Element, body: Element, url: string): ExtractedArticle {
   const title = normalize(post.querySelector(X_ARTICLE_TITLE)?.textContent ?? "") || null
   const root = body.cloneNode(true) as Element
-  dropUrlLinks(root)
+  // Blocks that lost a link or a URL: only those can be a label left behind.
+  // "What you'll learn:" before a list is the author's own line.
+  const emptied = new Set(dropUrlLinks(root).map((parent) => parent.closest(LABEL_BLOCKS)))
   // 4: NodeFilter.SHOW_TEXT, not a global outside the browser.
   const walker = doc.createTreeWalker(root, 4)
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    node.nodeValue = node.nodeValue!.replace(BARE_URL, "").replace(EMOJI, "").replace(TAG_SIGN, "$1")
+    const text = node.nodeValue!.replace(BARE_URL, "")
+    if (text !== node.nodeValue) emptied.add(node.parentElement?.closest(LABEL_BLOCKS) ?? null)
+    node.nodeValue = text.replace(EMOJI, "").replace(TAG_SIGN, "$1")
   }
   // From the tree, not only the text: the saved copy is read aloud too.
-  for (const block of root.querySelectorAll("p, li, h1, h2, h3, h4, h5, h6, [data-block]")) {
-    if (LABEL_ONLY.test(normalize(block.textContent ?? ""))) block.remove()
+  for (const block of emptied) {
+    if (block && LABEL_ONLY.test(normalize(block.textContent ?? ""))) block.remove()
   }
   clean(root)
 
@@ -510,8 +522,8 @@ function xResult(title: string | null, lang: string | null, root: Element, textC
 }
 
 /**
- * One `<p>` per line of a post, with links, URLs, emoji, the closing hashtags
- * and the opening mentions taken out. Built detached, from a copy.
+ * One `<p>` per line of a post, with address links, URLs, emoji and the
+ * closing hashtags taken out. Built detached, from a copy.
  */
 function postParagraphs(doc: Document, source: Element): Element {
   const copy = source.cloneNode(true) as Element
@@ -537,12 +549,18 @@ function postParagraphs(doc: Document, source: Element): Element {
 const URL_TEXT = /^(?:https?:\/\/|www\.)\S*$|^[\w-]+(?:\.[\w-]+)+\/\S*$|…$/u
 
 /**
- * Drops the links whose text is an address. The others keep their words:
+ * Drops the links whose text is an address, and returns where they were. The others keep their words:
  * mentions, hashtags and cashtags ("$8.95"), relative in posts but absolute
  * (`https://x.com/search?q=…`) in the logged-in Article body.
  */
-function dropUrlLinks(root: Element) {
-  for (const a of root.querySelectorAll("a[href]")) if (URL_TEXT.test(normalize(a.textContent ?? ""))) a.remove()
+function dropUrlLinks(root: Element): Element[] {
+  const parents: Element[] = []
+  for (const a of root.querySelectorAll("a[href]")) {
+    if (!URL_TEXT.test(normalize(a.textContent ?? ""))) continue
+    if (a.parentElement) parents.push(a.parentElement)
+    a.remove()
+  }
+  return parents
 }
 
 /** Cuts a title on the last word that fits, and says so with an ellipsis. */

@@ -44,9 +44,12 @@ are never matched.
   without its `#`, and so is a mention, without its `@`. A reply's addressee is
   not part of the post text (X shows it apart), so a mention opening a post is
   its subject and stays.
-- Articles: the same link, URL and emoji rules. Any block left as a bare label
-  ("Link:", "Follow me:") is removed from the tree, so it is neither read nor
-  saved. `pruneTrailingResidue` is skipped:
+- Articles: the same link, URL and emoji rules. A block that lost a link or a
+  URL and is left as a bare label ("Link:", "Follow me:") is removed from the
+  tree, so it is neither read nor saved. The author's own short lines ending in
+  a colon ("What you'll learn:") stay.
+- Language: the post's `lang`, unless X put a code that names no language
+  there (`und`, `zxx`, private-use `qme`, `qht`…); the page language then. `pruneTrailingResidue` is skipped:
   X authors rarely end a line with a period, and that rule dropped the last
   lines of the Article.
 - A post's title is `<display name> : <first line>`, cut on a word at 100
