@@ -73,7 +73,9 @@ const ALWAYS_SPELLED = new Set(['HTML', 'JSON']);
  * two capitals, which keeps numbers (`30`, `2024`) out.
  */
 function spellAcronyms(text: string): string {
-  return text.replace(/\b([A-Z0-9]{2,4})(s?)\b/g, (match, token: string, plural: string) => {
+  // Unicode word edges, not `\b`: JavaScript's `\b` is ASCII-only and would
+  // spell the « NIN » of « BÉNIN ».
+  return text.replace(/(?<![\p{L}\p{M}\p{N}_])([A-Z0-9]{2,4})(s?)(?![\p{L}\p{M}\p{N}_])/gu, (match, token: string, plural: string) => {
     if (NEVER_SPELLED.has(token)) return match;
     if (token.replace(/[^A-Z]/g, '').length < 2) return match;
     if (token.length === 4 && !ALWAYS_SPELLED.has(token)) return match;
@@ -125,7 +127,7 @@ function expandBuiltins(raw: string, language: string, skipPhonetic = false, aft
   // spell them out letter by letter. Known acronyms are left alone — turning
   // `JSON` into `Json` hands the neural engine a fake word instead of letters.
   return result
-    .replace(/\b([A-ZÀ-Ü]{4,})\b/g, (word) =>
+    .replace(/(?<![\p{L}\p{M}\p{N}_])\p{Lu}{4,}(?![\p{L}\p{M}\p{N}_])/gu, (word) =>
       ALWAYS_SPELLED.has(word) ? word : word.charAt(0) + word.slice(1).toLowerCase()
     ).slice(prefix.length);
 }

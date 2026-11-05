@@ -49,6 +49,17 @@ test("épelle les sigles, laisse les mots criés", () => {
   assert.equal(expandText("NON, ce n'est PAS un bug", { language: "fr" }), "NON, ce n'est PAS un beug")
 })
 
+test("les mots criés accentués restent des mots, sans sigle épelé en leur milieu", () => {
+  // JavaScript's `\b` is ASCII-only: « BÉNIN » used to be read « BÉN I N ».
+  for (const skipPhonetic of [false, true]) {
+    assert.equal(
+      expandText("au BÉNIN, DÉFIE YAOUNDÉ et CŒUR", { language: "fr", skipPhonetic }),
+      "au Bénin, Défie Yaoundé et Cœur"
+    )
+  }
+  assert.equal(expandText("l’ÉTÉ de l’API", { language: "fr" }), "l’ÉTÉ de l’A P I")
+})
+
 test("le moteur neuronal reçoit le sigle brut, capitales comprises", () => {
   assert.equal(expandText("une API", { language: "fr", skipPhonetic: true }), "une API")
   assert.equal(expandText("du JSON en HTML", { language: "fr", skipPhonetic: true }), "du JSON en HTML")

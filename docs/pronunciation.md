@@ -17,6 +17,10 @@ Preview works for saved rules and a valid unsaved draft. It applies only the rul
 
 Storage failures are shown in settings. A failed save keeps the draft available for retry, and a failed delete leaves the rule in the list. If rules cannot be loaded, use **Retry** before editing them.
 
+## Capitals and acronyms
+
+Words of four or more capitals are read as words (`BÉNIN` → `Bénin`, `CŒUR` → `Cœur`) with both engines; `HTML` and `JSON` stay acronyms. For system voices only, tokens of two or three capital letters or digits are spelled letter by letter (`API` → `A P I`), except a short list of shouted words (`OK`, `NON`, `PAS`…). Word edges are Unicode-aware, so an accented capital is part of the word: `BÉNIN` is never split into `BÉ` and a spelled `NIN`. Supertonic receives acronyms unchanged.
+
 ## Numbers
 
 Built-in preparation removes recognized thousands separators before synthesis: `40 000` becomes `40000`. Regular, nonbreaking and narrow nonbreaking spaces are accepted in French and English; English comma grouping is also accepted. Decimal parts follow the paragraph language: `40 000,50` in French and `40,000.50` in English. Signs are preserved.
