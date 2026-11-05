@@ -14,6 +14,8 @@ const EN_MONTHS = 'January|February|March|April|May|June|July|August|September|O
 
 function frBelow100(n: number): string {
   if (n <= 16) return FR_UNITS[n]!;
+  // Supertonic reads « dix-sept » as « dis-sept » /dis.sɛt/; this spelling was picked by ear.
+  if (n === 17) return 'dissète';
   if (n < 20) return `dix-${FR_UNITS[n - 10]}`;
   const tens = Math.floor(n / 10);
   const unit = n % 10;
@@ -35,6 +37,7 @@ function frBelow1000(n: number, final: boolean): string {
   return final ? words : words.replace(/quatre-vingts$/, 'quatre-vingt');
 }
 
+/** French cardinal in words, for Supertonic only: 17 is a phonetic spelling, not standard French. */
 export function frCardinal(n: number): string {
   if (n === 0) return FR_UNITS[0]!;
   const parts: string[] = [];
