@@ -9,6 +9,8 @@ export interface ReadPagePayload {
   title?: string
   lang?: string
   livePage?: boolean
+  /** `false`: label the pill with `title` but speak no intro (an X post, whose title is its first line). */
+  announceTitle?: boolean
 }
 
 export interface StartReadingMessage extends ReadPagePayload {

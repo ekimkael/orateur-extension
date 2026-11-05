@@ -230,7 +230,9 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     }
 
     const options = {
-      paragraphs, text: payload.text, title, startBlock, personalRules, source, prefs,
+      // The players speak the title as an intro; an empty one is silent.
+      paragraphs, text: payload.text, title: payload.announceTitle === false ? "" : title,
+      startBlock, personalRules, source, prefs,
       emit: (event: PlayerEvent) => {
         if (player === next) onPlayerEvent(next.engine, event)
       },
