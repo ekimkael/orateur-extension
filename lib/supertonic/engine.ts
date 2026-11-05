@@ -117,6 +117,10 @@ export class UnicodeProcessor {
   }
 
   preprocessText(text: string, lang: string): string {
+    // A spaced slash between words separates two ideas (« corruption /
+    // Coopération »): a pause, or the space it becomes below runs them
+    // together. Between numbers it stays a ratio.
+    text = text.replace(/(?<=\p{L})\s+\/\s+(?=\p{L})/gu, ", ")
     text = normalizeSpokenNumbers(text, lang)
     // Before `/` becomes a space below, which would hide that « 01/02 » is a date.
     text = this.expandLeadingZeroNumbers(text, lang)

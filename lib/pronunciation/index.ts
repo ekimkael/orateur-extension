@@ -85,6 +85,29 @@ function spellAcronyms(text: string, neverSpelled?: ReadonlySet<string>): string
   });
 }
 
+/**
+ * A sentence written all in capitals, a headline shouted for the feed, read in
+ * lower case except its first letter. Two-to-three-letter tokens that are not
+ * known words stay capitals, so acronyms (« BIR ») are still spelled.
+ *
+ * Why the whole sentence: Supertonic read a capital « ET » as « et il », and a
+ * capital on every word (« Refuse D’Extrader ») broke words apart. Capitals
+ * inside an ordinary sentence are emphasis and keep the per-word rule below.
+ */
+function quietShouting(text: string, neverSpelled?: ReadonlySet<string>): string {
+  return text.replace(/[^.!?…]+[.!?…]*/gu, (sentence) => {
+    if (/\p{Ll}/u.test(sentence)) return sentence;
+    if ((sentence.match(/\p{L}{2,}/gu) ?? []).length < 2) return sentence;
+    let first = true;
+    return sentence.replace(/[\p{L}\p{M}]+/gu, (word) => {
+      const acronym = /^[A-Z]{2,3}$/.test(word) && !NEVER_SPELLED.has(word) && !neverSpelled?.has(word);
+      const kept = acronym || ALWAYS_SPELLED.has(word) ? word : (first ? word.charAt(0) : word.charAt(0).toLowerCase()) + word.slice(1).toLowerCase();
+      first = false;
+      return kept;
+    });
+  });
+}
+
 export function expandText(
   raw: string,
   options?: { language?: string; skipPhonetic?: boolean; personalRules?: readonly PronunciationRule[] }
@@ -113,6 +136,8 @@ function expandBuiltins(raw: string, language: string, skipPhonetic = false, aft
       result = result.replace(pattern, replacement);
     }
   }
+
+  result = quietShouting(result, rules?.NEVER_SPELLED);
 
   if (!skipPhonetic) {
     if (rules) {

@@ -108,3 +108,10 @@ test("writeWavFile renvoie un buffer de la taille attendue", () => {
   const buffer = writeWavFile(samples, 44100)
   assert.equal(buffer.byteLength, 44 + 44100 * 2)
 })
+
+test("UnicodeProcessor.preprocessText fait d'une barre entre deux mots une pause", () => {
+  const proc = new UnicodeProcessor([])
+  assert.equal(proc.preprocessText("la corruption / Justice sociale", "fr"), "<fr>la corruption, Justice sociale.</fr>")
+  // Glued, it is part of a word or a number: « km/h », « 24/7 » keep their space.
+  assert.equal(proc.preprocessText("et/ou", "fr"), "<fr>et ou.</fr>")
+})

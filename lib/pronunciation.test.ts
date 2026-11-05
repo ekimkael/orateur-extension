@@ -61,19 +61,32 @@ test("les mots criés accentués restent des mots, sans sigle épelé en leur mi
 })
 
 test("un titre en capitales n'épelle pas les mots outils français", () => {
-  assert.equal(expandText("LE BÉNIN DÉFIE YAOUNDÉ", { language: "fr" }), "LE Bénin Défie Yaoundé")
+  // A sentence shouted whole is read in lower case: Supertonic heard « ET » as
+  // « et il » and title case broke words apart (« Mfoulavert »).
+  assert.equal(expandText("LE BÉNIN DÉFIE YAOUNDÉ", { language: "fr" }), "Le bénin défie yaoundé")
   assert.equal(
     expandText("UN EX-GARDE DU BIR ET DES ÉLUS AU NORD", { language: "fr" }),
-    "UN EX-Garde DU B I R ET DES Élus AU Nord"
+    "Un ex-garde du B I R et des élus au nord"
   )
   assert.equal(
     expandText("IL NE FAUT PAS SE TROMPER, OUI OU NON", { language: "fr" }),
-    "IL NE Faut PAS SE Tromper, OUI OU NON"
+    "Il ne faut pas se tromper, oui ou non"
   )
-  const words = "JE TU MON TON MA TA MES TES NOS VOS LUI SI NI"
-  assert.equal(expandText(words, { language: "fr" }), words)
+  assert.equal(
+    expandText("JE TU MON TON MA TA MES TES NOS VOS LUI SI NI", { language: "fr" }),
+    "Je tu mon ton ma ta mes tes nos vos lui si ni"
+  )
   // The list is French only: in English, « UN » is the United Nations.
   assert.equal(expandText("the UN vote", { language: "en" }), "the U N vote")
+})
+
+test("un titre crié est mis en minuscules pour le moteur neuronal, sigles courts gardés", () => {
+  assert.equal(
+    expandText("ÉCROUÉ À COTONOU, LE BÉNIN DÉFIE YAOUNDÉ ET REFUSE D’EXTRADER LE CAPORAL-CHEF DU BIR.", { language: "fr", skipPhonetic: true }),
+    "Écroué à cotonou, le bénin défie yaoundé et refuse d’extrader le caporal-chef du BIR."
+  )
+  // A capital word inside an ordinary sentence is emphasis, not a headline.
+  assert.equal(expandText("Il a dit STOP au BIR.", { language: "fr", skipPhonetic: true }), "Il a dit Stop au BIR.")
 })
 
 test("le moteur neuronal reçoit le sigle brut, capitales comprises", () => {
