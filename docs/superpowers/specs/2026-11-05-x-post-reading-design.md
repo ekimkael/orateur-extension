@@ -114,6 +114,7 @@ Les captures contiennent des données du compte de l'utilisateur (sa propre rép
 - Ponctuation finale ajoutée par `withStop` ; **aucun** rognage de résidu de fin.
 - Hashtags : la série de hashtags en fin de post est retirée ; un hashtag au milieu d'une phrase est lu sans le `#`. *(Supposition validée par silence de l'utilisateur.)*
 - Mentions : les mentions de tête d'une réponse ne sont pas lues ; une mention dans la phrase est lue sans le `@`. *(Choix du rédacteur.)*
+  *Révisé à l'implémentation : X n'écrit jamais le destinataire d'une réponse dans son texte (vérifié sur les deux vues) ; une mention en tête est donc le sujet du post et reste lue, sans le `@`.*
 - URL : aucune n'est lue (`https?://…`, liens `t.co`, et liens affichés tronqués par X du type `youtube.com/@x…`). *(Décision utilisateur.)*
 - Emoji décoratifs (🛑, ❤️, ⬇️…) : retirés. *(Supposition validée par silence ; certaines voix système lisent leur nom.)*
 
