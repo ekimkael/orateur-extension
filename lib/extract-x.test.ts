@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import test from "node:test"
 import { JSDOM } from "jsdom"
 import { extractXPost, isXHost, xStatusId, type ExtractedArticle } from "./extract-article.ts"
-import { createAnchorFinder } from "./read-anchor.ts"
+import { blockRange, createAnchorFinder } from "./read-anchor.ts"
 
 // Fixtures: real X pages captured on 2026-11-05 in Firefox, reduced by hand.
 // "in" is the logged-in app (react-native-web, data-testid), "out" the
@@ -139,3 +139,16 @@ test("X Article keeps linked words and prices, drops URLs and the labels they le
   assert.deepEqual(blocks(article), ["Stepper driver carrier, $8.95 from pololu.", "Solder it carefully."])
   assert.doesNotMatch(article.content, /Link:|pololu\.com|youtube/)
 })
+
+for (const view of ["in", "out"]) {
+  test(`${view}: each paragraph of a post gets its own highlight range`, () => {
+    const doc = load(`${view}-long`, LONG_URL)
+    const read = blocks(extractXPost(doc, LONG_URL))
+    const post = createAnchorFinder(doc)(read[0]!)!
+    const second = blockRange(post, read[1]!, read[2])!.toString()
+    assert.match(second, /^L’affaire secoue/)
+    assert.doesNotMatch(second, /DIPLOMATIE|La date du 17/)
+    assert.match(blockRange(post, read[0]!, read[1])!.toString(), /^DIPLOMATIE[^]*CAMEROUN\.\s*$/)
+    assert.match(blockRange(post, read.at(-1)!)!.toString(), /rebondissements spectaculaires\./)
+  })
+}

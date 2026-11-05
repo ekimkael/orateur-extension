@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { JSDOM } from "jsdom"
-import { createAnchorFinder, findBlockIndex } from "./read-anchor.ts"
+import { blockRange, createAnchorFinder, findBlockIndex } from "./read-anchor.ts"
 
 function docFrom(html: string) {
   return new JSDOM(html).window.document
@@ -113,4 +113,10 @@ test("un emoji retiré à l'extraction n'empêche pas de retrouver le bloc", () 
   const find = createAnchorFinder(doc)
 
   assert.equal(find("DIPLOMATIE - EXTRADITION CASSÉE.")?.tagName, "DIV")
+})
+
+test("blockRange only matches a block that starts a line", () => {
+  const { document } = new JSDOM(`<p>Voir l'Introduction plus bas.</p>`).window
+  assert.equal(blockRange(document.querySelector("p")!, "Introduction"), null)
+  assert.equal(blockRange(document.querySelector("p")!, "Absent"), null)
 })

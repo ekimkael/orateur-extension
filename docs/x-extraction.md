@@ -74,9 +74,10 @@ copies in `tests/fixtures/x/`).
 - Page highlighting and "read from here" find blocks by their first 80
   characters in the live DOM (`lib/read-anchor.ts`), emoji ignored on both
   sides (the read text has lost the post's leading 🛑). A post's paragraphs all
-  sit in one element, so only the first one matches: the whole post stays
-  highlighted while its paragraphs are read. Article paragraphs keep their own
-  anchors.
+  sit in one element, so only the first one matches; `blockRange` then lights
+  the line where each paragraph starts, up to the next one, matched on letters
+  and digits only. "Read from here" inside a post still starts at its first
+  paragraph. Article paragraphs keep their own anchors.
 - `lib/live-page.ts` never re-reads an element that also holds the next block,
   so a post is not followed through a browser translation. Re-reading the post
   for its first paragraph would speak all of it, then each line again.
