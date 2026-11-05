@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-05
+
+### Added
+
+- X (Twitter): "Read this page" on a post reads only that post, paragraph by paragraph. It skips the author, counters, quoted posts, replies, links, emoji and closing hashtags, and the page highlight follows each paragraph. X Articles are read to their last line, without the URLs of their resource lists. Off a post, the extension says there is nothing to read instead of reading the app.
+
+### Changed
+
+- Posts have no spoken intro: the first line is read once, not twice. The post still keeps its author and first line as its title in the reader and in Orateur.
+- Usage statistics now include the browser name and its major version, never the raw User-Agent. See [PRIVACY.md](PRIVACY.md).
+
+### Fixed
+
+- French all-caps headlines are read as words: accented words such as "BÉNIN" are no longer split, and short words such as "LE", "DE" or "PAS" are no longer spelled letter by letter.
+- Supertonic says "dix-sept" without a doubled "s".
+- Text selected in a password field is never captured for reading.
+
 ## [0.8.8] - 2026-10-28
 
 ### Fixed
