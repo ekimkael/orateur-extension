@@ -72,9 +72,14 @@ copies in `tests/fixtures/x/`).
 ## Limits
 
 - Page highlighting and "read from here" find blocks by their first 80
-  characters in the live DOM (`lib/read-anchor.ts`). A post's paragraphs all
-  sit in one element, so only the first one can match: the anchor is the whole
-  post. Article paragraphs keep their own anchors.
+  characters in the live DOM (`lib/read-anchor.ts`), emoji ignored on both
+  sides (the read text has lost the post's leading 🛑). A post's paragraphs all
+  sit in one element, so only the first one matches: the whole post stays
+  highlighted while its paragraphs are read. Article paragraphs keep their own
+  anchors.
+- `lib/live-page.ts` never re-reads an element that also holds the next block,
+  so a post is not followed through a browser translation. Re-reading the post
+  for its first paragraph would speak all of it, then each line again.
 - A logged-out Article has no `lang` attribute and the page language is the
   UI's (`fr` for an English Article). The reader's language detection then
   picks the voice, as it does elsewhere.

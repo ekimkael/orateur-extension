@@ -106,3 +106,11 @@ test("un clic sur un conteneur part de son premier bloc", () => {
   assert.equal(findBlockIndex(doc, ["Premier passage.", "Deuxième passage.", "Troisième."], doc.querySelector("section")), 1)
   assert.equal(findBlockIndex(doc, ["Premier passage."], null), -1)
 })
+
+test("un emoji retiré à l'extraction n'empêche pas de retrouver le bloc", () => {
+  // X : le texte lu perd le 🛑 de tête, la page le garde.
+  const doc = docFrom("<article><div>🛑DIPLOMATIE - EXTRADITION CASSÉE.\n\nL’affaire secoue les chancelleries.</div></article>")
+  const find = createAnchorFinder(doc)
+
+  assert.equal(find("DIPLOMATIE - EXTRADITION CASSÉE.")?.tagName, "DIV")
+})

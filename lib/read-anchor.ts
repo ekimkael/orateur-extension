@@ -19,8 +19,14 @@
  */
 const TEXT_BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,pre,div,section,td,th"
 
+/**
+ * Emoji, as `extract-article.ts` drops them from X posts: the read text loses
+ * a leading 🛑 the page keeps. Duplicated for the same reason as TEXT_BLOCKS.
+ */
+const EMOJI = /[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\u200D\uFE0F\u20E3\u{E0020}-\u{E007F}]/gu
+
 /** Même normalisation que l'extracteur, sinon rien ne se compare. */
-const normalize = (text: string) => text.replace(/\s+/g, " ").trim()
+const normalize = (text: string) => text.replace(EMOJI, "").replace(/\s+/g, " ").trim()
 
 /**
  * Longueur de l'empreinte comparée.

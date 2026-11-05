@@ -16,6 +16,13 @@ export function createLivePage(doc: Document, blocks: readonly string[], timeout
   const find = createAnchorFinder(doc)
   const anchors = blocks.map((block) => find(block))
   const original = anchors.map((anchor) => anchor ? textOf(anchor) : "")
+  // An element that also holds the next block (an X post's lines) cannot be
+  // re-read for one of them: its live text is all of them, spoken at once.
+  const shared = anchors.map((anchor, index) => {
+    const next = normalize(blocks[index + 1] ?? "").replace(/[.…]$/, "").slice(0, 40)
+    // Past its own start: two identical paragraphs in a row are not one element.
+    return !!anchor && next !== "" && original[index]!.indexOf(next, 1) >= 0
+  })
   const pending = new Map<number, {
     promise: Promise<string>
     update: (follow: boolean, prefetch: boolean, align: "center" | "nearest") => void
@@ -32,7 +39,7 @@ export function createLivePage(doc: Document, blocks: readonly string[], timeout
     }
     const fallback = blocks[index] ?? ""
     const element = anchors[index]
-    if (!element?.isConnected) return Promise.resolve(fallback)
+    if (!element?.isConnected || shared[index]) return Promise.resolve(fallback)
     const currentText = () => {
       const current = element.isConnected ? textOf(element) : ""
       // Retain extraction cleanup and punctuation unless the page text changed.

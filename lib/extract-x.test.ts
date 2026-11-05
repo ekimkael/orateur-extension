@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import test from "node:test"
 import { JSDOM } from "jsdom"
 import { extractXPost, isXHost, xStatusId, type ExtractedArticle } from "./extract-article.ts"
+import { createAnchorFinder } from "./read-anchor.ts"
 
 // Fixtures: real X pages captured on 2026-11-05 in Firefox, reduced by hand.
 // "in" is the logged-in app (react-native-web, data-testid), "out" the
@@ -28,6 +29,14 @@ for (const view of ["in", "out"]) {
     assert.equal(article.lang, "fr")
     assert.ok(article.title!.startsWith("EsbiMedia : DIPLOMATIE - EXTRADITION CASSÉE"), article.title!)
     assert.ok(article.title!.length <= 101)
+  })
+
+  test(`${view}: the opened post anchors the highlight of its first paragraph`, () => {
+    const doc = load(`${view}-long`, LONG_URL)
+    const anchor = createAnchorFinder(doc)(blocks(extractXPost(doc, LONG_URL))[0]!)
+    assert.ok(anchor, "first paragraph found in the page")
+    assert.ok(anchor.closest("article")?.querySelector(`a[href$="/status/2117662525101617472"]`))
+    assert.match(anchor.textContent ?? "", /L’affaire secoue/, "the whole post, not a fragment")
   })
 
   test(`${view}: post with nested quotes reads only the opened post`, () => {
