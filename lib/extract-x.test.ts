@@ -78,3 +78,27 @@ test("inline hashtag and mention are read without their sign; links are dropped"
   const doc = post(`Bravo <a href="/Fcbarcelona">@Fcbarcelona</a> pour le <a href="/hashtag/titre?src=hashtag_click">#titre</a> ce soir <a href="https://t.co/abc">https://t.co/abc</a>`)
   assert.equal(extractXPost(doc).textContent, "Bravo Fcbarcelona pour le titre ce soir.")
 })
+
+const ARTICLE_URL = "https://x.com/DeRonin_/status/2095180126359105955"
+
+for (const view of ["in", "out"]) {
+  test(`${view}: X Article reads its title, body and last lines, without URLs or chrome`, () => {
+    const article = extractXPost(load(`${view}-article`, ARTICLE_URL), ARTICLE_URL)
+    assert.equal(article.title, "How to become a Robotics Engineer in 6 months (RESOURCES)")
+    assert.equal(article.announceTitle, undefined)
+    assert.equal(blocks(article)[0], "Robotics is the least crowded high-value skill in tech right now.")
+    assert.ok(blocks(article).includes("Why robotics and not AI engineering."))
+    assert.deepEqual(blocks(article).slice(-2), ["Go build something that moves.", "Hope this was useful for you my fam."])
+    assert.doesNotMatch(article.textContent, /https?:|www\.|Link:|More Articles|Vous voulez publier|Passer à|followers|vues|Views|CEO of Arcane/)
+  })
+}
+
+test("X Article code block is announced, not read", () => {
+  const doc = new JSDOM(`<html lang="en"><body><main><article>
+    <a href="/someone/status/42">2:00 PM</a>
+    <h1>Shipping code</h1>
+    <div class="x-article-body"><p>Run this first.</p><pre><code>npm ci</code></pre><p>Then build.</p></div>
+  </article></main></body></html>`, { url: "https://x.com/someone/status/42" }).window.document
+  const article = extractXPost(doc)
+  assert.equal(article.textContent, "Run this first.\n\nCode snippet.\n\nThen build.")
+})

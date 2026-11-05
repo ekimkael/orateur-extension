@@ -413,6 +413,9 @@ export function extractXPost(doc: Document, url = doc.location?.href ?? ""): Ext
   if (!link || !post) throw new Error(NOT_AN_ARTICLE)
   const handle = link.getAttribute("href")!.split("/")[1]!
 
+  const body = post.querySelector(X_ARTICLE_BODY)
+  if (body) return xArticle(doc, post, body, url)
+
   // The opened post's own text: not one under a quote (a nested article, or a
   // [role=link] card). Test ids first: the logged-in app also sets dir=auto on
   // names and labels.
@@ -437,8 +440,53 @@ export function extractXPost(doc: Document, url = doc.location?.href ?? ""): Ext
     .find((text) => text && !text.startsWith("@"))
   const first = textContent.split("\n\n")[0]!.replace(/\.$/, "")
   return {
-    title: cutTitle(name ? `${name} : ${first}` : first),
+    ...xResult(cutTitle(name ? `${name} : ${first}` : first), lang, root, textContent, url),
     byline: name ?? null,
+    announceTitle: false,
+  }
+}
+
+/** An X Article's body: logged-out redesign, then logged-in app. */
+const X_ARTICLE_BODY = ".x-article-body, [data-testid='twitterArticleRichTextView']"
+/** Its title, beside the body: logged-in test id, then the redesign's `h1`. */
+const X_ARTICLE_TITLE = "[data-testid='twitter-article-title'], h1"
+/** What a removed link leaves of its line: "Link:", "Follow me:". */
+const LABEL_ONLY = /^[^.!?]{1,30}:$/
+
+/**
+ * An X Article, read from its body to its last line.
+ *
+ * Authors rarely end a line with a period, so `pruneTrailingResidue` (built
+ * for news-site sidebars) would drop the closing lines: it is skipped. Links
+ * are the article's resource lists ("Link: https://…"), not prose; the label
+ * they leave is dropped with them. The logged-in body has no `<p>`: each
+ * Draft.js `div[data-block]` is already a block for `toSpeakableText`.
+ */
+function xArticle(doc: Document, post: Element, body: Element, url: string): ExtractedArticle {
+  const title = normalize(post.querySelector(X_ARTICLE_TITLE)?.textContent ?? "") || null
+  const root = body.cloneNode(true) as Element
+  for (const a of root.querySelectorAll("a[href]")) if (!a.getAttribute("href")!.startsWith("/")) a.remove()
+  // 4: NodeFilter.SHOW_TEXT, not a global outside the browser.
+  const walker = doc.createTreeWalker(root, 4)
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    node.nodeValue = node.nodeValue!.replace(BARE_URL, "").replace(EMOJI, "")
+  }
+  clean(root)
+
+  const lang = doc.documentElement.lang || null
+  const textContent = toSpeakableText(root, lang ?? "", { pruneResidue: false })
+    .split("\n\n")
+    .filter((block) => !LABEL_ONLY.test(block))
+    .join("\n\n")
+  if (!textContent) throw new Error(NOT_AN_ARTICLE)
+  return xResult(title, lang, root, textContent, url)
+}
+
+/** The fields every X reading shares. */
+function xResult(title: string | null, lang: string | null, root: Element, textContent: string, url: string): ExtractedArticle {
+  return {
+    title,
+    byline: null,
     dir: null,
     excerpt: null,
     siteName: "X",
@@ -449,7 +497,6 @@ export function extractXPost(doc: Document, url = doc.location?.href ?? ""): Ext
     length: textContent.length,
     url,
     readingTimeMinutes: Math.max(1, Math.round(countWords(textContent) / WORDS_PER_MINUTE)),
-    announceTitle: false,
   }
 }
 
