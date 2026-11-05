@@ -37,7 +37,10 @@ function frBelow1000(n: number, final: boolean): string {
   return final ? words : words.replace(/quatre-vingts$/, 'quatre-vingt');
 }
 
-/** French cardinal in words, for Supertonic only: 17 is a phonetic spelling, not standard French. */
+/**
+ * French cardinal in words. Only Supertonic hears it (through `spellNumbers`), so 17 is the
+ * phonetic « dissète », not standard French: never show its output to people.
+ */
 export function frCardinal(n: number): string {
   if (n === 0) return FR_UNITS[0]!;
   const parts: string[] = [];

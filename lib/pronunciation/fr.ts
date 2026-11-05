@@ -19,11 +19,13 @@
 /**
  * French function words an all-caps headline is full of (« LE BÉNIN DÉFIE
  * YAOUNDÉ »): read as words, never spelled. None is a common French acronym;
- * `CE` and `SA` are left out because they are.
+ * `CE`, `SA` and `CES` (the Las Vegas show) are left out because they are.
  */
 export const NEVER_SPELLED = new Set([
   'LE', 'LA', 'LES', 'UN', 'UNE', 'DE', 'DU', 'DES', 'AU', 'AUX', 'ET', 'OU', 'EN',
   'SUR', 'PAR', 'SON', 'SES', 'IL', 'ILS', 'ON', 'NE', 'QUI', 'QUE', 'EST', 'EX',
+  'PAS', 'SE', 'SI', 'NI', 'JE', 'TU', 'MON', 'TON', 'MA', 'TA', 'MES', 'TES',
+  'NOS', 'VOS', 'LUI', 'OUI', 'NON',
 ]);
 
 export const VERBALIZE: [RegExp, string][] = [

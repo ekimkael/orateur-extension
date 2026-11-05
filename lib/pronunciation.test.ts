@@ -66,6 +66,12 @@ test("un titre en capitales n'épelle pas les mots outils français", () => {
     expandText("UN EX-GARDE DU BIR ET DES ÉLUS AU NORD", { language: "fr" }),
     "UN EX-Garde DU B I R ET DES Élus AU Nord"
   )
+  assert.equal(
+    expandText("IL NE FAUT PAS SE TROMPER, OUI OU NON", { language: "fr" }),
+    "IL NE Faut PAS SE Tromper, OUI OU NON"
+  )
+  const words = "JE TU MON TON MA TA MES TES NOS VOS LUI SI NI"
+  assert.equal(expandText(words, { language: "fr" }), words)
   // The list is French only: in English, « UN » is the United Nations.
   assert.equal(expandText("the UN vote", { language: "en" }), "the U N vote")
 })
