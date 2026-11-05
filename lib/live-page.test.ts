@@ -394,3 +394,12 @@ test("an element holding several blocks is never re-read for one of them", async
   assert.equal(await live.prepare(0, false), FR)
   live.stop()
 })
+
+test("a post whose next line holds an emoji or a mention is still shared", async () => {
+  // The read block lost the 👏 and the @ the page keeps.
+  const doc = new JSDOM(`<html lang="fr"><body><article><div>${FR}\n\nBravo 👏 @Lions, ${EN}</div></article></body></html>`).window.document
+  const live = createLivePage(doc, [FR, `Bravo Lions, ${EN}`])
+  doc.querySelector("div")!.textContent = `${FR} ${FR}\n\nBravo 👏 @Lions, ${EN}`
+  assert.equal(await live.prepare(0, false), FR)
+  live.stop()
+})

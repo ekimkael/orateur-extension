@@ -1,4 +1,4 @@
-import { createAnchorFinder } from "./read-anchor.ts"
+import { createAnchorFinder, holdsNext } from "./read-anchor.ts"
 import { detectLang } from "./detect-lang.ts"
 import { withStop } from "./reading-intro.ts"
 import { toSupertonicLang } from "./supertonic-lang.ts"
@@ -19,9 +19,8 @@ export function createLivePage(doc: Document, blocks: readonly string[], timeout
   // An element that also holds the next block (an X post's lines) cannot be
   // re-read for one of them: its live text is all of them, spoken at once.
   const shared = anchors.map((anchor, index) => {
-    const next = normalize(blocks[index + 1] ?? "").replace(/[.…]$/, "").slice(0, 40)
-    // Past its own start: two identical paragraphs in a row are not one element.
-    return !!anchor && next !== "" && original[index]!.indexOf(next, 1) >= 0
+    const next = blocks[index + 1]
+    return !!anchor && next !== undefined && holdsNext(anchor, blocks[index]!, next)
   })
   const pending = new Map<number, {
     promise: Promise<string>

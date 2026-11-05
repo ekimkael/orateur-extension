@@ -174,6 +174,29 @@ function skeleton(element: Element) {
  * when it is the whole element.
  */
 export function blockRange(element: Element, block: string, next?: string): Range | null {
+  const found = locate(element, block, next)
+  if (!found) return null
+  const { page, start, end } = found
+  // The block is the whole element: the caller lights and scrolls the
+  // element itself, which also follows nested scrollers.
+  if (start === 0 && end < 0) return null
+  const range = element.ownerDocument.createRange()
+  range.setStart(page.nodes[start]!, page.offsets[start]!)
+  if (end < 0) range.setEnd(element, element.childNodes.length)
+  else range.setEnd(page.nodes[end]!, page.offsets[end]!)
+  return range
+}
+
+/**
+ * Whether `element` also holds `next` after `block`: an X post's lines. Same
+ * matching as `blockRange`, so the follower and live-page agree on it.
+ */
+export function holdsNext(element: Element, block: string, next: string): boolean {
+  return (locate(element, block, next)?.end ?? -1) >= 0
+}
+
+/** Where `block`, then `next`, open a line of `element`, in skeleton indexes. */
+function locate(element: Element, block: string, next?: string) {
   const page = skeleton(element)
   const find = (text: string, from: number) => {
     const mark = letters(text).slice(0, RANGE_MARK)
@@ -185,13 +208,5 @@ export function blockRange(element: Element, block: string, next?: string): Rang
   }
   const start = find(block, 0)
   if (start < 0) return null
-  const end = next === undefined ? -1 : find(next, start + 1)
-  // The block is the whole element: the caller lights and scrolls the
-  // element itself, which also follows nested scrollers.
-  if (start === 0 && end < 0) return null
-  const range = element.ownerDocument.createRange()
-  range.setStart(page.nodes[start]!, page.offsets[start]!)
-  if (end < 0) range.setEnd(element, element.childNodes.length)
-  else range.setEnd(page.nodes[end]!, page.offsets[end]!)
-  return range
+  return { page, start, end: next === undefined ? -1 : find(next, start + 1) }
 }
