@@ -63,7 +63,7 @@ Layers, the TTS port and the reading invariants: [docs/reading-architecture.md](
 | Reading, players, TTS host | [docs/reading-architecture.md](docs/reading-architecture.md) |
 | Selection bubble and context menus | [docs/selection-reader.md](docs/selection-reader.md) |
 | Text preparation and pronunciation rules | [docs/pronunciation.md](docs/pronunciation.md) |
-| Article extraction | [docs/extraction-audit.md](docs/extraction-audit.md) and the `docs/extraction-*-audit.md` files, [docs/gmail-newsletter-extraction.md](docs/gmail-newsletter-extraction.md) |
+| Article extraction | [docs/extraction-audit.md](docs/extraction-audit.md) and the `docs/extraction-*-audit.md` files, [docs/gmail-newsletter-extraction.md](docs/gmail-newsletter-extraction.md), [docs/x-extraction.md](docs/x-extraction.md) |
 | Telemetry (PostHog) | [docs/analytics.md](docs/analytics.md), [PRIVACY.md](PRIVACY.md) |
 | Tests and manual QA | [docs/testing.md](docs/testing.md) |
 | Store copy and permissions | [docs/store-listing.en.md](docs/store-listing.en.md), [docs/store-listing.fr.md](docs/store-listing.fr.md) |
