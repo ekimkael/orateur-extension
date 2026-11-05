@@ -35,12 +35,18 @@ are never matched.
 
 ## Cleaning
 
-- Posts: absolute links (URLs, `t.co`) and bare `https?://` URLs are dropped.
-  Emoji and flags are dropped, because some system voices read their names.
-  The hashtags closing a post and the mentions opening a reply are dropped.
-  A hashtag or mention inside a sentence is read without its `#` or `@`.
-- Articles: the same link, URL and emoji removal, then any block left as a bare
-  label ("Link:", "Follow me:") is dropped. `pruneTrailingResidue` is skipped:
+- Posts: links whose text is an address (full, `host/path`, or shortened by X
+  with "…") and bare `https?://` URLs are dropped. Other links keep their
+  words: mentions, hashtags and cashtags. Emoji, flags, skin tones and keycap
+  marks are dropped, because some system voices read their names. A run of
+  hashtags closing a post, after its last sentence or on its own line, is
+  dropped. A hashtag ending a sentence ("Allez les #Lions.") is read as a word,
+  without its `#`, and so is a mention, without its `@`. A reply's addressee is
+  not part of the post text (X shows it apart), so a mention opening a post is
+  its subject and stays.
+- Articles: the same link, URL and emoji rules. Any block left as a bare label
+  ("Link:", "Follow me:") is removed from the tree, so it is neither read nor
+  saved. `pruneTrailingResidue` is skipped:
   X authors rarely end a line with a period, and that rule dropped the last
   lines of the Article.
 - A post's title is `<display name> : <first line>`, cut on a word at 100

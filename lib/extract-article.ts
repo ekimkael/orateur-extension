@@ -370,14 +370,22 @@ export function xStatusId(url: string): string | null {
 
 /** Longest title (display name and first line) before it is cut on a word. */
 const X_TITLE_LENGTH = 100
-/** Pictographs and what glues them: decoration, and some system voices read their names aloud. */
-const EMOJI = /[\p{Extended_Pictographic}\p{Regional_Indicator}‍️]/gu
+/**
+ * Pictographs and what glues them (skin tones, keycap mark, flag tags):
+ * decoration, and some system voices read their names aloud.
+ */
+const EMOJI = /[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\u200D\uFE0F\u20E3\u{E0020}-\u{E007F}]/gu
 const BARE_URL = /https?:\/\/\S+/g
-/** "#EsbiMedia" closing a post: a tag for the feed, not part of the text. */
-const TRAILING_HASHTAGS = /(?:\s*#[\p{L}\p{N}_]+)+[\s.]*$/u
-/** "@EsBi_Media …" opening a reply: the addressee, which X already shows apart. */
-const LEADING_MENTIONS = /^\s*(?:@\w+\s*)+/
-/** The sign of a hashtag or mention kept in a sentence: "#titre" is read "titre". */
+/**
+ * "#EsbiMedia" closing a post, after its last sentence or on its own line: a
+ * tag for the feed. One ending a sentence ("Allez les #Lions.") is a word.
+ */
+const TRAILING_HASHTAGS = /(^|[.!?…\n])(?:\s*#[\p{L}\p{N}_]+)+[\s.]*$/u
+/**
+ * The sign of a hashtag or mention kept in a sentence: "#titre" is read
+ * "titre". A reply's addressee is not in its text (X shows it apart), so a
+ * leading mention is the post's own subject and stays.
+ */
 const TAG_SIGN = /(^|[\s(])[#@](?=[\p{L}\p{N}_])/gu
 
 /**
@@ -459,25 +467,26 @@ const LABEL_ONLY = /^[^.!?]{1,30}:$/
  * Authors rarely end a line with a period, so `pruneTrailingResidue` (built
  * for news-site sidebars) would drop the closing lines: it is skipped. Links
  * are the article's resource lists ("Link: https://…"), not prose; the label
- * they leave is dropped with them. The logged-in body has no `<p>`: each
+ * they leave is dropped with them; linked words (mentions, prices) stay. The logged-in body has no `<p>`: each
  * Draft.js `div[data-block]` is already a block for `toSpeakableText`.
  */
 function xArticle(doc: Document, post: Element, body: Element, url: string): ExtractedArticle {
   const title = normalize(post.querySelector(X_ARTICLE_TITLE)?.textContent ?? "") || null
   const root = body.cloneNode(true) as Element
-  for (const a of root.querySelectorAll("a[href]")) if (!a.getAttribute("href")!.startsWith("/")) a.remove()
+  dropUrlLinks(root)
   // 4: NodeFilter.SHOW_TEXT, not a global outside the browser.
   const walker = doc.createTreeWalker(root, 4)
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    node.nodeValue = node.nodeValue!.replace(BARE_URL, "").replace(EMOJI, "")
+    node.nodeValue = node.nodeValue!.replace(BARE_URL, "").replace(EMOJI, "").replace(TAG_SIGN, "$1")
+  }
+  // From the tree, not only the text: the saved copy is read aloud too.
+  for (const block of root.querySelectorAll("p, li, h1, h2, h3, h4, h5, h6, [data-block]")) {
+    if (LABEL_ONLY.test(normalize(block.textContent ?? ""))) block.remove()
   }
   clean(root)
 
   const lang = doc.documentElement.lang || null
   const textContent = toSpeakableText(root, lang ?? "", { pruneResidue: false })
-    .split("\n\n")
-    .filter((block) => !LABEL_ONLY.test(block))
-    .join("\n\n")
   if (!textContent) throw new Error(NOT_AN_ARTICLE)
   return xResult(title, lang, root, textContent, url)
 }
@@ -506,14 +515,11 @@ function xResult(title: string | null, lang: string | null, root: Element, textC
  */
 function postParagraphs(doc: Document, source: Element): Element {
   const copy = source.cloneNode(true) as Element
-  // Absolute links are URLs (t.co, shown shortened); relative ones are
-  // mentions and hashtags, whose word stays.
-  for (const a of copy.querySelectorAll("a[href]")) if (!a.getAttribute("href")!.startsWith("/")) a.remove()
+  dropUrlLinks(copy)
   const text = (copy.textContent ?? "")
     .replace(BARE_URL, "")
     .replace(EMOJI, "")
-    .replace(TRAILING_HASHTAGS, "")
-    .replace(LEADING_MENTIONS, "")
+    .replace(TRAILING_HASHTAGS, "$1")
     .replace(TAG_SIGN, "$1")
 
   const root = doc.createElement("div")
@@ -525,6 +531,18 @@ function postParagraphs(doc: Document, source: Element): Element {
     root.append(p)
   }
   return root
+}
+
+/** Link text that is an address: full, bare host/path, or shortened by X with "…". */
+const URL_TEXT = /^(?:https?:\/\/|www\.)\S*$|^[\w-]+(?:\.[\w-]+)+\/\S*$|…$/u
+
+/**
+ * Drops the links whose text is an address. The others keep their words:
+ * mentions, hashtags and cashtags ("$8.95"), relative in posts but absolute
+ * (`https://x.com/search?q=…`) in the logged-in Article body.
+ */
+function dropUrlLinks(root: Element) {
+  for (const a of root.querySelectorAll("a[href]")) if (URL_TEXT.test(normalize(a.textContent ?? ""))) a.remove()
 }
 
 /** Cuts a title on the last word that fits, and says so with an ellipsis. */

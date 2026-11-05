@@ -102,3 +102,31 @@ test("X Article code block is announced, not read", () => {
   const article = extractXPost(doc)
   assert.equal(article.textContent, "Run this first.\n\nCode snippet.\n\nThen build.")
 })
+
+test("a hashtag ending a sentence stays a word; a trailing tag line goes", () => {
+  assert.equal(extractXPost(post(`Allez les <a href="/hashtag/Lions">#Lions</a>.`)).textContent, "Allez les Lions.")
+  assert.equal(extractXPost(post(`Victoire. <a href="/hashtag/Lions">#Lions</a> <a href="/hashtag/CAN">#CAN</a>`)).textContent, "Victoire.")
+})
+
+test("a post opening on a mention keeps its subject", () => {
+  assert.equal(extractXPost(post(`<a href="/Fcbarcelona">@Fcbarcelona</a> a gagné hier`)).textContent, "Fcbarcelona a gagné hier.")
+})
+
+test("emoji leave no modifier, keycap or tag behind", () => {
+  assert.equal(extractXPost(post("Merci 👍🏽 1️⃣ 🏴󠁧󠁢󠁥󠁮󠁧󠁿 bravo")).textContent, "Merci 1 bravo.")
+})
+
+test("X Article keeps linked words and prices, drops URLs and the labels they leave", () => {
+  const doc = new JSDOM(`<html lang="en"><body><main><article>
+    <a href="/someone/status/42">2:00 PM</a>
+    <h1>Parts list</h1>
+    <div class="x-article-body">
+      <p>Stepper driver carrier, <a href="https://x.com/search?q=%248.95&amp;src=cashtag_click">$8.95</a> from <a href="https://x.com/pololu">@pololu</a>.</p>
+      <p>Link: <a href="https://www.pololu.com/product/1182">https://www.pololu.com/product/1182</a></p>
+      <p>Solder it <a href="https://t.co/xyz">youtube.com/watch?v=abc…</a> carefully.</p>
+    </div>
+  </article></main></body></html>`, { url: "https://x.com/someone/status/42" }).window.document
+  const article = extractXPost(doc)
+  assert.deepEqual(blocks(article), ["Stepper driver carrier, $8.95 from pololu.", "Solder it carefully."])
+  assert.doesNotMatch(article.content, /Link:|pololu\.com|youtube/)
+})
