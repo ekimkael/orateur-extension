@@ -1,4 +1,4 @@
-import { createAnchorFinder } from "./read-anchor.ts"
+import { createAnchorFinder, holdsNext } from "./read-anchor.ts"
 import { detectLang } from "./detect-lang.ts"
 import { withStop } from "./reading-intro.ts"
 import { toSupertonicLang } from "./supertonic-lang.ts"
@@ -16,6 +16,12 @@ export function createLivePage(doc: Document, blocks: readonly string[], timeout
   const find = createAnchorFinder(doc)
   const anchors = blocks.map((block) => find(block))
   const original = anchors.map((anchor) => anchor ? textOf(anchor) : "")
+  // An element that also holds the next block (an X post's lines) cannot be
+  // re-read for one of them: its live text is all of them, spoken at once.
+  const shared = anchors.map((anchor, index) => {
+    const next = blocks[index + 1]
+    return !!anchor && next !== undefined && holdsNext(anchor, blocks[index]!, next)
+  })
   const pending = new Map<number, {
     promise: Promise<string>
     update: (follow: boolean, prefetch: boolean, align: "center" | "nearest") => void
@@ -32,7 +38,7 @@ export function createLivePage(doc: Document, blocks: readonly string[], timeout
     }
     const fallback = blocks[index] ?? ""
     const element = anchors[index]
-    if (!element?.isConnected) return Promise.resolve(fallback)
+    if (!element?.isConnected || shared[index]) return Promise.resolve(fallback)
     const currentText = () => {
       const current = element.isConnected ? textOf(element) : ""
       // Retain extraction cleanup and punctuation unless the page text changed.

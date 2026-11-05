@@ -164,12 +164,22 @@ are downloaded only on request.
 
 ## Git Flow and releasing
 
-`develop` is the integration branch. Work on `develop` or a working branch;
-do not commit or push directly to `main`. Create feature branches from
-`develop` and merge them back through pull requests. Create `release/*`
-branches from `develop`; bump the version there, merge into `main`, tag the merge, then merge
-the release back into `develop`. Create urgent `hotfix/*` branches from `main`
-and merge them into both long-lived branches.
+`develop` is the integration branch. Create feature branches from `develop`
+and integrate them through short pull requests targeting `develop`. Both
+`develop` and `main` require pull requests and passing CI, including for
+administrators. Human approval is not required for solo development.
+
+"Feature finished" means the changes are committed, the pull request has
+passed CI and been merged into `develop` with a merge commit, the feature
+branch has been deleted locally and remotely, and local `develop` is up to
+date. Finishing a feature does not publish a release.
+
+Create `release/*` branches from `develop`; bump the version there, merge
+into `main` through a pull request, tag the merge, then merge the release
+back into `develop` through a pull request. Delete a release branch only
+after both integrations. Create urgent `hotfix/*` branches from `main`
+and merge them into both long-lived branches through pull requests before
+deleting them.
 
 CI checks types and Node tests, packages the extension, then tests those
 runtime packages in Chrome and Firefox. The final `build` check
@@ -203,6 +213,8 @@ real submission must run from `main`. See [analytics release setup](docs/analyti
 | [Privacy policy](PRIVACY.md) | Local storage, transfers and optional usage statistics |
 | [Store listings: English](docs/store-listing.en.md) / [French](docs/store-listing.fr.md) | Main-extension copy, permissions and reviewer build instructions |
 | [First-user programme](docs/premiers-utilisateurs.md) | Manual onboarding and feedback plan (French) |
+| [Contributing](CONTRIBUTING.md) / [Agents](AGENTS.md) | Git Flow, commits, PRs, conventions and known traps |
+| [Release](docs/release.md) / [Changelog](CHANGELOG.md) | Release steps, store submission and version history |
 
 The [Gmail extraction audit](docs/gmail-newsletter-extraction.md),
 [news extraction audit](docs/extraction-audit.md),

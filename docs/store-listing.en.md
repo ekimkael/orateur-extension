@@ -69,8 +69,9 @@ its model download; system voice privacy depends on the selected voice provider.
 Page text is sent to the Orateur web app only when you choose to save it there.
 Usage statistics
 are on by default and can be turned off in Settings → Privacy. They use a
-random identifier and never include page text, titles or addresses. Saved
-opt-outs remain respected after updates.
+random identifier and include the extension version and, when available,
+the browser name and major version. They never include page text, titles or
+addresses. Saved opt-outs remain respected after updates.
 
 Details: https://github.com/ekimkael/orateur-extension/blob/main/PRIVACY.md
 ```
@@ -160,7 +161,8 @@ entry.
 
 - Declares **User activity** (usage events with a random identifier — analytics
   enabled, reading started and completed, errors, Supertonic download outcome,
-  extraction failures; extension version) as collected, on by default and
+  extraction failures; extension version, browser name and major version)
+  as collected, on by default and
   switchable off in settings. Verify the exact category label against the live CWS
   Developer Dashboard form at submission time — the taxonomy shifts
   occasionally.
@@ -222,8 +224,10 @@ entry.
   (eu.i.posthog.com/i/v0/e/ or us.i.posthog.com/i/v0/e/, depending on the region) —
   no posthog-js, no third-party script, nothing beyond a JSON body with an
   event name, a locally-generated random id, and a closed set of technical
-  properties including the extension version (see PRIVACY.md,
-  "Optional usage analytics"). The background filters properties at
+  properties including the extension version and, when available, browser
+  name and major version ($browser and $browser_version). No raw User-Agent
+  is included in event properties (see PRIVACY.md, "Optional usage analytics").
+  The background filters properties at
   runtime. Never page text, titles or URLs. Turning tracking off removes the
   local identifier and stops new events; it does not erase events already
   received.

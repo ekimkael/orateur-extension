@@ -72,8 +72,10 @@ voix système dépend du fournisseur de la voix choisie. Le texte est envoyé
 vers l'application web Orateur uniquement si vous choisissez de l'y sauvegarder.
 Des statistiques d'usage sont activées par défaut et peuvent être désactivées
 dans Réglages → Confidentialité. Elles utilisent un identifiant aléatoire et
-n'incluent jamais le texte, le titre ou l'adresse des pages. Une désactivation
-déjà enregistrée reste respectée après une mise à jour.
+incluent la version de l'extension ainsi que, si disponibles, le nom et la
+version majeure du navigateur. Elles n'incluent jamais le texte, le titre ou
+l'adresse des pages. Une désactivation déjà enregistrée reste respectée après
+une mise à jour.
 
 Détails : https://github.com/ekimkael/orateur-extension/blob/main/PRIVACY.md
 ```
@@ -158,7 +160,7 @@ entrée du menu contextuel.
 - Déclare **Activité utilisateur** (événements d'usage avec identifiant
   aléatoire — activation des statistiques, début et fin de lecture, erreurs,
   résultat du téléchargement Supertonic, échecs d'extraction ; version de
-  l'extension) comme
+  l'extension, nom et version majeure du navigateur) comme
   collectée, activée par défaut et désactivable dans les réglages. Vérifier l'intitulé exact
   dans le formulaire du Developer Dashboard CWS au moment de la soumission —
   la taxonomie bouge de temps en temps.
@@ -221,8 +223,10 @@ entrée du menu contextuel.
   (eu.i.posthog.com/i/v0/e/ ou us.i.posthog.com/i/v0/e/, selon la région) — pas
   de posthog-js, pas de script tiers, rien de plus qu'un corps JSON avec un
   nom d'événement, un identifiant aléatoire généré localement, et un
-  ensemble fermé de propriétés techniques dont la version de l'extension
-  (voir PRIVACY.md, « Optional usage analytics »). Le background
+  ensemble fermé de propriétés techniques dont la version de l'extension et,
+  si disponibles, le nom et la version majeure du navigateur ($browser et
+  $browser_version). Aucun User-Agent brut ne figure dans les propriétés
+  d'événement (voir PRIVACY.md, « Optional usage analytics »). Le background
   filtre ces propriétés à l'exécution. Jamais le texte, le titre ou l'URL de la
   page. Désactiver le suivi efface l'identifiant local et arrête les nouveaux
   envois ; cela n'efface pas les événements déjà reçus.

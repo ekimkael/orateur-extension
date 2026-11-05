@@ -1,7 +1,8 @@
 /**
  * Télémétrie activée par défaut, désactivable dans les réglages ; jamais d'URL ni de
  * texte libre parmi les propriétés envoyées : uniquement les événements et
- * propriétés fermées listées dans `TelemetryEvent`.
+ * propriétés fermées listées dans `TelemetryEvent`, plus les métadonnées de
+ * l'extension et du navigateur ajoutées par le background.
  *
  * `track()` ne parle jamais elle-même au réseau : en MV3, un `fetch()` émis
  * depuis un content script reste soumis à la CSP de la PAGE HÔTE (même en
@@ -109,6 +110,31 @@ interface TelemetryEnvironment {
   WXT_POSTHOG_REGION?: string
 }
 
+/** Métadonnées locales limitées au nom et à la version majeure, jamais l'agent brut. */
+function browserTelemetryProperties(): { $browser?: string; $browser_version?: number } {
+  const brands = (navigator as Navigator & {
+    userAgentData?: { brands: { brand: string; version: string }[] }
+  }).userAgentData?.brands ?? []
+  for (const [brand, name] of [
+    ["Microsoft Edge", "Microsoft Edge"], ["Opera", "Opera"], ["Brave", "Brave"],
+    ["Google Chrome", "Chrome"],
+  ]) {
+    const major = brands.find((entry) => entry.brand === brand)?.version.match(/^\d{1,4}(?=\.|$)/)?.[0]
+    if (major) return { $browser: name, $browser_version: Number(major) }
+  }
+  for (const [token, name] of [
+    ["Firefox", "Firefox"], ["Edg", "Microsoft Edge"], ["OPR", "Opera"],
+    ["Chromium", "Chromium"], ["Chrome", "Chrome"],
+  ]) {
+    // Une marque Chromium générique ne doit pas masquer Edge ou Opera dans l'agent.
+    const genericVersion = token === "Chromium" ? brands.find((entry) => entry.brand === token)?.version : undefined
+    const major = genericVersion?.match(/^\d{1,4}(?=\.|$)/)?.[0]
+      ?? navigator.userAgent.match(new RegExp(`${token}/(\\d{1,4})(?=\\.|\\s|$)`))?.[1]
+    if (major) return { $browser: name, $browser_version: Number(major) }
+  }
+  return {}
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
@@ -200,6 +226,7 @@ export async function handleTelemetryTrack(
         properties: {
           ...event.properties,
           extension_version: manifest.version,
+          ...browserTelemetryProperties(),
         },
       }),
     })

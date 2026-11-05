@@ -384,3 +384,22 @@ test("stopping removes visibility listeners as well as pending timers", async ()
   await cancelled
   assert.equal(reveals, 1, "Stopped preparation cannot restart when the document becomes visible")
 })
+
+test("an element holding several blocks is never re-read for one of them", async () => {
+  // An X post: its paragraphs are lines of one element. Re-reading that
+  // element for its first block would speak the whole post, then every line again.
+  const doc = new JSDOM(`<html lang="fr"><body><article><div>${FR}\n\n${EN}</div></article></body></html>`).window.document
+  const live = createLivePage(doc, [FR, EN])
+  doc.querySelector("div")!.textContent = `${FR} ${FR}\n\n${EN}`
+  assert.equal(await live.prepare(0, false), FR)
+  live.stop()
+})
+
+test("a post whose next line holds an emoji or a mention is still shared", async () => {
+  // The read block lost the 👏 and the @ the page keeps.
+  const doc = new JSDOM(`<html lang="fr"><body><article><div>${FR}\n\nBravo 👏 @Lions, ${EN}</div></article></body></html>`).window.document
+  const live = createLivePage(doc, [FR, `Bravo Lions, ${EN}`])
+  doc.querySelector("div")!.textContent = `${FR} ${FR}\n\nBravo 👏 @Lions, ${EN}`
+  assert.equal(await live.prepare(0, false), FR)
+  live.stop()
+})

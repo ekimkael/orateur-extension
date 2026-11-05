@@ -1,6 +1,6 @@
 # Privacy policy — Orateur
 
-*Last updated: 27 October 2026*
+*Last updated: 28 October 2026*
 
 **Usage statistics are on by default when no preference has been saved.**
 You can turn them off in Settings → Privacy. An existing opt-out remains
@@ -77,11 +77,13 @@ extension sends a limited set of events to [PostHog](https://posthog.com):
   completions or failures with a fixed failure category.
 - Extraction failures or fallbacks with a fixed category.
 
-Each event includes the extension version. Only the events and properties
-listed in [the analytics guide](docs/analytics.md) are accepted. Missing or
-invalid build configuration prevents sending events. Firefox additionally
-requires its optional `technicalAndInteraction` permission; if that
-permission is absent or cannot be checked, no events are sent.
+Each event includes the extension version and, when available, the browser
+name and its major version. The raw User-Agent is not included in event
+properties. Only the events and properties listed in
+[the analytics guide](docs/analytics.md) are accepted. Missing or invalid
+build configuration prevents sending events. Firefox additionally requires
+its optional `technicalAndInteraction` permission; if that permission is
+absent or cannot be checked, no events are sent.
 
 **Statistics never include article text, page URLs or titles, browsing
 history, names or email addresses.** A random UUID identifies the same

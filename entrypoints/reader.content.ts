@@ -18,7 +18,7 @@ import {
   type PillPosition,
 } from "../lib/reader-prefs"
 import { createLivePage } from "../lib/live-page.ts"
-import { createAnchorFinder, findBlockIndex } from "../lib/read-anchor.ts"
+import { blockRange, createAnchorFinder, findBlockIndex } from "../lib/read-anchor.ts"
 import { createReadingSession, type ReaderViewState } from "../lib/reading-session.ts"
 import { START_READING, type ReadPagePayload, type StartReadingMessage } from "../lib/reader-messages.ts"
 import { MODEL_CACHE_QUERY, type TtsLoadingReason } from "../lib/tts-messages"
@@ -533,6 +533,8 @@ function createFollower() {
   /** Dernier paragraphe surligné : évite de rechercher deux fois le même. */
   let current = -1
   let anchor: Element | null = null
+  /** The part of `anchor` being read, when it holds more than this block. */
+  let part: Range | null = null
   let enabled = true
   let lastGesture = 0
 
@@ -569,32 +571,41 @@ function createFollower() {
     // Bloc introuvable dans la page — un `<pre>`, dit « Extrait de code. » —
     // le paragraphe précédent reste surligné plutôt que rien : la lecture est
     // bien là, quelque part entre les deux.
-    anchor = block === undefined ? null : pageAnchors ? pageAnchors[index] ?? null : findAnchor(block)
-    if (anchor && enabled) paint(anchor)
+    const own = block === undefined ? null : pageAnchors ? pageAnchors[index] ?? null : findAnchor(block)
+    // An X post keeps all its paragraphs in one element: only the first is
+    // found on its own, the next ones are lines of the element already lit.
+    const element = own ?? anchor
+    const range = element && block !== undefined ? blockRange(element, block, blocks[index + 1]) : null
+    if (!own && !range) return
+    anchor = element
+    part = range
+    if (anchor && enabled) paint(anchor, part)
   }
 
-  function paint(element: Element) {
+  /** Lights `range`, or the whole element when the block has no range of its own. */
+  function paint(element: Element, range: Range | null) {
     if (!highlight) return
-    const range = document.createRange()
-    range.selectNodeContents(element)
+    const lit = range ?? document.createRange()
+    if (!range) lit.selectNodeContents(element)
     highlight.clear()
-    highlight.add(range)
-    reveal(element)
+    highlight.add(lit)
+    reveal(element, range)
   }
 
-  function reveal(element: Element) {
+  function reveal(element: Element, range: Range | null) {
     if (Date.now() - lastGesture < MANUAL_SCROLL_GRACE) return
-    const box = element.getBoundingClientRect()
+    const box = (range ?? element).getBoundingClientRect()
     // Déjà en vue : le haut du bloc est à l'écran, dans les deux premiers
     // tiers. Le haut plutôt que le bloc entier — un paragraphe plus haut que
     // la fenêtre ne rentre jamais, et la page défilerait à chaque fois.
     if (box.top >= 0 && box.top <= window.innerHeight * 0.66) return
-    element.scrollIntoView({
-      // `center` et pas `start` : un en-tête collant masque le haut de la
-      // fenêtre sur la moitié des sites.
-      block: "center",
-      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-    })
+    const behavior = matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+    // shortcut: a range cannot scrollIntoView, so a paragraph inside a post
+    // scrolls the window; enough for X, upgrade if a nested scroller needs it.
+    if (range) window.scrollBy({ top: box.top - window.innerHeight / 3, behavior })
+    // `center` et pas `start` : un en-tête collant masque le haut de la
+    // fenêtre sur la moitié des sites.
+    else element.scrollIntoView({ block: "center", behavior })
   }
 
   /** Le réglage a changé pendant la lecture. */
@@ -602,7 +613,7 @@ function createFollower() {
     if (value === enabled) return
     enabled = value
     if (!enabled) highlight?.clear()
-    else if (anchor) paint(anchor)
+    else if (anchor) paint(anchor, part)
   }
 
   /** Rend la page à elle-même : plus de surlignage, plus d'écouteur. */
@@ -611,6 +622,7 @@ function createFollower() {
     findAnchor = null
     pageAnchors = undefined
     anchor = null
+    part = null
     current = -1
     if (highlight) {
       highlight.clear()

@@ -72,9 +72,10 @@ Use a short demonstration text without personal data.
   `engine` and `had_errors` properties.
 - [ ] Exercise a controlled synthesis or audio playback failure in tests.
   Confirm `read_failed` contains a fixed category, never a free-form error.
-- [ ] Inspect each payload: only the expected event properties and
-  `extension_version`; no article title, text or URL. Requests omit
-  credentials and the referrer.
+- [ ] Inspect each payload: only the expected event properties,
+  `extension_version`, and available browser metadata (`$browser` and
+  `$browser_version`, major version only); no article title, text, URL or
+  raw User-Agent in event properties. Requests omit credentials and the referrer.
 - [ ] Restart the browser. While statistics remain enabled, another reading
   must retain the same `distinct_id`.
 - [ ] Disable statistics and confirm the local identifier is cleared.
@@ -104,10 +105,15 @@ for browser scenarios, network isolation and audio-test limitations.
 
 These are the events emitted by the main extension. Downloads started
 directly from the options page do not emit the reading pill's download
-events. The background adds `extension_version` and validates the event
-catalogue at runtime, rejecting unknown fields or values. Only that
-background handler sends network requests; content scripts relay events
-through extension messages. There is no page autocapture or session replay.
+events. The background adds `extension_version` and, when available,
+`$browser` (browser name) and `$browser_version` (major version only).
+It never includes the raw User-Agent in event properties. These fields
+describe the browser running the extension, not another installed browser.
+They apply to new events from updated builds; older events are not backfilled.
+The background validates the event catalogue at runtime, rejecting unknown
+fields or values. Only that background handler sends network requests;
+content scripts relay events through extension messages. There is no page
+autocapture or session replay.
 
 The random identifier represents a browser profile with statistics enabled,
 not an identified person. Reinstallation, another profile or an opt-out

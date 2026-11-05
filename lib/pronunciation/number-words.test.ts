@@ -4,12 +4,17 @@ import { enCardinal, frCardinal, spellNumbers } from './number-words.ts';
 
 test('cardinaux français : et-un, soixante-dix, quatre-vingts, cents, mille', () => {
   const cases: [number, string][] = [
-    [0, 'zéro'], [17, 'dix-sept'], [21, 'vingt et un'], [71, 'soixante et onze'], [77, 'soixante-dix-sept'],
+    [0, 'zéro'], [17, 'dissète'], [21, 'vingt et un'], [71, 'soixante et onze'], [77, 'soixante-dissète'], [97, 'quatre-vingt-dissète'], [18, 'dix-huit'],
     [80, 'quatre-vingts'], [81, 'quatre-vingt-un'], [91, 'quatre-vingt-onze'], [200, 'deux cents'],
     [201, 'deux cent un'], [1980, 'mille neuf cent quatre-vingts'], [80000, 'quatre-vingt mille'],
     [2300000, 'deux millions trois cent mille'], [80000000, 'quatre-vingts millions'], [1e9, 'un milliard'],
   ];
   for (const [n, words] of cases) assert.equal(frCardinal(n), words, String(n));
+});
+
+test("dix-sept s'écrit « dissète » : Supertonic lisait « dix-sept » /dis.sɛt/", () => {
+  assert.equal(spellNumbers('le 17 décembre, 1917, le 17e', 'fr'),
+    'le dissète décembre, mille neuf cent dissète, le dissètième');
 });
 
 test('cardinaux anglais', () => {

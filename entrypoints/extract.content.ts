@@ -1,6 +1,8 @@
 import {
   extractArticle,
   extractGmailMessage,
+  extractXPost,
+  isXHost,
   visibleText,
   type ExtractedArticle,
 } from "../lib/extract-article"
@@ -21,10 +23,14 @@ export default defineContentScript({
     // Gmail: the open message only. No visible-text fallback there — with no
     // message open it would read the whole app and the inbox.
     const gmail = location.hostname === "mail.google.com"
+    // X: the opened post only. No visible-text fallback either — off a post,
+    // or before it renders, it would read the app, the replies and the feed.
+    const x = isXHost(location.hostname)
     try {
-      return { ok: true, article: gmail ? extractGmailMessage(document) : extractArticle(document) }
+      const article = gmail ? extractGmailMessage(document) : x ? extractXPost(document) : extractArticle(document)
+      return { ok: true, article }
     } catch (error) {
-      if (gmail) return { ok: false, error: (error as Error).message }
+      if (gmail || x) return { ok: false, error: (error as Error).message }
       // Une exception ne traverse pas la frontière executeScript : on la
       // transporte dans la valeur de retour.
       const { text, lang } = visibleText(document)
