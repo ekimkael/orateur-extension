@@ -14,7 +14,23 @@ const TABLE_NOTICE_BY_LANGUAGE: Record<string, string> = {
   pt: "Pode consultar a tabela abaixo.",
 }
 
-const normalize = (text: string | null) => (text ?? "").replace(/\s+/g, " ").trim()
+const normalize = (text: string) => text.replace(/\s+/g, " ").trim()
+
+/** Elements that end a line inside a cell: their words must not run into the next ones. */
+const LINE_BREAKS = /^(BR|P|DIV|LI|UL|OL|DD|DT)$/
+
+function rawText(node: Node): string {
+  if (node.nodeType === 3) return node.textContent ?? ""
+  if (node.nodeType !== 1) return ""
+  const inner = Array.from(node.childNodes, rawText).join("")
+  return LINE_BREAKS.test((node as Element).tagName) ? ` ${inner} ` : inner
+}
+
+/**
+ * A cell's spoken text. Footnote markers ("[2]", "[a]", "[note 1]") are dropped:
+ * a header carries them into every row it labels.
+ */
+const cellText = (cell: Element) => normalize(rawText(cell).replace(/\[(?:\d+|[a-z]|note \d+)\]/gi, ""))
 
 /** "Prix" → "prix", but "PIB" or "A" stays: a lowered acronym would be misread. */
 const asSpokenHeader = (text: string) => (/^\p{Lu}\p{Ll}/u.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text)
@@ -29,14 +45,15 @@ const asSpokenHeader = (text: string) => (/^\p{Lu}\p{Ll}/u.test(text) ? text.cha
  * article itself, and key/value tables (Wikipedia infoboxes) have no column
  * headers; both keep the regular cell-by-cell reading. So does a single column.
  *
- * A ragged row, a merged cell or a nested table gets the notice: guessing
- * which header a value belongs to could attach it to the wrong column.
+ * A ragged row, a merged cell, a second header row or a nested table gets the
+ * notice: guessing which header a value belongs to could attach it to the
+ * wrong column.
  */
 export function speakTable(table: HTMLTableElement, lang: string): string[] | null {
   const header = table.tHead?.rows[0] ?? table.rows[0]
   // All cells must be th: a key/value table (th + td on each row) has no column headers.
   if (!header || (!table.tHead && Array.from(header.cells).some((cell) => cell.tagName !== "TH"))) return null
-  const headers = Array.from(header.cells, (cell) => asSpokenHeader(normalize(cell.textContent)))
+  const headers = Array.from(header.cells, (cell) => asSpokenHeader(cellText(cell)))
   if (headers.length < 2) return null
 
   const language = lang.slice(0, 2)
@@ -45,6 +62,7 @@ export function speakTable(table: HTMLTableElement, lang: string): string[] | nu
   const irregular =
     rows.length > MAX_DATA_ROWS ||
     headers.length > MAX_COLUMNS ||
+    (table.tHead?.rows.length ?? 0) > 1 ||
     table.querySelector("table") !== null ||
     [header, ...rows].some(
       (row) => row.cells.length !== headers.length || Array.from(row.cells).some((c) => c.rowSpan > 1 || c.colSpan > 1)
@@ -54,12 +72,12 @@ export function speakTable(table: HTMLTableElement, lang: string): string[] | nu
   // French typography puts a space before ":" and ";"; the other languages do not.
   const space = language === "fr" || !TABLE_NOTICE_BY_LANGUAGE[language] ? " " : ""
   const sentences = rows.flatMap((row) => {
-    const [label, ...values] = Array.from(row.cells, (cell) => normalize(cell.textContent))
-    const pairs = values.flatMap((value, i) => (value ? [`${headers[i + 1]}, ${value}`] : []))
+    const [label, ...values] = Array.from(row.cells, cellText)
+    const pairs = values.flatMap((value, i) => (!value ? [] : headers[i + 1] ? [`${headers[i + 1]}, ${value}`] : [value]))
     const body = pairs.join(`${space}; `)
     const sentence = label && body ? `${label}${space}: ${body}` : label || body
     return sentence ? [withStop(sentence)] : []
   })
-  const caption = normalize(table.caption?.textContent ?? null)
+  const caption = table.caption ? cellText(table.caption) : ""
   return caption ? [withStop(caption), ...sentences] : sentences
 }

@@ -81,21 +81,20 @@ const TEXT_BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,pre,div,sectio
 const MIN_FALLBACK_LENGTH = 400
 
 /**
- * Ce qui est dit à la place d'un bloc de code.
+ * Said instead of a code block.
  *
- * Lire un extrait à voix haute, c'est énoncer sa ponctuation, son indentation
- * et ses identifiants : le web n'en dit rien (`sequence-builder.ts`,
- * `case "code": return []`) et mobile ne le collecte pas. Le silence complet
- * laisse un tutoriel amputé sans le dire, d'où l'annonce.
+ * Reading code aloud means speaking its punctuation, indentation and
+ * identifiers: the web app says nothing (`sequence-builder.ts`,
+ * `case "code": return []`) and mobile does not collect it. Full silence would
+ * cut a tutorial without saying so, hence the notice.
  *
- * « Ci-dessous » tient parce que l'annonce n'est dite que sur la page : le
- * suivi de lecture ne retrouve pas ce texte dans le `<pre>`
- * (lib/read-anchor.ts), le surlignage reste sur le paragraphe précédent, et le
- * code est juste sous lui. Le transfert vers Orateur envoie le HTML de
- * Readability (`content`), jamais ce texte parlé.
+ * "Below" holds because the notice is only spoken over the page: the reading
+ * follower cannot find this text in the `<pre>` (lib/read-anchor.ts), so the
+ * previous paragraph stays highlighted, right above the code. The Orateur
+ * handoff sends Readability's HTML (`content`), never this spoken text.
  *
- * Même convention que `reading-intro` : code sur deux lettres, français par
- * défaut — le français est la valeur de repli, pas une entrée de la table.
+ * Same convention as `reading-intro`: two-letter language code, French by
+ * default (French is the fallback, not an entry of the table).
  */
 const CODE_NOTICE = "Vous pouvez avoir un aperçu en regardant le code ci-dessous."
 const CODE_NOTICE_BY_LANGUAGE: Record<string, string> = {
@@ -884,10 +883,14 @@ function toSpeakableText(root: Element, lang: string, { pruneResidue = true } = 
       ({ text }) =>
         text && !(text.length <= MAX_READING_TIME_LENGTH && READING_TIME.test(text))
     )
-    // Code, sortie, code : le motif est la norme dans un tutoriel, et sans cette
-    // fusion la voix répète l'annonce trois fois de suite. Deux blocs séparés
-    // par un paragraphe restent annoncés deux fois.
-    .filter(({ el }, index, all) => el.tagName !== "PRE" || all[index - 1]?.el.tagName !== "PRE")
+    // Code, output, code is the norm in a tutorial: without this merge the voice
+    // says the notice three times in a row. Same for back-to-back large tables.
+    // Rows of a table read aloud differ from each other and are all kept; two
+    // notices split by a paragraph are both said.
+    .filter(({ el, text }, index, all) => {
+      const previous = all[index - 1]
+      return !/^(PRE|TABLE)$/.test(el.tagName) || previous?.el.tagName !== el.tagName || previous.text !== text
+    })
 
   // Ponctuation en dernier : titres, items de liste et légendes ne finissent
   // jamais par un point dans le HTML, et la voix enchaîne alors sur le bloc

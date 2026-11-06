@@ -121,6 +121,13 @@ test("lit un petit tableau de données ligne par ligne", () => {
   assert.match(textContent, /Voici les prix du jour\.\n\nPomme : prix, 2 €\.\n\nAprès le tableau\./)
 })
 
+test("fusionne les annonces de grands tableaux consécutifs", () => {
+  const big = `<table><tr><th>A</th><th>B</th></tr>${"<tr><td>a</td><td>b</td></tr>".repeat(9)}</table>`
+  const { textContent } = extractArticle(docFrom(withinArticle(big + big)))
+
+  assert.equal(textContent.match(/Vous pouvez consulter le tableau ci-dessous\./g)?.length, 1)
+})
+
 test("garde la lecture cellule par cellule d'un tableau de mise en page", () => {
   const { textContent } = extractArticle(
     docFrom(withinArticle("<table><tr><td>Pomme</td><td>2 €</td></tr><tr><td>Poire</td><td>3 €</td></tr></table>"))

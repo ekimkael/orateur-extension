@@ -42,7 +42,27 @@ test("keeps an all-caps header as written", () => {
   assert.deepEqual(speakTable(table(html), "fr"), ["France : PIB, 3 000."])
 })
 
+test("keeps words apart across line breaks and blocks inside a cell", () => {
+  const html = row(["Région", "Villes"], "th") + row(["Sud", "Nice<br>Toulon"]) + row(["Ouest", "<p>Brest</p><p>Nantes</p>"])
+  assert.deepEqual(speakTable(table(html), "fr"), ["Sud : villes, Nice Toulon.", "Ouest : villes, Brest Nantes."])
+})
+
+test("says the value alone under an empty header", () => {
+  const html = row(["Fruit", "", "Stock"], "th") + row(["Pomme", "bio", "12"])
+  assert.deepEqual(speakTable(table(html), "fr"), ["Pomme : bio ; stock, 12."])
+})
+
+test("drops footnote markers", () => {
+  const html = row(["Pays", "Population<sup>[2]</sup>"], "th") + row(["France", "68 M<sup>[note 1]</sup>"])
+  assert.deepEqual(speakTable(table(html), "fr"), ["France : population, 68 M."])
+})
+
 const NOTICE_FR = ["Vous pouvez consulter le tableau ci-dessous."]
+
+test("announces a table with several header rows", () => {
+  const html = `<thead>${row(["Ville", "Temp."], "th")}${row(["", "°C"], "th")}</thead><tbody>${row(["Nice", "18"])}</tbody>`
+  assert.deepEqual(speakTable(table(html), "fr"), NOTICE_FR)
+})
 
 test("announces a table with more than 8 data rows", () => {
   const html = header + row(["Pomme", "2 €", "12"]).repeat(9)
