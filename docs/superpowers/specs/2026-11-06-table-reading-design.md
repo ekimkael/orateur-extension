@@ -36,7 +36,7 @@ Mode retenu (choix « hybride ») : un petit tableau à en-têtes se lit ligne p
 
 ### Reconnaître un tableau de données
 
-Critère strict, sous-ensemble du test de Readability : le tableau a un `thead`, ou au moins un `th` dans sa première ligne. Sans en-tête de colonne, pas de rattachement possible : lecture actuelle conservée. C'est ce qui protège les mises en page Gmail.
+Critère strict, sous-ensemble du test de Readability : le tableau a un `thead`, ou une première ligne faite uniquement de `th`. Un tableau clé/valeur (`th` + `td` sur chaque ligne, infobox Wikipédia) n'a pas d'en-têtes de colonne. Sans en-tête de colonne, pas de rattachement possible : lecture actuelle conservée. C'est ce qui protège les mises en page Gmail.
 
 ### Lire ou annoncer
 

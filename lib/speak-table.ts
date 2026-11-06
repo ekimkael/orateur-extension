@@ -24,16 +24,18 @@ const asSpokenHeader = (text: string) => (/^\p{Lu}\p{Ll}/u.test(text) ? text.cha
  * column header ("Pomme : prix, 2 € ; stock, 12."), or a single notice when the
  * table is too large or irregular to pair values with headers safely.
  *
- * Returns `null` for a table without a header row: layout tables (Gmail
- * newsletters, old sites) carry the article itself and must keep the regular
- * cell-by-cell reading. A single column is treated the same way.
+ * Returns `null` for a table without a header row (a `thead`, or a first row
+ * made only of `th`): layout tables (Gmail newsletters, old sites) carry the
+ * article itself, and key/value tables (Wikipedia infoboxes) have no column
+ * headers; both keep the regular cell-by-cell reading. So does a single column.
  *
  * A ragged row, a merged cell or a nested table gets the notice: guessing
  * which header a value belongs to could attach it to the wrong column.
  */
 export function speakTable(table: HTMLTableElement, lang: string): string[] | null {
   const header = table.tHead?.rows[0] ?? table.rows[0]
-  if (!header || (!table.tHead && !header.querySelector("th"))) return null
+  // All cells must be th: a key/value table (th + td on each row) has no column headers.
+  if (!header || (!table.tHead && Array.from(header.cells).some((cell) => cell.tagName !== "TH"))) return null
   const headers = Array.from(header.cells, (cell) => asSpokenHeader(normalize(cell.textContent)))
   if (headers.length < 2) return null
 

@@ -67,6 +67,11 @@ test("announces merged cells, nested tables and ragged rows", () => {
   for (const html of [merged, nested, ragged]) assert.deepEqual(speakTable(table(html), "fr"), NOTICE_FR)
 })
 
+test("leaves key/value tables to the regular reading", () => {
+  const html = `<tr><th>Âge</th><td>4,6 milliards d'années</td></tr><tr><th>Planètes</th><td>8</td></tr>`
+  assert.equal(speakTable(table(html), "fr"), null)
+})
+
 test("leaves layout tables to the regular reading", () => {
   assert.equal(speakTable(table(row(["Pomme", "2 €"]) + row(["Poire", "3 €"])), "fr"), null)
   assert.equal(speakTable(table(row(["Fruit"], "th") + row(["Pomme"])), "fr"), null)

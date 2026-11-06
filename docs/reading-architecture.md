@@ -25,7 +25,7 @@ way. Only the wiring needs a browser (`npm run test:e2e`).
 Extraction (`toSpeakableText` in `lib/extract-article.ts`) never reads source code or a large table cell by cell:
 
 - A `<pre>` block becomes one notice ("You can get an overview by looking at the code below."). Consecutive blocks share one notice.
-- A data table (it has a `thead` or a `th` in its first row) with at most 8 data rows and 4 columns is read row by row by `lib/speak-table.ts`. Each value comes after its column header: "Pomme : prix, 2 € ; stock, 12." A caption is read first.
+- A data table (it has a `thead`, or a first row made only of `th`) with at most 8 data rows and 4 columns is read row by row by `lib/speak-table.ts`. Each value comes after its column header: "Pomme : prix, 2 € ; stock, 12." A caption is read first.
 - A data table that is larger, has merged cells, a nested table or rows of uneven length becomes one notice ("You can look at the table below.").
 - A table without a header row is a layout table (Gmail newsletters, older sites). Its cells are still read as paragraphs.
 
