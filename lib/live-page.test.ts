@@ -114,11 +114,11 @@ test("stopping cancels pending preparation and prevents subsequent preparation",
 
 test("retains extracted text when its source element disappears or has no anchor", async () => {
   const { doc, later, blocks } = fixture()
-  const live = createLivePage(doc, [...blocks, "Extrait de code."], 5000, () => true)
+  const live = createLivePage(doc, [...blocks, "Vous pouvez avoir un aperçu en regardant le code ci-dessous."], 5000, () => true)
   later.remove()
 
   assert.equal(await live.prepare(1, true), EN)
-  assert.equal(await live.prepare(2, true), "Extrait de code.")
+  assert.equal(await live.prepare(2, true), "Vous pouvez avoir un aperçu en regardant le code ci-dessous.")
   live.stop()
 })
 

@@ -87,21 +87,22 @@ const MIN_FALLBACK_LENGTH = 400
  * `case "code": return []`) et mobile ne le collecte pas. Le silence complet
  * laisse un tutoriel amputé sans le dire, d'où l'annonce.
  *
- * Aucune position annoncée : le suivi de lecture retrouve les blocs dans la
- * page par leur texte (lib/read-anchor.ts), et celui-ci n'est pas celui du
- * `<pre>` — le surlignage reste donc sur le paragraphe précédent, et
- * « ci-dessous » ne désignerait rien de sûr.
+ * « Ci-dessous » tient parce que l'annonce n'est dite que sur la page : le
+ * suivi de lecture ne retrouve pas ce texte dans le `<pre>`
+ * (lib/read-anchor.ts), le surlignage reste sur le paragraphe précédent, et le
+ * code est juste sous lui. Le transfert vers Orateur envoie le HTML de
+ * Readability (`content`), jamais ce texte parlé.
  *
  * Même convention que `reading-intro` : code sur deux lettres, français par
  * défaut — le français est la valeur de repli, pas une entrée de la table.
  */
-const CODE_NOTICE = "Extrait de code."
+const CODE_NOTICE = "Vous pouvez avoir un aperçu en regardant le code ci-dessous."
 const CODE_NOTICE_BY_LANGUAGE: Record<string, string> = {
-  en: "Code snippet.",
-  es: "Fragmento de código.",
-  de: "Codeausschnitt.",
-  it: "Frammento di codice.",
-  pt: "Excerto de código.",
+  en: "You can get an overview by looking at the code below.",
+  es: "Puede hacerse una idea mirando el código de abajo.",
+  de: "Einen Überblick gibt Ihnen der Code unten.",
+  it: "Può farsi un'idea guardando il codice qui sotto.",
+  pt: "Pode ter uma ideia olhando para o código abaixo.",
 }
 
 /**

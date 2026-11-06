@@ -109,7 +109,7 @@ test("X Article code block is announced, not read", () => {
     <div class="x-article-body"><p>Run this first.</p><pre><code>npm ci</code></pre><p>Then build.</p></div>
   </article></main></body></html>`, { url: "https://x.com/someone/status/42" }).window.document
   const article = extractXPost(doc)
-  assert.equal(article.textContent, "Run this first.\n\nCode snippet.\n\nThen build.")
+  assert.equal(article.textContent, "Run this first.\n\nYou can get an overview by looking at the code below.\n\nThen build.")
 })
 
 test("a hashtag ending a sentence stays a word; a trailing tag line goes", () => {

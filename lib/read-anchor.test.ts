@@ -32,7 +32,7 @@ test("un bloc introuvable ne désynchronise pas les suivants", () => {
   const find = createAnchorFinder(doc)
 
   assert.equal(find("Avant le code.")?.tagName, "P")
-  assert.equal(find("Extrait de code."), null)
+  assert.equal(find("Vous pouvez avoir un aperçu en regardant le code ci-dessous."), null)
   assert.equal(find("Après le code.")?.textContent, "Après le code.")
 })
 

@@ -56,7 +56,7 @@ function fingerprint(block: string) {
  * Le curseur n'avance que sur une correspondance et ne recule jamais : la
  * recherche du bloc *n* reprend là où celle du bloc *n−1* s'est arrêtée, donc
  * le coût total est amorti en une passe sur l'article. Un bloc introuvable —
- * un `<pre>`, remplacé par « Extrait de code. » à l'extraction — laisse le
+ * un `<pre>`, remplacé par « Vous pouvez avoir un aperçu en regardant le code ci-dessous. » à l'extraction — laisse le
  * curseur en place plutôt que de désynchroniser les suivants.
  */
 export function createAnchorFinder(root: ParentNode) {
