@@ -86,7 +86,7 @@ test("annonce le code au lieu de le prononcer", () => {
   // Toujours affiché par l'app web, jamais énoncé.
   assert.match(content, /<pre/)
   assert.doesNotMatch(textContent, /const lecture/)
-  assert.match(textContent, /Extrait de code\./)
+  assert.match(textContent, /Vous pouvez avoir un aperçu en regardant le code ci-dessous\./)
 })
 
 test("annonce le code dans la langue de l'article", () => {
@@ -94,7 +94,7 @@ test("annonce le code dans la langue de l'article", () => {
     docFrom(withinArticle("<pre>const x = 1;</pre>").replace('lang="fr"', 'lang="en-US"'))
   )
 
-  assert.match(textContent, /Code snippet\./)
+  assert.match(textContent, /You can get an overview by looking at the code below\./)
 })
 
 test("fusionne les annonces de blocs de code consécutifs", () => {
@@ -105,8 +105,35 @@ test("fusionne les annonces de blocs de code consécutifs", () => {
     docFrom(withinArticle("<pre>const a = 1;</pre><p>Puis on recommence autrement.</p><pre>const b = 2;</pre>"))
   )
 
-  assert.equal(consecutive.textContent.match(/Extrait de code\./g)?.length, 1)
-  assert.equal(separated.textContent.match(/Extrait de code\./g)?.length, 2)
+  assert.equal(consecutive.textContent.match(/Vous pouvez avoir un aperçu en regardant le code ci-dessous\./g)?.length, 1)
+  assert.equal(separated.textContent.match(/Vous pouvez avoir un aperçu en regardant le code ci-dessous\./g)?.length, 2)
+})
+
+test("lit un petit tableau de données ligne par ligne", () => {
+  const { textContent } = extractArticle(
+    docFrom(
+      withinArticle(
+        "<p>Voici les prix du jour.</p><table><tr><th>Fruit</th><th>Prix</th></tr><tr><td>Pomme</td><td>2 €</td></tr></table><p>Après le tableau.</p>"
+      )
+    )
+  )
+
+  assert.match(textContent, /Voici les prix du jour\.\n\nPomme : prix, 2 €\.\n\nAprès le tableau\./)
+})
+
+test("fusionne les annonces de grands tableaux consécutifs", () => {
+  const big = `<table><tr><th>A</th><th>B</th></tr>${"<tr><td>a</td><td>b</td></tr>".repeat(9)}</table>`
+  const { textContent } = extractArticle(docFrom(withinArticle(big + big)))
+
+  assert.equal(textContent.match(/Vous pouvez consulter le tableau ci-dessous\./g)?.length, 1)
+})
+
+test("garde la lecture cellule par cellule d'un tableau de mise en page", () => {
+  const { textContent } = extractArticle(
+    docFrom(withinArticle("<table><tr><td>Pomme</td><td>2 €</td></tr><tr><td>Poire</td><td>3 €</td></tr></table>"))
+  )
+
+  assert.match(textContent, /Pomme\.\n\n2 €\.\n\nPoire\.\n\n3 €\./)
 })
 
 test("ne lit pas la mention de durée posée par le CMS", () => {
@@ -211,7 +238,7 @@ test("visibleText sépare les lignes des mails sans perdre la prose directe des 
 test("les blocs imbriqués gardent leur texte inline et annoncent le code une seule fois", () => {
   const html = '<blockquote>Avant <strong>le titre</strong><h3>Une étape</h3><p>La première explication.</p><pre>const secret = 1</pre>Après le code.</blockquote>'
   const { textContent } = extractArticle(docFrom(withinArticle(html)))
-  assert.match(textContent, /Avant le titre\.\n\nUne étape\.\n\nLa première explication\.\n\nExtrait de code\.\n\nAprès le code\./)
+  assert.match(textContent, /Avant le titre\.\n\nUne étape\.\n\nLa première explication\.\n\nVous pouvez avoir un aperçu en regardant le code ci-dessous\.\n\nAprès le code\./)
   assert.doesNotMatch(textContent, /const secret/)
 })
 

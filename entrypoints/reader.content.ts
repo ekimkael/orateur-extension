@@ -568,7 +568,7 @@ function createFollower() {
     if (!findAnchor || index === current) return
     current = index
     const block = blocks[index]
-    // Bloc introuvable dans la page — un `<pre>`, dit « Extrait de code. » —
+    // Bloc introuvable dans la page — un `<pre>`, dit « Vous pouvez avoir un aperçu en regardant le code ci-dessous. » —
     // le paragraphe précédent reste surligné plutôt que rien : la lecture est
     // bien là, quelque part entre les deux.
     const own = block === undefined ? null : pageAnchors ? pageAnchors[index] ?? null : findAnchor(block)
