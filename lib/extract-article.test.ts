@@ -109,6 +109,26 @@ test("fusionne les annonces de blocs de code consécutifs", () => {
   assert.equal(separated.textContent.match(/Vous pouvez avoir un aperçu en regardant le code ci-dessous\./g)?.length, 2)
 })
 
+test("lit un petit tableau de données ligne par ligne", () => {
+  const { textContent } = extractArticle(
+    docFrom(
+      withinArticle(
+        "<p>Voici les prix du jour.</p><table><tr><th>Fruit</th><th>Prix</th></tr><tr><td>Pomme</td><td>2 €</td></tr></table><p>Après le tableau.</p>"
+      )
+    )
+  )
+
+  assert.match(textContent, /Voici les prix du jour\.\n\nPomme : prix, 2 €\.\n\nAprès le tableau\./)
+})
+
+test("garde la lecture cellule par cellule d'un tableau de mise en page", () => {
+  const { textContent } = extractArticle(
+    docFrom(withinArticle("<table><tr><td>Pomme</td><td>2 €</td></tr><tr><td>Poire</td><td>3 €</td></tr></table>"))
+  )
+
+  assert.match(textContent, /Pomme\.\n\n2 €\.\n\nPoire\.\n\n3 €\./)
+})
+
 test("ne lit pas la mention de durée posée par le CMS", () => {
   const { textContent } = extractArticle(
     docFrom(withinArticle("<p>5 min de lecture</p><p>Temps de lecture : 3 minutes</p>"))

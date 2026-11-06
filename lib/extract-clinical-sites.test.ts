@@ -99,6 +99,6 @@ test("MedlinePlus conserve résumé, tableau et groupes de références sans le 
     <div class="side"><p>Unrelated sidebar promotion.</p></div>
   </article>`)
 
-  assertOrder(text, [alias, "Summary", "Understanding the guide", PROSE[0], "Category", "Description", "Example category", "Context retained from the educational table", PROSE[1], PROSE[2], ...groups.flatMap((heading, index) => [heading, references[index]])])
+  assertOrder(text, [alias, "Summary", "Understanding the guide", PROSE[0], "Example category: description, Context retained from the educational table.", PROSE[1], PROSE[2], ...groups.flatMap((heading, index) => [heading, references[index]])])
   assert.doesNotMatch(text, /On this page|Navigation entry only|Expand Section|Unrelated sidebar promotion/)
 })

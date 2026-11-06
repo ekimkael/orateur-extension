@@ -2,6 +2,7 @@ import { isProbablyReaderable, Readability } from "@mozilla/readability"
 // Extension explicite : `node --test` résout les modules sans elle, contrairement
 // à Vite. Même raison que l'import de `pronunciation/index.ts` dans le lecteur.
 import { withStop } from "./reading-intro.ts"
+import { speakTable } from "./speak-table.ts"
 
 /** Aligné sur mobile/lib/article-import.ts pour que les durées concordent. */
 const WORDS_PER_MINUTE = 200
@@ -862,6 +863,13 @@ function toSpeakableText(root: Element, lang: string, { pruneResidue = true } = 
     if (block) flush()
     if (el.tagName === "PRE") {
       if (el.textContent?.trim()) collected.push({ el, text: notice })
+      return
+    }
+    // Layout tables come back null and keep the cell-by-cell walk below.
+    const table = el.tagName === "TABLE" ? speakTable(el as HTMLTableElement, lang) : null
+    if (table) {
+      flush()
+      for (const text of table) collected.push({ el, text })
       return
     }
     for (const child of el.childNodes) collect(child, block ? el : parent)
