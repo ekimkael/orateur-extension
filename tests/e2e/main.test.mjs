@@ -97,6 +97,17 @@ browserTest("the support toast gives the pill back once the voice is done", asyn
   await waitFor(() => h.shadow(reader, `button[aria-label="${read}"]`).then(value => value?.width > 0), "The pill returns to idle", 14_000)
 })
 
+browserTest("Settings offer support in their own section and in the footer", async h => {
+  await h.install()
+  const donation = "https://bikiekrb.mychariow.online/prd_bs2lca7z/checkout"
+  const footer = await h.options.$eval(".foot-support", a => ({ href: a.href, target: a.target, text: a.textContent }))
+  assert.deepEqual(footer, { href: donation, target: "_blank", text: "Support" })
+  await h.options.click('a[href="#soutien"]')
+  await h.options.waitForSelector("#soutien", { visible: true })
+  assert.match(await h.options.$eval("#soutien", section => section.textContent), /Support Orateur.*built by one person.*Donate/s)
+  assert.equal(await h.options.$eval("#soutien .support-cta", a => a.href), donation)
+})
+
 browserTest("a fresh install defaults to Supertonic", async h => {
   await h.install({ engine: null })
   const prefs = await waitFor(() => h.options.evaluate(async () => {

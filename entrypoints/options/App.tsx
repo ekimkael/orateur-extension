@@ -24,6 +24,8 @@ import { toMegabytes } from "../../lib/storage-size.ts"
 import { resolveLocale } from "../../lib/i18n"
 import { applyTheme } from "../../lib/theme"
 import { ORATEUR_ORIGIN } from "../../lib/handoff"
+import { SUPPORT_URL } from "../../lib/reading-outro"
+import { track } from "../../lib/telemetry"
 import { normalizeSite } from "../../lib/site-rules"
 import type { UiLanguage } from "../../lib/ui-prefs"
 
@@ -350,15 +352,51 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
             <p className="privacy-desc">{t("optionsTelemetryDescription")}</p>
             <p className="privacy-never">{t("optionsTelemetryNever")}</p>
           </section>
+
+          <section className="section" id="soutien" hidden={activeSection !== "soutien"} aria-labelledby="soutien-heading">
+            <h2 className="eyebrow" id="soutien-heading" tabIndex={-1}>{t("optionsSupportTitle")}</h2>
+            <p className="privacy-desc">{t("optionsSupportDescription")}</p>
+            <a
+              className="btn-primary support-cta"
+              href={SUPPORT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => track({ name: "support_cta_clicked", properties: { source: "options_section" } })}
+            >
+              <HeartIcon />
+              {t("optionsSupportCta")}
+            </a>
+          </section>
         </div>
       </div>
 
       <div className="foot">
-        <a href={ORATEUR_ORIGIN} target="_blank" rel="noopener">
-          {t("optionsOpenApp")}
-        </a>
+        <span className="foot-links">
+          <a href={ORATEUR_ORIGIN} target="_blank" rel="noopener">
+            {t("optionsOpenApp")}
+          </a>
+          <a
+            className="foot-support"
+            href={SUPPORT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => track({ name: "support_cta_clicked", properties: { source: "options_footer" } })}
+          >
+            <HeartIcon />
+            {t("readerSupportCta")}
+          </a>
+        </span>
         <span className="version">v{browser.runtime.getManifest().version}</span>
       </div>
     </main>
+  )
+}
+
+/** Lucide `heart`, sized by the surrounding text. */
+function HeartIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
+    </svg>
   )
 }

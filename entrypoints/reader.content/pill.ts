@@ -225,7 +225,7 @@ export function createPill(
   supportLink.textContent = browser.i18n.getMessage("readerSupportCta")
   supportLink.setAttribute("aria-describedby", toastText.id)
   supportLink.addEventListener("click", () => {
-    track({ name: "support_cta_clicked" })
+    track({ name: "support_cta_clicked", properties: { source: "pill" } })
     endHide?.(false)
   })
   // The support toast covers the controls while the outro speaks: it carries

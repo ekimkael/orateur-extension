@@ -404,6 +404,18 @@
   "optionsTelemetryNever": {
     "message": "No page text, titles or addresses are sent. A random identifier recognizes your browser while tracking stays enabled."
   },
+  "optionsSectionSupport": {
+    "message": "Support"
+  },
+  "optionsSupportTitle": {
+    "message": "Support Orateur"
+  },
+  "optionsSupportDescription": {
+    "message": "Orateur is free and built by one person. If the extension is useful to you, a donation helps me keep going."
+  },
+  "optionsSupportCta": {
+    "message": "Donate"
+  },
   "optionsOpenApp": {
     "message": "Open Orateur"
   },

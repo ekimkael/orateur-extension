@@ -404,6 +404,18 @@
   "optionsTelemetryNever": {
     "message": "Aucun texte, titre ou adresse de page envoyé. Un identifiant aléatoire permet de reconnaître votre navigateur tant que le suivi reste activé."
   },
+  "optionsSectionSupport": {
+    "message": "Soutenir"
+  },
+  "optionsSupportTitle": {
+    "message": "Soutenir Orateur"
+  },
+  "optionsSupportDescription": {
+    "message": "Orateur est gratuit et développé par une seule personne. Si l'extension vous est utile, un don m'aide à continuer."
+  },
+  "optionsSupportCta": {
+    "message": "Faire un don"
+  },
   "optionsOpenApp": {
     "message": "Ouvrir Orateur"
   },

@@ -51,6 +51,15 @@ Recommandation : séquence dans la session. Elle réutilise `createPlayer` tel q
 - **`lib/telemetry.ts`**, **`docs/analytics.md`**, **`PRIVACY.md`** : les deux événements.
 - **Tests** : `lib/reading-outro.test.ts` (cadence, langues, repli) ; `lib/reading-session.test.ts` (outro après `ended` seulement, pas après ⏹ ni erreur, pas pour une sélection, surligneur immobile) ; e2e : le toast apparaît à la 1re fin d'article et le lien pointe sur Chariow.
 
+## Réglages (ajout du 2026-11-09)
+
+Le soutien est aussi accessible hors lecture, dans la page de réglages :
+
+- Une 7e section « Soutenir » dans le menu (`#soutien`, icône cœur). Titre « Soutenir Orateur » / « Support Orateur ». Description « Orateur est gratuit et développé par une seule personne. Si l'extension vous est utile, un don m'aide à continuer. » / « Orateur is free and built by one person. If the extension is useful to you, a donation helps me keep going. ». Bouton-lien `btn-primary` « ♥ Faire un don » / « ♥ Donate ».
+- Un lien « ♥ Soutenir » / « ♥ Support » dans le pied de page, à côté de « Ouvrir Orateur », visible depuis toutes les sections.
+- Les deux ouvrent `SUPPORT_URL` dans un nouvel onglet.
+- `support_cta_clicked` gagne une propriété fermée `source` : `pill`, `options_section` ou `options_footer`. Sans elle, les clics des réglages fausseraient le taux de clic de l'outro.
+
 ## Plus tard (non construit)
 
 - Abonnés : quand l'abonnement existera, `buildReadingOutro` recevra un booléen et ne proposera plus le don. Aucun code anticipé d'ici là.
