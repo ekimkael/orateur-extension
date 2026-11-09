@@ -202,21 +202,24 @@ export function browserTest(name, run, options = {}) {
         }, `Visible enabled button: ${label}`)
         await target.mouse.click(button.x, button.y)
       },
-      /** Fakes `speechSynthesis`; with `finish`, each utterance also ends right after it starts. */
-      async fakeSpeech(target = page, { finish = false } = {}) {
-        await h.script(finish => {
+      /**
+       * Fakes `speechSynthesis`; with `finish`, each utterance also ends right
+       * after it starts, except those whose text matches the `hold` pattern.
+       */
+      async fakeSpeech(target = page, { finish = false, hold = null } = {}) {
+        await h.script((finish, hold) => {
           const state = globalThis.__orateurSpeech = { spoken: [], paused: false, cancelled: 0 }
           speechSynthesis.speak = utterance => {
             state.spoken.push({ text: utterance.text, lang: utterance.lang, rate: utterance.rate })
             queueMicrotask(() => {
               utterance.dispatchEvent(new Event("start"))
-              if (finish) queueMicrotask(() => utterance.dispatchEvent(new Event("end")))
+              if (finish && !(hold && new RegExp(hold).test(utterance.text))) queueMicrotask(() => utterance.dispatchEvent(new Event("end")))
             })
           }
           speechSynthesis.pause = () => { state.paused = true }
           speechSynthesis.resume = () => { state.paused = false }
           speechSynthesis.cancel = () => { state.cancelled++ }
-        }, [finish], target)
+        }, [finish, hold], target)
       },
       async speech(target = page) { return h.script(() => globalThis.__orateurSpeech, [], target) },
     }

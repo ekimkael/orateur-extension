@@ -98,6 +98,8 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
   let readingLang: string | null = null
   /** The current player speaks the outro, not a paragraph of the page. */
   let outro = false
+  /** `startGeneration` when the outro began; a later start supersedes it. */
+  let outroGeneration = 0
   let readingTelemetryStarted = false
   let readingTelemetryFailed = false
 
@@ -106,7 +108,8 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     // `toggle` already shows pause and resume; a `playing` here would close
     // the support toast, and the outro has no paragraph to follow.
     if (outro) {
-      if (event.phase === "ended" || event.phase === "error") fold()
+      // A start awaiting its engine owns the pill now: folding would cancel it.
+      if ((event.phase === "ended" || event.phase === "error") && startGeneration === outroGeneration) fold()
       return
     }
     if (event.phase === "loading") {
@@ -133,8 +136,12 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
       trackReadingCompleted(engine)
       void clearReadingProgress(readingUrl)
       // Thanking for a reading nobody heard would be absurd.
-      if (readingOutro && readingTelemetryStarted) void speakOutro()
-      else fold()
+      if (readingOutro && readingTelemetryStarted) {
+        // Set now, not after the counter round trip: ⏸ or ◀ in between must
+        // not seek the finished article or carry a pause into the outro.
+        outro = true
+        void speakOutro()
+      } else fold()
     } else if (event.phase === "error") {
       trackReadingFailed(engine, event.reason)
       if (event.recoverable) return
@@ -300,6 +307,11 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     const mine = startGeneration
     const count = await nextCompletedCount()
     if (mine !== startGeneration || !readingSelection) return
+    outroGeneration = mine
+    if (paused) {
+      paused = false
+      view.setState("playing", readingTitle)
+    }
     const { speech, support } = buildReadingOutro(readingLang, count)
     if (support) {
       track({ name: "support_prompt_shown" })
@@ -309,7 +321,6 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     follower.end()
     pageSource?.stop()
     pageSource = null
-    outro = true
     const next: Player = createPlayer(readingSelection, {
       paragraphs: [speech], text: speech, title: "", startBlock: 0, personalRules: [], source: null, prefs,
       emit: (event: PlayerEvent) => {

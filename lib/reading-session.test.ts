@@ -175,6 +175,43 @@ test("a reading that never made a sound gets no outro", async () => {
   assert.deepEqual(s.states.at(-1), ["idle", undefined])
 })
 
+test("pause and navigation while the outro is prepared do not leak into it", async () => {
+  const s = session()
+  await s.reader.start(ARTICLE)
+  for (const utterance of [0, 1, 2]) finish(utterance)
+  const positions = s.positions.length
+  s.reader.navigate(-1)
+  await s.reader.toggle()
+  await flush()
+  assert.equal(s.positions.length, positions, "No seek back into the finished article")
+  assert.equal(spoken.at(-1)!.text, `${EN_THANKS} ${EN_SUPPORT}`)
+  assert.deepEqual(s.states.at(-1), ["playing", "Rainy cat"], "The outro plays, so the pill does too")
+  await s.reader.toggle()
+  assert.deepEqual(s.states.at(-1), ["paused", undefined], "One press pauses the outro")
+})
+
+test("a reading started during the outro is not folded by the outro's end", async () => {
+  const s = session()
+  await s.reader.start(ARTICLE)
+  for (const utterance of [0, 1, 2]) finish(utterance)
+  await flush()
+  const next = s.reader.start(ARTICLE)
+  finish(3)
+  await next
+  assert.equal(s.reader.reading, true)
+  assert.deepEqual(s.states.at(-1), ["playing", "Rainy cat"])
+})
+
+test("the system outro is tagged with the language it is written in", async () => {
+  const s = session()
+  stored[COMPLETED] = 1
+  await s.reader.start({ ...ARTICLE, lang: "es" })
+  for (const utterance of [0, 1, 2]) finish(utterance)
+  await flush()
+  assert.equal(spoken[3].text, EN_THANKS)
+  assert.match(spoken[3].lang, /^en/)
+})
+
 test("during the outro, pause works and navigation is ignored", async () => {
   const s = session()
   await s.reader.start(ARTICLE)

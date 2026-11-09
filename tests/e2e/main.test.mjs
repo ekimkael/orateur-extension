@@ -71,6 +71,22 @@ browserTest("a finished article thanks the listener and offers support", async h
   await h.click("Stop reading")
 })
 
+browserTest("the support toast can stop the outro while it speaks", async h => {
+  await h.install()
+  await h.page.bringToFront()
+  await h.fakeSpeech(h.page, { finish: true, hold: "^Fin de l'article" })
+  assert.equal(await h.script(() => (globalThis.browser ?? chrome).runtime.sendMessage({ type: "orateur:read-page" })), true)
+  await waitFor(() => h.speech().then(state => /^Fin de l'article/.test(state.spoken.at(-1)?.text ?? "")), "The outro is speaking")
+  const stop = '.pill-toast button[aria-label="Stop reading"]'
+  const button = await waitFor(() => h.shadow(reader, stop).then(value => value?.width > 0 && value), "The toast offers to stop the voice")
+  const cancelled = (await h.speech()).cancelled
+  await h.page.mouse.click(button.x, button.y)
+  await waitFor(() => h.speech().then(state => state.cancelled > cancelled), "Stop silences the outro")
+  await waitFor(() => h.shadow(reader, stop).then(value => !value || value.width === 0), "The stop button leaves with the voice")
+  const toast = await h.shadow(reader, ".pill-toast")
+  assert.equal(toast?.hidden, false, "The support link stays")
+})
+
 browserTest("the support toast gives the pill back once the voice is done", async h => {
   await h.install()
   // A hidden tab holds the toast's countdown and its announcement frame.

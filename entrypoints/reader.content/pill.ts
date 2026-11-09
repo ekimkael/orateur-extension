@@ -228,7 +228,14 @@ export function createPill(
     track({ name: "support_cta_clicked" })
     endHide?.(false)
   })
-  toast.append(toastText, undo, supportLink)
+  // The support toast covers the controls while the outro speaks: it carries
+  // its own ⏹, gone once the voice is done.
+  const toastStop = button(() => onSecondary())
+  toastStop.dataset.icon = "square"
+  toastStop.setAttribute("aria-label", browser.i18n.getMessage("ariaStopReading"))
+  toastStop.title = toastStop.getAttribute("aria-label")!
+  toastStop.hidden = true
+  toast.append(toastText, undo, supportLink, toastStop)
   row.append(toast)
   let toastKind: "hidden" | "support" = "hidden"
   /** Set while the toast shows; each ends it, with or without detaching the pill. */
@@ -739,6 +746,7 @@ export function createPill(
       onUndo?.()
       if (hadFocus) secondary.focus()
     }
+    updateToastStop()
     // Start the countdown first: a pause measures the time already elapsed.
     scheduleHide()
     if (document.hidden) pauseHide("tab")
@@ -785,6 +793,13 @@ export function createPill(
     else update()
     // The voice is done: the support toast starts counting down.
     if (state === "idle" && !hideRunning) scheduleHide()
+    updateToastStop()
+  }
+
+  function updateToastStop() {
+    const hadFocus = root.activeElement === toastStop
+    toastStop.hidden = !endHide || toastKind !== "support" || currentState === "idle" || currentState === "error"
+    if (hadFocus && toastStop.hidden) supportLink.focus()
   }
 
   function renderState(
