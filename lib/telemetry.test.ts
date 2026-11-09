@@ -333,6 +333,8 @@ test("le catalogue accepte uniquement ses événements et leurs propriétés fer
     ...["not_injectable", "not_article", "pdf", "fallback_text"].map((reason) => ({ name: "extraction_failed", properties: { reason } })),
     { name: "pill_hidden" },
     { name: "pill_hide_undone" },
+    { name: "support_prompt_shown" },
+    { name: "support_cta_clicked" },
   ]
   await withRequests(async (requests) => {
     for (const event of events) await handleTelemetryTrack(event, CONFIG)
@@ -368,6 +370,8 @@ test("refuse événements malformés, champs libres et version fournie par le co
     // The hidden site must never travel with the event.
     { name: "pill_hidden", properties: { site: "example.com" } },
     { name: "pill_hide_undone", properties: {} },
+    { name: "support_prompt_shown", properties: { lang: "fr" } },
+    { name: "support_cta_clicked", properties: {} },
     { name: "telemetry_enabled", properties: { distinct_id: "autre-id" } },
   ]
   await withRequests(async (requests) => {

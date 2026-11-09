@@ -97,6 +97,10 @@ export type TelemetryEvent =
   | { name: "pill_hidden"; properties?: undefined }
   /** That hide was undone from the toast. */
   | { name: "pill_hide_undone"; properties?: undefined }
+  /** The support toast showed after an article. */
+  | { name: "support_prompt_shown"; properties?: undefined }
+  /** Its Support link was clicked. */
+  | { name: "support_cta_clicked"; properties?: undefined }
 
 export interface TelemetryTrackMessage {
   type: typeof TELEMETRY_TRACK
@@ -169,6 +173,8 @@ function isTelemetryEvent(value: unknown): value is TelemetryEvent {
     case "pocket_download_completed":
     case "pill_hidden":
     case "pill_hide_undone":
+    case "support_prompt_shown":
+    case "support_cta_clicked":
       return properties === undefined
     case "read_started":
     case "read_completed":

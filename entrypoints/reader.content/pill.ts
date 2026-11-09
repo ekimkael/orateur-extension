@@ -6,6 +6,7 @@ import { isPocketVoice, toPocketLanguage } from "../../lib/pocket/catalog.ts"
 import type { SupertonicVoice } from "../../lib/supertonic/types.ts"
 import { voiceOptions } from "../../lib/voice-options.ts"
 import { track } from "../../lib/telemetry.ts"
+import { SUPPORT_URL } from "../../lib/reading-outro.ts"
 import { applyTheme } from "../../lib/theme.ts"
 import type { ColorTheme } from "../../lib/ui-prefs.ts"
 import { PILL_CSS } from "./styles.ts"
@@ -44,6 +45,9 @@ function applyPosition(position: PillPosition, host: HTMLElement) {
 
 /** How long the hide toast offers to undo, not counting hover, focus or a hidden tab. */
 const HIDE_TOAST_DELAY = 5000
+
+/** How long the support toast stays once the voice is done, with the same pauses. */
+const SUPPORT_TOAST_DELAY = 8000
 
 /** Pointer clicks on Undo sooner than this after the toast shows are ignored (OS double-click window). */
 const UNDO_GUARD = 500
@@ -188,8 +192,11 @@ export function createPill(
   row.append(popover)
 
   /**
-   * Replaces the controls once the close button hid Orateur on the site
-   * (`confirmHidden`): it says so and offers to undo for `HIDE_TOAST_DELAY`.
+   * Replaces the controls with a short message and one action. `hidden`: the
+   * close button hid Orateur on the site (`confirmHidden`); it offers to undo
+   * for `HIDE_TOAST_DELAY`, then detaches the pill. `support`: an article
+   * ended (`showSupport`); it links to the donation page and gives the pill
+   * back `SUPPORT_TOAST_DELAY` after the voice is done.
    */
   const toast = document.createElement("div")
   toast.className = "pill-toast"
@@ -208,12 +215,28 @@ export function createPill(
   undo.textContent = browser.i18n.getMessage("readerHiddenUndo")
   undo.setAttribute("aria-label", undo.textContent)
   undo.setAttribute("aria-describedby", toastText.id)
-  toast.append(toastText, undo)
+  // A real link: the page opens in a new tab without any extension permission.
+  const supportLink = document.createElement("a")
+  supportLink.className = "pill-toast-undo"
+  supportLink.dataset.icon = "heart"
+  supportLink.href = SUPPORT_URL
+  supportLink.target = "_blank"
+  supportLink.rel = "noopener noreferrer"
+  supportLink.textContent = browser.i18n.getMessage("readerSupportCta")
+  supportLink.setAttribute("aria-describedby", toastText.id)
+  supportLink.addEventListener("click", () => {
+    track({ name: "support_cta_clicked" })
+    endHide?.(false)
+  })
+  toast.append(toastText, undo, supportLink)
   row.append(toast)
+  let toastKind: "hidden" | "support" = "hidden"
   /** Set while the toast shows; each ends it, with or without detaching the pill. */
   let undoHide: (() => void) | null = null
   let endHide: ((detach: boolean) => void) | null = null
   let hideTimer: ReturnType<typeof setTimeout> | undefined
+  /** The countdown is running: the support toast waits for the idle pill first. */
+  let hideRunning = false
   let hideRemaining = 0
   let hideStarted = 0
   let hideShownAt = 0
@@ -232,7 +255,7 @@ export function createPill(
     if (event.key !== "Escape" || !endHide) return
     event.preventDefault()
     event.stopPropagation()
-    endHide(true)
+    endHide(toastKind === "hidden")
   })
 
   let currentPrefs = initialPrefs
@@ -642,7 +665,22 @@ export function createPill(
    */
   function confirmHidden(onUndo: () => void) {
     if (endHide) return
-    const keyboard = secondaryByKeyboard
+    openToast("hidden", onUndo)
+  }
+
+  /**
+   * Shows the support toast after an article. Its countdown starts once the
+   * pill is idle, so the link stays while the voice says it is there.
+   */
+  function showSupport() {
+    // Shown over a hide toast it would cancel the pending detach.
+    if (endHide) return
+    openToast("support")
+  }
+
+  function openToast(kind: "hidden" | "support", onUndo?: () => void) {
+    toastKind = kind
+    const keyboard = kind === "hidden" && secondaryByKeyboard
     if (isPopoverOpen) closePopover(true)
     // The error card folds too: the toast replaces the whole pill.
     animateLayout(() => {
@@ -652,18 +690,21 @@ export function createPill(
       content.hidden = true
       controls.hidden = true
       toast.hidden = false
+      undo.hidden = kind !== "hidden"
+      supportLink.hidden = kind !== "support"
       toastText.textContent = ""
     })
     hideShownAt = performance.now()
     // Filled after the region shows, so screen readers announce the change.
     requestAnimationFrame(() => {
-      if (endHide) toastText.textContent = browser.i18n.getMessage("readerHiddenToast")
+      if (endHide) toastText.textContent = browser.i18n.getMessage(kind === "hidden" ? "readerHiddenToast" : "readerSupportToast")
     })
-    hideRemaining = HIDE_TOAST_DELAY
+    hideRemaining = kind === "hidden" ? HIDE_TOAST_DELAY : SUPPORT_TOAST_DELAY
     hidePauses.clear()
     document.addEventListener("visibilitychange", onHideVisibility)
     endHide = (detach) => {
       clearTimeout(hideTimer)
+      hideRunning = false
       hidePauses.clear()
       document.removeEventListener("visibilitychange", onHideVisibility)
       undoHide = endHide = null
@@ -695,7 +736,7 @@ export function createPill(
     undoHide = () => {
       const hadFocus = toast.contains(root.activeElement)
       endHide?.(false)
-      onUndo()
+      onUndo?.()
       if (hadFocus) secondary.focus()
     }
     // Start the countdown first: a pause measures the time already elapsed.
@@ -706,15 +747,18 @@ export function createPill(
 
   function scheduleHide() {
     clearTimeout(hideTimer)
-    if (!endHide || hidePauses.size) return
+    hideRunning = false
+    if (!endHide || hidePauses.size || (toastKind === "support" && currentState !== "idle")) return
     hideStarted = Date.now()
-    hideTimer = setTimeout(() => endHide?.(true), Math.max(0, hideRemaining))
+    hideRunning = true
+    hideTimer = setTimeout(() => endHide?.(toastKind === "hidden"), Math.max(0, hideRemaining))
   }
 
   function pauseHide(reason: "hover" | "focus" | "tab") {
     if (!endHide || hidePauses.has(reason)) return
-    if (!hidePauses.size) {
+    if (!hidePauses.size && hideRunning) {
       clearTimeout(hideTimer)
+      hideRunning = false
       hideRemaining -= Date.now() - hideStarted
     }
     hidePauses.add(reason)
@@ -739,6 +783,8 @@ export function createPill(
     const update = () => renderState(state, title, interruptible, loadingInfo)
     if (layoutChanged) animateLayout(update)
     else update()
+    // The voice is done: the support toast starts counting down.
+    if (state === "idle" && !hideRunning) scheduleHide()
   }
 
   function renderState(
@@ -833,11 +879,13 @@ export function createPill(
       // site's storage change must not cut it short.
       // shortcut: a site restored from another tab during those 5 s is still
       // detached here until the page reloads; track the sites if that matters.
-      if (endHide) return
+      if (endHide && toastKind === "hidden") return
+      endHide?.(false)
       settleMotion()
       host.remove()
     },
     confirmHidden,
+    showSupport,
     setState,
     setPosition,
     /** Resolves once the running transition ends, or is cancelled by the next one. */

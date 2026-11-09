@@ -71,6 +71,12 @@
   "readerHiddenUndo": {
     "message": "Undo"
   },
+  "readerSupportToast": {
+    "message": "Thanks for listening"
+  },
+  "readerSupportCta": {
+    "message": "Support"
+  },
   "ariaExtracting": {
     "message": "Extracting the article…"
   },

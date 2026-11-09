@@ -107,6 +107,8 @@ for browser scenarios, network isolation and audio-test limitations.
 | `extraction_failed` | Extraction fails or falls back; `reason`: `not_injectable`, `not_article`, `pdf` or `fallback_text`. |
 | `pill_hidden` | The pill's close button hides Orateur on a site. No property: the site is never sent. |
 | `pill_hide_undone` | That hide is undone from the toast. Its rate against `pill_hidden` tells accidental clicks apart. |
+| `support_prompt_shown` | The support toast shows after an article (the 1st, then every 3rd completed one). No property. |
+| `support_cta_clicked` | Its Support link is clicked. Its rate against `support_prompt_shown` measures the ask. |
 
 These are the events emitted by the main extension. Downloads started
 directly from the options page do not emit the reading pill's download
