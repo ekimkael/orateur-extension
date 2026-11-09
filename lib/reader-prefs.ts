@@ -52,7 +52,7 @@ export interface ReaderPreferences {
 const PREFS_KEY = "orateur:reader-prefs"
 let pendingWrite = Promise.resolve()
 const DEFAULT_PREFS: ReaderPreferences = {
-  engine: "supertonic",
+  engine: "pocket",
   speed: 1,
   voiceURI: null,
   supertonicVoice: "F1",

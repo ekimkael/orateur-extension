@@ -21,7 +21,7 @@ const KEY = "orateur:reader-prefs"
 test("part sur les défauts quand rien n'est stocké", async () => {
   fakeStorage()
   assert.deepEqual(await loadPrefs(), {
-    engine: "supertonic",
+    engine: "pocket",
     speed: 1,
     voiceURI: null,
     supertonicVoice: "F1",
@@ -36,7 +36,7 @@ test("complète une préférence partielle avec les défauts", async () => {
 
   const prefs = await loadPrefs()
   assert.equal(prefs.speed, 1.5)
-  assert.equal(prefs.engine, "supertonic")
+  assert.equal(prefs.engine, "pocket")
   assert.equal(prefs.voiceURI, null)
 })
 
@@ -46,7 +46,7 @@ test("savePrefs n'écrase que la clé fournie", async () => {
   await savePrefs({ speed: 0.8 })
 
   assert.deepEqual(data[KEY], {
-    engine: "supertonic",
+    engine: "pocket",
     speed: 0.8,
     voiceURI: "urn:voix",
     supertonicVoice: "F1",
@@ -86,7 +86,7 @@ test("deux écritures successives ne se perdent pas", async () => {
   await savePrefs({ voiceURI: "urn:voix" })
 
   assert.deepEqual(data[KEY], {
-    engine: "supertonic",
+    engine: "pocket",
     speed: 1.2,
     voiceURI: "urn:voix",
     supertonicVoice: "F1",
