@@ -2,8 +2,9 @@ import { savePrefs, SPEED, type ReaderEngine, type ReaderPreferences, type PillP
 import type { ReaderViewState } from "../../lib/reading-session.ts"
 import { MODEL_CACHE_QUERY, type ModelCacheQueryMessage, type TtsLoadingReason } from "../../lib/tts-messages"
 import { ENGINE_CAPABILITIES } from "../../lib/engine-capabilities.ts"
-import { POCKET_VOICES, isPocketVoice, toPocketLanguage } from "../../lib/pocket/catalog.ts"
+import { isPocketVoice, toPocketLanguage } from "../../lib/pocket/catalog.ts"
 import type { SupertonicVoice } from "../../lib/supertonic/types.ts"
+import { voiceOptions } from "../../lib/voice-options.ts"
 import { track } from "../../lib/telemetry.ts"
 import { applyTheme } from "../../lib/theme.ts"
 import type { ColorTheme } from "../../lib/ui-prefs.ts"
@@ -81,25 +82,6 @@ export function createPill(
     ["pocket", browser.i18n.getMessage("enginePocket")],
     ["system", browser.i18n.getMessage("engineSystem")],
     ["supertonic", browser.i18n.getMessage("engineNaturalAI")],
-  ]
-  /**
-   * Les 10 voix Supertonic, dupliquées depuis lib/supertonic/types.ts plutôt
-   * qu'importées : la valeur (pas juste son type) ferait entrer le moteur dans
-   * ce bundle chargé sur toutes les pages. Les clés i18n, elles, sont les mêmes
-   * que dans lib/supertonic/types.ts (`voiceFemale1`…) — même traduction des
-   * deux côtés sans rien importer.
-   */
-  const SUPERTONIC_VOICE_OPTIONS: Array<[SupertonicVoice, string]> = [
-    ["F1", browser.i18n.getMessage("voiceFemale1")],
-    ["F2", browser.i18n.getMessage("voiceFemale2")],
-    ["F3", browser.i18n.getMessage("voiceFemale3")],
-    ["F4", browser.i18n.getMessage("voiceFemale4")],
-    ["F5", browser.i18n.getMessage("voiceFemale5")],
-    ["M1", browser.i18n.getMessage("voiceMale1")],
-    ["M2", browser.i18n.getMessage("voiceMale2")],
-    ["M3", browser.i18n.getMessage("voiceMale3")],
-    ["M4", browser.i18n.getMessage("voiceMale4")],
-    ["M5", browser.i18n.getMessage("voiceMale5")],
   ]
 
   const host = document.createElement("orateur-reader-pill")
@@ -394,16 +376,9 @@ export function createPill(
   }
 
   function renderVoices() {
-    if (currentPrefs.engine === "pocket") {
-      voice.replaceChildren(...POCKET_VOICES.map((id) => voiceChoice(
-        id,
-        id === "auto" ? browser.i18n.getMessage("voicePocketAuto") : id[0]!.toUpperCase() + id.slice(1),
-      )))
-      syncControls()
-      return
-    }
-    if (currentPrefs.engine === "supertonic") {
-      voice.replaceChildren(...SUPERTONIC_VOICE_OPTIONS.map(([id, label]) => voiceChoice(id, label)))
+    if (currentPrefs.engine !== "system") {
+      voice.replaceChildren(...voiceOptions(currentPrefs.engine).map((option) =>
+        voiceChoice(option.id, "key" in option ? browser.i18n.getMessage(option.key) : option.text)))
       syncControls()
       return
     }

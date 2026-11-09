@@ -2,8 +2,9 @@ import { useEffect, useState } from "react"
 import { useTranslation } from "../hooks/useTranslation"
 import { VoicePreviewButton } from "./VoicePreviewButton"
 import type { ReaderEngine } from "../lib/reader-prefs"
-import { POCKET_VOICES, isPocketVoice, type PocketVoice } from "../lib/pocket/catalog.ts"
-import { SUPERTONIC_VOICES, SUPERTONIC_VOICE_LABEL_KEYS, type SupertonicVoice } from "../lib/supertonic/types.ts"
+import { isPocketVoice, type PocketVoice } from "../lib/pocket/catalog.ts"
+import type { SupertonicVoice } from "../lib/supertonic/types.ts"
+import { voiceOptions } from "../lib/voice-options.ts"
 
 interface VoicePickerProps {
   engine: ReaderEngine
@@ -40,6 +41,10 @@ export function VoicePicker({
     return () => speechSynthesis.removeEventListener("voiceschanged", refresh)
   }, [])
 
+  const localOptions = (local: "pocket" | "supertonic") => voiceOptions(local).map((option) => (
+    <option key={option.id} value={option.id}>{"key" in option ? t(option.key) : option.text}</option>
+  ))
+
   const select =
     engine === "pocket" ? (
       <select
@@ -49,11 +54,7 @@ export function VoicePicker({
           if (isPocketVoice(e.target.value)) onChangePocketVoice(e.target.value)
         }}
       >
-        {POCKET_VOICES.map((id) => (
-          <option key={id} value={id}>
-            {id === "auto" ? t("voicePocketAuto") : id[0]!.toUpperCase() + id.slice(1)}
-          </option>
-        ))}
+        {localOptions("pocket")}
       </select>
     ) : engine === "supertonic" ? (
       <select
@@ -61,11 +62,7 @@ export function VoicePicker({
         value={supertonicVoice}
         onChange={(e) => onChangeSupertonicVoice(e.target.value as SupertonicVoice)}
       >
-        {SUPERTONIC_VOICES.map((id) => (
-          <option key={id} value={id}>
-            {t(SUPERTONIC_VOICE_LABEL_KEYS[id])}
-          </option>
-        ))}
+        {localOptions("supertonic")}
       </select>
     ) : (
       <select
