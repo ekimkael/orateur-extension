@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-09
+
+### Added
+
+- Pocket TTS, a third voice engine that runs on your device, reads French and English. The first reading in each language downloads about 140 MB, checked file by file, then it works offline. Each engine keeps its own voice. Supertonic stays the default for new installations, and updates keep your engine and voices. Personal pronunciation rules stay saved but apply only to Supertonic and system voices.
+- The reader's ✕ now shows "Orateur hidden on this site · Undo" for five seconds, so a stray click can be taken back without opening Settings.
+- Small data tables (up to 8 rows and 4 columns) are read row by row, each value after its column header. Larger or irregular tables get a short notice instead of being read cell by cell.
+- Code blocks are announced with a sentence that points to the code below.
+
+### Changed
+
+- Settings list the Supertonic voices female first, like the reader.
+- Usage statistics also count Pocket TTS model downloads and uses of the reader's ✕ and Undo, never the site. See [PRIVACY.md](PRIVACY.md).
+
+### Fixed
+
+- A reading that cannot start, for example after a saved voice became unavailable, no longer leaves the reader stuck on loading: it shows an error you can retry from.
+- Sentences written entirely in capitals are read as normal sentences, keeping short acronyms, so Supertonic no longer mishears them.
+- Supertonic pauses on a slash between two words instead of running them together.
+
 ## [0.9.0] - 2026-11-05
 
 ### Added
