@@ -13,7 +13,8 @@ import { createLivePage } from "../../lib/live-page.ts"
 import { findBlockIndex } from "../../lib/read-anchor.ts"
 import { createReadingSession } from "../../lib/reading-session.ts"
 import { START_READING, type ReadPagePayload, type StartReadingMessage } from "../../lib/reader-messages.ts"
-import { isHidden, loadHiddenSites, addHiddenSite, onHiddenSitesChanged } from "../../lib/site-rules.ts"
+import { isHidden, loadHiddenSites, addHiddenSite, normalizeSite, onHiddenSitesChanged, removeHiddenSite } from "../../lib/site-rules.ts"
+import { track } from "../../lib/telemetry.ts"
 import { loadUiPrefs, onUiPrefsChanged } from "../../lib/ui-prefs.ts"
 import { createFollower } from "./follower.ts"
 import { createPill } from "./pill.ts"
@@ -93,12 +94,21 @@ export default defineContentScript({
       contextTarget = event.target instanceof Element ? event.target : null
     }
 
-    /** ⏹ pendant la lecture, ✕ au repos : ne plus afficher Orateur sur ce domaine. */
+    /**
+     * ⏹ while reading. ✕ otherwise: hides Orateur on this domain at once, then
+     * lets the toast undo it (the storage change re-attaches nothing: the pill
+     * never left the page).
+     */
     function onSecondary() {
       if (session.reading) return session.stop()
       session.cancel()
-      pill.detach()
+      track({ name: "pill_hidden" })
       void addHiddenSite(location.hostname)
+      pill.confirmHidden(() => {
+        track({ name: "pill_hide_undone" })
+        const site = normalizeSite(location.hostname)
+        if (site) void removeHiddenSite(site)
+      })
     }
   },
 })

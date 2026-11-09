@@ -85,6 +85,9 @@ permission requirement.
 Settings → Sites when its content script starts. Reload the page after
 changing an exclusion to update the bubble; it does not subscribe to those
 changes. Its color theme does follow settings changes immediately.
+The reading pill's ✕ adds the current site the same way, behind a
+five-second Undo toast; on that already-open page the bubble keeps showing
+until the next reload.
 
 **"Read later" doesn't check for an in-progress read.** It always opens a
 tab to `/articles/new`, just like saving an article. Orateur is the one
