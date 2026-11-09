@@ -52,7 +52,7 @@ export interface ReaderPreferences {
 const PREFS_KEY = "orateur:reader-prefs"
 let pendingWrite = Promise.resolve()
 const DEFAULT_PREFS: ReaderPreferences = {
-  engine: "pocket",
+  engine: "supertonic",
   speed: 1,
   voiceURI: null,
   supertonicVoice: "F1",
@@ -94,7 +94,7 @@ export function savePrefs(prefs: Partial<ReaderPreferences>): Promise<void> {
 }
 
 /**
- * Writes `engine` only when none is stored yet. Fresh installs seed Pocket.
+ * Writes `engine` only when none is stored yet. Fresh installs seed Supertonic.
  * Updates keep the system voice for profiles that predate engine selection.
  */
 export async function seedEngine(engine: ReaderEngine) {

@@ -236,7 +236,7 @@ export default defineBackground({
       contexts: ["page", "link"],
     })
 
-    if (details.reason === "install") void seedEngine("pocket")
+    if (details.reason === "install") void seedEngine("supertonic")
     else if (details.reason === "update") void seedEngine("system")
 
     if (details.reason === "install") {

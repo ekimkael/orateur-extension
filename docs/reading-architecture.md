@@ -47,7 +47,7 @@ Extraction (`toSpeakableText` in `lib/extract-article.ts`) never reads source co
 
 The background no longer relays commands, events or paragraph requests.
 
-The first installation saves Pocket. Updates keep stored engines and voices.
+The first installation saves Supertonic. Updates keep stored engines and voices.
 The system engine is the compatibility choice for profiles from before the
 engine preference. Language and private-window fallbacks affect only the
 effective engine for one reading. That engine determines whether to load and

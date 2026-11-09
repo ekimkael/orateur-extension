@@ -44,11 +44,11 @@ d’ici » pour commencer à cet endroit si Orateur le retrouve dans l'article e
 
 • La voix de votre système, disponible immédiatement, sans rien télécharger.
   Certaines voix système utilisent le service en ligne de leur fournisseur.
-• Pocket TTS, choisi par défaut à l’installation, lit le français et
-  l’anglais sur votre appareil. La première lecture dans chaque langue
-  télécharge environ 140 Mo pour l’écoute hors ligne. Les mises à jour
-  conservent votre moteur et vos voix.
-• Supertonic propose dix voix locales. Ses modèles (environ 400 Mo) sont
+• Pocket TTS lit le français et l’anglais sur votre appareil. La première
+  lecture dans chaque langue télécharge environ 140 Mo pour l’écoute hors
+  ligne. Les mises à jour conservent votre moteur et vos voix.
+• Supertonic, choisi par défaut à l’installation, propose dix voix locales.
+  Ses modèles (environ 400 Mo) sont
   téléchargés à la première lecture ou sur demande dans les réglages.
   Les règles de prononciation s’appliquent à Supertonic et aux voix système.
 

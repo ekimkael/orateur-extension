@@ -43,11 +43,12 @@ Orateur can match it to the extracted article.
 
 • Your system's voice, ready instantly, nothing to download. Some system
   voices use their provider's online service.
-• Pocket TTS, the default for new installations, reads French and English
-  locally. The first reading in each language downloads about 140 MB for
-  offline use. Updates preserve your engine and voices.
-• Supertonic, a local neural engine with ten voices, downloads about 400 MB
-  on first playback or when requested in settings. Personal pronunciation
+• Pocket TTS reads French and English locally. The first reading in each
+  language downloads about 140 MB for offline use. Updates preserve your
+  engine and voices.
+• Supertonic, the default for new installations, is a local neural engine
+  with ten voices and downloads about 400 MB on first playback or when
+  requested in settings. Personal pronunciation
   rules are available with Supertonic and system voices.
 
 ━━ Send to Orateur ━━

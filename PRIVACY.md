@@ -39,7 +39,7 @@ Reading a page or selection in place does not send its content to Orateur.
 
 ### 2. Speech engines and model downloads
 
-New installations default to Pocket TTS. Updates preserve saved engine choices;
+New installations default to Supertonic. Updates preserve saved engine choices;
 existing installations without a saved engine keep the system voice. You can
 change the engine in the reading pill or Settings.
 

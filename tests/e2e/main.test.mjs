@@ -37,13 +37,13 @@ browserTest("reads an already-open article, then pauses, resumes and stops", asy
   assert.equal(h.blocked.some(url => /posthog|orateur\.digitalekim|huggingface/.test(url)), false, "Local reading needs no external service")
 })
 
-browserTest("a fresh install defaults to Pocket TTS", async h => {
+browserTest("a fresh install defaults to Supertonic", async h => {
   await h.install({ engine: null })
   const prefs = await waitFor(() => h.options.evaluate(async () => {
     const stored = (await (globalThis.browser ?? chrome).storage.local.get("orateur:reader-prefs"))["orateur:reader-prefs"]
     return stored?.engine && stored
   }), "Initial engine preference saved")
-  assert.equal(prefs.engine, "pocket")
+  assert.equal(prefs.engine, "supertonic")
 })
 
 browserTest("a private context without cached models uses the system voice without downloading", async h => {

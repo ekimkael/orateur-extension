@@ -95,8 +95,8 @@ an E2E test.
 | Settings | Applied value, persistence after reload, reader updates | Node + browser |
 | Pronunciation and languages | Substitutions, numbers, language, input limits | Node + manual preview |
 | Lifecycle | Existing tab, navigation, closure, multiple tabs, updates | Browser |
-| Supertonic | Download, cancellation, network failure, cache, offline playback | Node + browser + dedicated check |
-| Pocket TTS | Fresh-install default, separate voice and cache, French and English synthesis, fallback, pronunciation isolation | Node + browser + listening |
+| Supertonic | Fresh-install default, download, cancellation, network failure, cache, offline playback | Node + browser + dedicated check |
+| Pocket TTS | Separate voice and cache, French and English synthesis, fallback, pronunciation isolation | Node + browser + listening |
 | Privacy | Enabled by default, stops after opt-out, native Firefox permission required | Node + network observation |
 | Web application | Correct text, title, language and URL handoff | Node + browser |
 | Built-in PDF viewer | No injected reader; selected-text handoff when exposed by the browser | Manual |
