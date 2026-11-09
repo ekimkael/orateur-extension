@@ -141,7 +141,7 @@ test("Pocket ramps unit sizes up after a start so the first sound arrives quickl
   host.dispose?.()
 })
 
-test("Pocket adds a pause after sentence and paragraph ends, none after a clause cut", async (t) => {
+test("Pocket adds a pause after sentence and paragraph ends, none after a clause cut or the last unit", async (t) => {
   const { host, jobs, media } = setup()
   const samples: number[] = []
   const createObjectURL = URL.createObjectURL
@@ -149,17 +149,47 @@ test("Pocket adds a pause after sentence and paragraph ends, none after a clause
     samples.push((blob.size - 44) / 2)
     return createObjectURL(blob)
   })
-  host.speak({ ...request, lang: "fr", text: "Il pleut depuis ce matin sur toute la ville et sur les collines alentour, " +
-    "mais nous sortons quand même. Le vent souffle fort sur les toits, les arbres plient et les passants pressent " +
-    "le pas vers la gare du centre-ville." })
+  host.speak({ ...request, lang: "fr", text: "Le soleil se lève doucement sur la ville encore endormie ce matin. " +
+    "Les rues sont calmes et les cafés ouvrent leurs portes un à un.\n\n" +
+    "Nous partons tôt pour éviter la foule et la chaleur de midi qui arrive, " +
+    "puis nous rentrons tranquillement à la maison avant le déjeuner prévu." })
   await settle()
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     jobs[i]!.result.resolve(sample)
     await settle()
     media[i]!.onended?.()
     await settle()
   }
-  assert.deepEqual(jobs.map((job) => job.text.at(-1)), [",", ".", "."])
-  assert.deepEqual(samples, [3, 3 + 0.6 * 24_000, 3 + 24_000])
+  assert.deepEqual(jobs.map((job) => job.text.at(-1)), [".", ".", ",", "."])
+  assert.deepEqual(samples, [3 + 0.6 * 24_000, 3 + 24_000, 3, 3], "the reading ends with its last word")
+  host.dispose?.()
+})
+
+test("Pocket keeps the unit after a short opening heading short", async () => {
+  const { host, jobs } = setup()
+  host.speak({ ...request, text: "Introduction.\n\nThis paragraph is long enough to need several units, because it keeps going " +
+    "with more words, more clauses and more details than a single short unit could ever hold at once." })
+  await settle()
+  jobs[0]!.result.resolve(sample)
+  await settle()
+  assert.equal(jobs[0]!.text, "Introduction.")
+  assert.ok(jobs[1]!.text.length <= 80, `the unit after the heading renders in less time than the heading plays: ${jobs[1]!.text.length}`)
+  host.dispose?.()
+})
+
+test("Pocket does not re-request a live paragraph that is already prepared", async () => {
+  const { host, jobs, media } = setup()
+  const prepared: [number, boolean | undefined][] = []
+  host.speak({ ...request, async prepareParagraph(block, prefetch) {
+    prepared.push([block, prefetch])
+    return { text: block === 0 ? "First." : "Second.", lang: "en" }
+  } })
+  await settle()
+  jobs[0]!.result.resolve(sample)
+  await settle()
+  media[0]!.onended?.()
+  await settle()
+  assert.equal(jobs[1]?.text, "Second.", "only synthesis is still pending")
+  assert.deepEqual(prepared, [[0, false], [1, true]])
   host.dispose?.()
 })

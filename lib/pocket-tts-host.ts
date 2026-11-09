@@ -9,10 +9,11 @@ class AudioPlaybackError extends Error {}
 
 const LOOKAHEAD = 3
 const MAX_UNIT = 180
-// Unit limits right after a start or seek: the first sound waits for one short
-// unit. Pocket renders ~1.75x faster than real time in Chrome and Firefox, so a
-// unit may be at most ~1.75x longer than the one playing before it without a gap.
-const RAMP = [80, 140]
+// After a start or seek the first sound waits for one short unit. Pocket renders
+// ~1.75x faster than real time in Chrome and Firefox, so until units reach
+// MAX_UNIT each one may be at most ~1.75x longer than the one playing before it.
+const FIRST_UNIT = 80
+const GROWTH = 1.75
 
 /** Split text into sentence groups of at most `max` characters, cutting long sentences at a clause, else between words. */
 function pieces(text: string, max: number): string[] {
@@ -28,8 +29,8 @@ const SENTENCE_PAUSE = 0.6
 const PARAGRAPH_PAUSE = 1
 
 /** Append the silence a unit's ending calls for; a clause or word cut keeps the flow. */
-function withPause(pcm: Float32Array, sampleRate: number, unit: { text: string; lastInBlock: boolean }): Float32Array {
-  const seconds = unit.lastInBlock ? PARAGRAPH_PAUSE : /[.!?…]["'»”’)\]]*$/u.test(unit.text) ? SENTENCE_PAUSE : 0
+function withPause(pcm: Float32Array, sampleRate: number, unit: { text: string; lastInBlock: boolean }, final: boolean): Float32Array {
+  const seconds = final ? 0 : unit.lastInBlock ? PARAGRAPH_PAUSE : /[.!?…]["'»”’)\]]*$/u.test(unit.text) ? SENTENCE_PAUSE : 0
   if (!seconds) return pcm
   const padded = new Float32Array(pcm.length + Math.round(seconds * sampleRate))
   padded.set(pcm)
@@ -49,23 +50,28 @@ export function createPocketTtsHost(
 
   // `next(true)` marks the pull as lookahead: the live page then prepares the
   // paragraph passively, without scrolling or turning an untranslated snapshot into audio.
+  // `live.preparing` names the block whose live text is still awaited.
   async function* units(
-    request: PocketSpeakRequest, blocks: string[], start: number, signal: AbortSignal,
+    request: PocketSpeakRequest, blocks: string[], start: number, signal: AbortSignal, live: { preparing: number | null },
   ): AsyncGenerator<{ text: string; block: number; lang: PocketLanguage; lastInBlock: boolean }, void, boolean | undefined> {
     let prefetch = false
-    let emitted = 0
+    let limit = FIRST_UNIT
     for (let block = start; block < blocks.length; block++) {
       signal.throwIfAborted()
+      live.preparing = request.prepareParagraph ? block : null
       const prepared: TtsPreparedBlock<string> | null | undefined = await request.prepareParagraph?.(block, prefetch)
+        .finally(() => { live.preparing = null })
       signal.throwIfAborted()
       if (prepared === null) throw new Error("Live paragraph unavailable")
       const lang = toPocketLanguage(prepared?.lang ?? request.lang)
       if (!lang) throw new Error("Unsupported Pocket language")
       let rest: string = prepared?.text ?? blocks[block]!
       while (rest) {
-        const [text, ...others] = pieces(rest, RAMP[emitted++] ?? MAX_UNIT)
+        const [text, ...others] = pieces(rest, limit)
         if (!text) break
         rest = others.join(" ")
+        // Once units reach full size the lookahead keeps them ahead; a later short heading must not shrink them.
+        if (limit < MAX_UNIT) limit = Math.min(MAX_UNIT, Math.max(FIRST_UNIT, Math.floor(text.length * GROWTH)))
         prefetch = (yield { text, block, lang, lastInBlock: !rest }) === true
       }
     }
@@ -114,7 +120,8 @@ export function createPocketTtsHost(
   async function run({ request, blocks }: NonNullable<typeof reading>, start: number, signal: AbortSignal) {
     const voice = request.voice
     if (!isPocketVoice(voice)) throw new Error("Unsupported Pocket voice")
-    const queue = units(request, blocks, start, signal)
+    const live = { preparing: null as number | null }
+    const queue = units(request, blocks, start, signal, live)
     let waiting = true
     const render = async (prefetch: boolean) => {
       const { value, done } = await queue.next(prefetch)
@@ -131,7 +138,8 @@ export function createPocketTtsHost(
           }
         },
       })
-      return { ...value, pcm: withPause(sample.pcm, sample.sampleRate, value), sampleRate: sample.sampleRate }
+      const final = value.lastInBlock && value.block === blocks.length - 1
+      return { ...value, pcm: withPause(sample.pcm, sample.sampleRate, value, final), sampleRate: sample.sampleRate }
     }
     // Units ahead of playback, in reading order. The runtime serializes synthesis,
     // so a deeper queue only buys slack: a short heading plays for ~1 s while
@@ -161,7 +169,7 @@ export function createPocketTtsHost(
           if (!paused) onState({ phase: "loading", reason: "preparing-next" })
           // The listener now needs this paragraph: upgrade the passive wait so a
           // translated page reveals it, as the Supertonic host does.
-          if (current.lastInBlock) void request.prepareParagraph?.(current.block + 1, false)?.catch(() => {})
+          if (live.preparing === current.block + 1) void request.prepareParagraph?.(current.block + 1, false)?.catch(() => {})
         }
         const result = await next.result
         if ("error" in result) throw result.error

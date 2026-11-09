@@ -16,7 +16,7 @@ it is generated with archify from [architecture.json](architecture.json).
 | Local players | `lib/local-player.ts` | The tab's end of the TTS port: engine-specific commands out, host events in, live paragraph answers. |
 | TTS host server | `lib/tts-port.ts` | The host's end of the ports: which tab owns the host, its commands, its events and its paragraph requests. |
 | Supertonic host | `lib/tts-host.ts` | Pronunciation, synthesis cache, scheduling and dual-`<audio>` playback. |
-| Pocket host | `lib/pocket-tts-host.ts` | Bounded units that ramp from 80 to 140 to 180 characters after each start or seek (faster first sound, no gap at RTF ~0.6), 0.6 s of silence after a sentence and 1 s after a paragraph (Pocket barely trails a unit), three units of lookahead (live paragraphs are prefetched passively, then promoted when playback reaches them) and worker synthesis. The Pocket cache is separate and the host receives no pronunciation rules. |
+| Pocket host | `lib/pocket-tts-host.ts` | Bounded units that start at 80 characters after each start or seek and grow at most 1.75x per unit up to 180 (faster first sound, no gap at RTF ~0.6), 0.6 s of silence after a sentence and 1 s after a paragraph, none after the last unit (Pocket barely trails a unit), three units of lookahead (live paragraphs are prefetched passively, then promoted when playback reaches them) and worker synthesis. The Pocket cache is separate and the host receives no pronunciation rules. |
 
 The session is tested with `node --test` against fake views, a fake page and a
 fake `speechSynthesis`; the players and the port server are tested the same
