@@ -765,7 +765,8 @@ input[type="range"] {
 }
 
 /* ── Boutons ─────────────────────────────────────────────────────────── */
-button {
+button,
+.support-cta {
   font: inherit;
   cursor: pointer;
   border-radius: var(--radius-lg);
@@ -776,7 +777,8 @@ button {
     color 160ms var(--ease-out);
 }
 
-button:active {
+button:active,
+.support-cta:active {
   transform: scale(0.96);
 }
 
@@ -1013,22 +1015,11 @@ progress::-moz-progress-bar {
   height: 0.875rem;
 }
 
-/* A link styled as the primary button: it opens a page, so it is an <a>,
-   and gets the radius, focus ring and press feedback the `button` rules give. */
+/* A link styled as the primary button (it opens a page, so it is an <a>);
+   radius and press feedback come from the `button` rules above. */
 .support-cta {
   margin-top: 1rem;
-  border-radius: var(--radius-lg);
   text-decoration: none;
-  transition: transform 160ms var(--ease-out);
-}
-
-.support-cta:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
-.support-cta:active {
-  transform: scale(0.96);
 }
 
 .support-cta svg {

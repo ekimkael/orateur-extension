@@ -41,8 +41,8 @@ export interface ReaderView {
   attach(): void
   /** Resolves once the running transition ends, or is cancelled by the next one. */
   settled(): Promise<void>
-  /** Shows the support toast; it leaves once the pill is idle again. */
-  showSupport(): void
+  /** Shows the support toast, which leaves once the pill is idle again; false if it could not show. */
+  showSupport(): boolean
 }
 
 /** Highlights the paragraph being read in the page. */
@@ -95,7 +95,8 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
   /** What the outro needs once the article ends: same engine, the reading's language. */
   let readingSelection: PlayerSelection | null = null
   let readingOutro = false
-  let readingLang: string | null = null
+  /** The page's declared language and text, for the outro's language once the article ends. */
+  let readingPayload: ReadPagePayload | null = null
   /** The current player speaks the outro, not a paragraph of the page. */
   let outro = false
   /** `startGeneration` when the outro began; a later start supersedes it. */
@@ -227,7 +228,7 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     readingTitle = title
     readingSelection = selection
     readingOutro = payload.outro === true
-    readingLang = resolveDocLang(payload.lang, payload.text)
+    readingPayload = payload
     outro = false
     readingTotal = total
     pageSource?.stop()
@@ -306,17 +307,18 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
   async function speakOutro() {
     const mine = startGeneration
     const count = await nextCompletedCount()
-    if (mine !== startGeneration || !readingSelection) return
+    // A stop, a new start or leaving the page came first: no outro mode left behind.
+    if (mine !== startGeneration || !readingSelection || !readingPayload) {
+      if (mine !== startGeneration) outro = false
+      return
+    }
     outroGeneration = mine
     if (paused) {
       paused = false
       view.setState("playing", readingTitle)
     }
-    const { speech, support } = buildReadingOutro(readingLang, count)
-    if (support) {
-      track({ name: "support_prompt_shown" })
-      view.showSupport()
-    }
+    const { speech, support } = buildReadingOutro(resolveDocLang(readingPayload.lang, readingPayload.text), count)
+    if (support && view.showSupport()) track({ name: "support_prompt_shown" })
     if (!speech) return fold()
     follower.end()
     pageSource?.stop()

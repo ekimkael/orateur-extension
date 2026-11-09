@@ -681,8 +681,9 @@ export function createPill(
    */
   function showSupport() {
     // Shown over a hide toast it would cancel the pending detach.
-    if (endHide) return
+    if (endHide) return false
     openToast("support")
+    return true
   }
 
   function openToast(kind: "hidden" | "support", onUndo?: () => void) {

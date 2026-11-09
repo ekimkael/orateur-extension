@@ -64,7 +64,7 @@ function session({ resume = false } = {}) {
   const states: [ReaderViewState, string | undefined][] = []
   const positions: [number, number][] = []
   const shown: number[] = []
-  const support = { shown: 0 }
+  const support = { shown: 0, available: true }
   const prefs = { engine: "system", voiceURI: null, speed: 1, follow: true } as unknown as ReaderPreferences
   const reader = createReadingSession({
     token: "tab-a",
@@ -74,7 +74,11 @@ function session({ resume = false } = {}) {
       setPosition: (block, total) => positions.push([block, total]),
       attach() {},
       settled: async () => {},
-      showSupport: () => support.shown++,
+      showSupport: () => {
+        if (!support.available) return false
+        support.shown++
+        return true
+      },
     },
     follower: { begin() {}, show: (block) => shown.push(block), end() {} },
     page: {
@@ -210,6 +214,28 @@ test("the system outro is tagged with the language it is written in", async () =
   await flush()
   assert.equal(spoken[3].text, EN_THANKS)
   assert.match(spoken[3].lang, /^en/)
+})
+
+test("a support toast the pill cannot show is not counted", async () => {
+  const s = session()
+  s.support.available = false
+  await s.reader.start(ARTICLE)
+  for (const utterance of [0, 1, 2]) finish(utterance)
+  await flush()
+  finish(3)
+  assert.deepEqual(s.events(), ["read_started", "read_completed"])
+})
+
+test("leaving the page while the outro is prepared leaves no outro mode behind", async () => {
+  const s = session()
+  await s.reader.start(ARTICLE)
+  for (const utterance of [0, 1, 2]) finish(utterance)
+  s.reader.pageHidden()
+  await flush()
+  assert.equal(s.support.shown, 0)
+  const positions = s.positions.length
+  s.reader.navigate(-1)
+  assert.equal(s.positions.length, positions + 1, "Navigation answers again")
 })
 
 test("during the outro, pause works and navigation is ignored", async () => {

@@ -1,6 +1,6 @@
 # Fin de lecture : remerciement et appel au soutien — design
 
-Date : 2026-11-09. Statut : brouillon, à valider.
+Date : 2026-11-09. Statut : validé le 2026-11-09 — phrase « voix solo », 1 article sur 3, toast « Merci d'avoir écouté · ♥ Soutenir », section Soutenir dans les réglages.
 
 ## Intention
 

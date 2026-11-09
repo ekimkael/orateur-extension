@@ -301,8 +301,8 @@ browserTest("the close button hides Orateur on the site behind a toast that can 
   await h.page.reload()
   await h.page.waitForSelector(reader)
   await h.click(hidePill)
-  const shown = await waitFor(() => h.shadow(reader, toast).then(value => value && !value.hidden && value), "A toast replaces the pill")
-  assert.match(shown.text, /Orateur hidden on this site/)
+  // The message is filled on the next frame, so screen readers announce it: wait for it.
+  await waitFor(() => h.shadow(reader, toast).then(value => value && !value.hidden && /Orateur hidden on this site/.test(value.text)), "A toast replaces the pill")
   await waitFor(async () => (await hiddenSites(h)).includes("127.0.0.1"), "The site is hidden at once")
   // Undo ignores pointer clicks in its first 500 ms (the second half of a double-click on ✕).
   await new Promise(resolve => setTimeout(resolve, 600))
