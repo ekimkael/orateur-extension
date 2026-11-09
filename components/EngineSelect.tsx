@@ -2,6 +2,7 @@ import { useTranslation } from "../hooks/useTranslation"
 import { useModelDownload } from "../hooks/useModelDownload"
 import type { Locale } from "../lib/i18n"
 import type { ReaderEngine } from "../lib/reader-prefs"
+import { toMegabytes } from "../lib/storage-size.ts"
 
 interface EngineSelectProps {
   value: ReaderEngine
@@ -19,7 +20,7 @@ interface EngineSelectProps {
 }
 
 function formatMb(bytes: number, locale: Locale) {
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(Math.round(bytes / (1024 * 1024)))
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(toMegabytes(bytes))
 }
 
 const CheckIcon = () => (

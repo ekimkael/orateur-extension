@@ -20,6 +20,7 @@ import { PronunciationSettings } from "../../components/PronunciationSettings"
 import { getSettingsSection, SettingsNav } from "./SettingsNav"
 import { clearModelCache, getModelCacheSize } from "../../lib/supertonic/model-cache.ts"
 import { clearPocketModelCache, getPocketModelCacheSize } from "../../lib/pocket/model-cache.ts"
+import { toMegabytes } from "../../lib/storage-size.ts"
 import { resolveLocale } from "../../lib/i18n"
 import { applyTheme } from "../../lib/theme"
 import { ORATEUR_ORIGIN } from "../../lib/handoff"
@@ -300,7 +301,7 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
 
             {(["pocket", "supertonic"] as const).map((engine) => {
               const bytes = cacheBytes[engine]
-              const cacheMb = bytes ? String(Math.max(1, Math.round(bytes / (engine === "pocket" ? 1_000_000 : 1024 * 1024)))) : null
+              const cacheMb = bytes ? String(Math.max(1, toMegabytes(bytes))) : null
               return (
                 <div className="row" key={engine} role="group" aria-labelledby={`cache-${engine}`}>
                   <span className="row-label" id={`cache-${engine}`}>{t(engine === "pocket" ? "enginePocket" : "engineNaturalAI")}</span>
