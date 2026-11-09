@@ -1,7 +1,7 @@
 /**
  * Première page React du dépôt (jalon 1b). Confinement volontaire : React ne
  * vit ici et dans le futur popup (jalon 4c), jamais dans un content script —
- * reader.content.ts et selection.content.ts tournent sur `<all_urls>` et
+ * reader.content/ et selection.content.ts tournent sur `<all_urls>` et
  * doivent rester vanilla et légers, comme le documente déjà tts-messages.ts
  * pour empêcher le moteur Supertonic de fuir dans leur bundle.
  */

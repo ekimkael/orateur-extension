@@ -46,7 +46,7 @@
       "type": "frontend",
       "label": "Reader pill",
       "sublabel": "view + listeners",
-      "tag": "reader.content.ts",
+      "tag": "reader.content/",
       "row": 1,
       "col": 0,
       "size": [

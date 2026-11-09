@@ -26,7 +26,7 @@ with a permissive policy to mimic an extension's isolated world — see finding 
    `INERT_SELECTORS` + `NOISE_PATTERN`, gate `isProbablyReaderable`, then
    Readability (`charThreshold: 120`) picks the best-scoring block.
 3. On throw: `visibleText(document)` flattens the **whole cloned body** (≥ 400 chars).
-4. Text goes to `reader.content.ts` with `title` (Readability's title, i.e.
+4. Text goes to `reader.content/` with `title` (Readability's title, i.e.
    the tab title minus the account suffix).
 
 Nothing is Gmail-aware: the message is found only if Readability happens to

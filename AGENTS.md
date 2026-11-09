@@ -46,7 +46,7 @@ Browser suites need `npm exec puppeteer browsers install chrome` (and `firefox`)
 
 ## Structure
 
-- `entrypoints/`: WXT entry points. `reader.content.ts` (reader pill wiring), `selection.content.ts` (selection bubble), `extract.content.ts` (article extractor, injected on demand), `background.ts`, `offscreen/` (Chrome TTS host), `options/` (React settings page).
+- `entrypoints/`: WXT entry points. `reader.content/` (reader pill: `index.ts` wiring, `pill.ts` view, `follower.ts` highlight, `styles.ts` CSS), `selection.content.ts` (selection bubble), `extract.content.ts` (article extractor, injected on demand), `background.ts`, `offscreen/` (Chrome TTS host), `options/` (React settings page).
 - `lib/`: logic, tested with `node --test`. `reading-session.ts` owns one tab's reading; `player.ts` is the engine contract; `system-player.ts` and `supertonic-player.ts` implement it; `tts-port.ts` and `tts-host.ts` are the TTS host; `extract-article.ts` wraps Readability; `speak-table.ts` turns small data tables into sentences.
 - `lib/supertonic/`: ONNX engine and OPFS model cache. `lib/pronunciation/`: number and personal-rule text preparation.
 - `components/`, `hooks/`: React UI for the options page.

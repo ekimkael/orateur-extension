@@ -172,7 +172,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   /**
    * Incrémenté à chaque `speak()`/`stop()` : une promesse d'une génération
    * révolue devient un no-op à son retour, plutôt que d'agir sur l'état de
-   * la lecture suivante. Même mécanisme que `generation` dans reader.content.ts.
+   * la lecture suivante. Même mécanisme que `generation` dans reader.content/.
    */
   let generation = 0
   let abort: AbortController | null = null

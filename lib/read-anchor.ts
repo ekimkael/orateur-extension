@@ -11,7 +11,7 @@
 
 /**
  * Dupliqué de `extract-article.ts` (TEXT_BLOCKS) plutôt qu'importé : ce module
- * est appelé par reader.content.ts, chargé sur toutes les pages, et
+ * est appelé par reader.content/, chargé sur toutes les pages, et
  * extract-article.ts tire Readability derrière lui.
  *
  * Les conteneurs des mails sont inclus : leur prose n'est pas toujours dans

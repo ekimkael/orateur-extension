@@ -8,7 +8,7 @@ it is generated with archify from [architecture.json](architecture.json).
 
 | Layer | Module | Owns |
 |---|---|---|
-| Wiring | `entrypoints/reader.content.ts` | The pill's DOM and CSS, the follower highlight, and the listeners that forward user actions, extension messages and page lifecycle to the session. |
+| Wiring | `entrypoints/reader.content/` | `pill.ts`: the pill's DOM (CSS in `styles.ts`). `follower.ts`: the paragraph highlight. `index.ts`: the listeners that forward user actions, extension messages and page lifecycle to the session. |
 | Session | `lib/reading-session.ts` | One tab's reading: the paragraph shown by the pill, saved progress, telemetry, the tab's reader token. Builds no DOM. |
 | Player factory | `lib/player-factory.ts` | Resolves the effective engine from the saved choice, text language and cache availability, then creates its player. |
 | Player contract | `lib/player.ts` | `start / pause / resume / seek / update / stop / dispose`, and the events an engine reports (`loading`, `playing`, `paused`, `ended`, `error`). |

@@ -35,7 +35,7 @@ export function VoicePicker({
       setSystemVoices(speechSynthesis.getVoices())
     }
     refresh()
-    // Chrome charge ses voix après coup — même repli que reader.content.ts.
+    // Chrome charge ses voix après coup — même repli que reader.content/.
     speechSynthesis.addEventListener("voiceschanged", refresh)
     return () => speechSynthesis.removeEventListener("voiceschanged", refresh)
   }, [])

@@ -8,7 +8,7 @@
  * host (`TTS_OPEN`) and forwards what the host cannot see by itself
  * (`TTS_TOKEN_CHANGED`, `TTS_TAB_REMOVED`).
  *
- * Seul module de ce lot que `reader.content.ts` a le droit d'importer avec
+ * Seul module de ce lot que `reader.content/` a le droit d'importer avec
  * `supertonic-lang.ts` : aucune dépendance vers `lib/supertonic/*` ni
  * `lib/tts-host.ts`, pour que le moteur ne fuie jamais dans le bundle chargé
  * sur toutes les pages. `SupertonicVoice` est importé en type-only depuis
@@ -114,7 +114,7 @@ export interface TtsControlMessage {
  *
  * tts-host.ts n'a pas accès à `browser.i18n` (voir son en-tête : il ne connaît
  * ni les onglets ni `browser.*`) — il émet la cause, pas le texte déjà traduit,
- * et c'est reader.content.ts qui la traduit au rendu, comme le reste de ses
+ * et c'est reader.content/ qui la traduit au rendu, comme le reste de ses
  * libellés.
  */
 export type TtsLoadingReason =
@@ -123,7 +123,7 @@ export type TtsLoadingReason =
   | "loading-voice"
   | "preparing-next"
 
-/** Reflète 1:1 les états de la pastille — voir PillState dans reader.content.ts. */
+/** Reflète 1:1 les états de la pastille — voir PillState dans reader.content/. */
 export type TtsState =
   | { phase: "loading"; reason?: TtsLoadingReason; progress?: number }
   // `block` est un index de PARAGRAPHE (celui de `splitBlocks`), pas d'unité
