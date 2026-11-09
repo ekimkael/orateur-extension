@@ -12,6 +12,30 @@ interface WorkerSession {
   cancelRequest?: () => void
 }
 
+/**
+ * A signal that aborts when either source does, with the first reason.
+ * `AbortSignal.any` would do it, but needs Chrome 116 / Firefox 124 and the
+ * manifest sets no minimum version. `release` detaches it from both sources,
+ * so the runtime's long-lived lifetime signal does not keep one listener per
+ * synthesized unit.
+ */
+export function eitherSignal(a: AbortSignal, b: AbortSignal): { signal: AbortSignal; release(): void } {
+  const controller = new AbortController()
+  const fromA = () => controller.abort(a.reason)
+  const fromB = () => controller.abort(b.reason)
+  const release = () => {
+    a.removeEventListener("abort", fromA)
+    b.removeEventListener("abort", fromB)
+  }
+  if (a.aborted) fromA()
+  else if (b.aborted) fromB()
+  else {
+    a.addEventListener("abort", fromA, { once: true })
+    b.addEventListener("abort", fromB, { once: true })
+  }
+  return { signal: controller.signal, release }
+}
+
 /** Load a single language model on demand and serialize requests on its worker. */
 export function createPocketRuntime() {
   let session: WorkerSession | undefined
@@ -83,7 +107,7 @@ export function createPocketRuntime() {
     language: PocketLanguage,
     options: { signal: AbortSignal; onProgress?: (state: Progress) => void; cacheOnly?: boolean },
   ): Promise<{ pcm: Float32Array; sampleRate: number }> {
-    const signal = AbortSignal.any([options.signal, lifetime.signal])
+    const { signal, release: unlink } = eitherSignal(options.signal, lifetime.signal)
     const run = queue.then(async () => {
       signal.throwIfAborted()
       const files = pocketModelFiles(language, voice)
@@ -132,7 +156,7 @@ export function createPocketRuntime() {
       if (!(pcm instanceof Float32Array) || !pcm.length) throw new Error("Pocket returned no audio")
       return { pcm, sampleRate: target.sampleRate }
     })
-    queue = run.then(() => {}, () => {})
+    queue = run.then(unlink, unlink)
     return run
   }
 
