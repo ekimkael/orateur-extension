@@ -68,6 +68,18 @@ export const PILL_CSS = charteTokens(".pill-row") + `
 .pill-status { flex: 1; min-width: 0; color: var(--muted-foreground); overflow-wrap: anywhere }
 .pill-percent { font-variant-numeric: tabular-nums; color: var(--muted-foreground) }
 .pill-controls { display: flex; align-items: center; gap: 4px }
+/* Hide toast: one short line and its Undo, in the pill's own surface. */
+.pill-toast { display: flex; align-items: center; gap: 8px; padding-left: 10px }
+.pill-toast-text { min-width: 0; overflow-wrap: anywhere }
+/* Foreground, not --primary: #f54e00 on the light theme's white card is 3.5:1. */
+.pill-toast-undo {
+  width: auto;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .pill-transport { display: flex; align-items: center; gap: 4px }
 .pill-meta { flex: 1; text-align: center; font-size: 12px; color: var(--muted-foreground); font-variant-numeric: tabular-nums }
 .pill-spacer { flex: 1 }

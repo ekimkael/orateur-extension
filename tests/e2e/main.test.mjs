@@ -209,6 +209,102 @@ browserTest("excluded sites hide the injected reader and can be restored", async
   await h.page.waitForSelector(reader)
 })
 
+const hidePill = "Stop showing Orateur on this site"
+const toast = ".pill-toast"
+const hiddenSites = h => h.options.evaluate(async () =>
+  (await (globalThis.browser ?? chrome).storage.local.get("orateur:hidden-sites"))["orateur:hidden-sites"] ?? [])
+const pillFocus = h => h.script(() => {
+  const host = document.querySelector("orateur-reader-pill")
+  const root = globalThis.chrome?.dom?.openOrClosedShadowRoot(host) ?? host.openOrClosedShadowRoot
+  return root.activeElement?.getAttribute("aria-label") ?? null
+})
+
+browserTest("the close button hides Orateur on the site behind a toast that can undo it", async h => {
+  await h.install()
+  await h.options.evaluate(() => {
+    globalThis.__pillEvents = []
+    ;(globalThis.browser ?? chrome).runtime.onMessage.addListener(message => {
+      if (message?.type === "orateur:telemetry:track") globalThis.__pillEvents.push(message.event)
+    })
+  })
+  await h.page.reload()
+  await h.page.waitForSelector(reader)
+  await h.click(hidePill)
+  const shown = await waitFor(() => h.shadow(reader, toast).then(value => value && !value.hidden && value), "A toast replaces the pill")
+  assert.match(shown.text, /Orateur hidden on this site/)
+  await waitFor(async () => (await hiddenSites(h)).includes("127.0.0.1"), "The site is hidden at once")
+  // Undo ignores pointer clicks in its first 500 ms (the second half of a double-click on ✕).
+  await new Promise(resolve => setTimeout(resolve, 600))
+  await h.click("Undo")
+  await waitFor(() => h.shadow(reader, `button[aria-label="${read}"]`).then(value => value?.width > 0), "Undo brings the pill back")
+  await waitFor(async () => (await hiddenSites(h)).length === 0, "Undo removes the site")
+  assert.equal((await h.shadow(reader, toast))?.hidden ?? true, true, "The toast is gone")
+  assert.deepEqual(await h.options.evaluate(() => globalThis.__pillEvents), [{ name: "pill_hidden" }, { name: "pill_hide_undone" }])
+})
+
+browserTest("the hide toast leaves after five seconds, or at once with Escape, and the site stays hidden", async h => {
+  await h.install()
+  await h.page.reload()
+  await h.page.waitForSelector(reader)
+  await h.click(hidePill)
+  await waitFor(() => h.shadow(reader, toast), "The toast is shown")
+  await waitFor(() => h.page.$(reader).then(host => !host), "The toast leaves and the pill is detached", 9_000)
+  assert.deepEqual(await hiddenSites(h), ["127.0.0.1"])
+
+  await h.options.evaluate(() => (globalThis.browser ?? chrome).storage.local.set({ "orateur:hidden-sites": [] }))
+  await h.page.waitForSelector(reader)
+  await h.page.bringToFront()
+  await h.page.click("h1")
+  for (let presses = 0; presses < 4 && await pillFocus(h) !== hidePill; presses++) await h.page.keyboard.press("Tab")
+  assert.equal(await pillFocus(h), hidePill, "The close button is reachable by keyboard")
+  await h.page.keyboard.press("Enter")
+  await waitFor(async () => await pillFocus(h) === "Undo", "Keyboard focus moves to Undo")
+  await h.page.keyboard.press("Escape")
+  await waitFor(() => h.page.$(reader).then(host => !host), "Escape closes the toast at once")
+  assert.deepEqual(await hiddenSites(h), ["127.0.0.1"])
+})
+
+browserTest("keyboard focus holds the hide toast, and leaving it resumes the countdown", async h => {
+  await h.install()
+  await h.page.reload()
+  await h.page.waitForSelector(reader)
+  await h.page.bringToFront()
+  await h.page.click("h1")
+  for (let presses = 0; presses < 4 && await pillFocus(h) !== hidePill; presses++) await h.page.keyboard.press("Tab")
+  await h.page.keyboard.press("Enter")
+  await waitFor(async () => await pillFocus(h) === "Undo", "Keyboard focus moves to Undo")
+  await new Promise(resolve => setTimeout(resolve, 5_500))
+  assert.ok(await h.shadow(reader, toast), "Focus on Undo holds the toast past five seconds")
+  await h.page.keyboard.press("Tab")
+  await new Promise(resolve => setTimeout(resolve, 1_000))
+  assert.ok(await h.page.$(reader), "Leaving the toast resumes the countdown instead of ending it at once")
+  await waitFor(() => h.page.$(reader).then(host => !host), "The toast leaves once the countdown ends", 9_000)
+})
+
+browserTest("a double click on the close button keeps the site hidden", async h => {
+  await h.install()
+  await h.page.reload()
+  await h.page.waitForSelector(reader)
+  await h.page.bringToFront()
+  const close = await waitFor(() => h.shadow(reader, `button[aria-label="${hidePill}"]`), "Close button")
+  await h.page.mouse.click(close.x, close.y, { count: 2 })
+  await new Promise(resolve => setTimeout(resolve, 300))
+  assert.ok(await h.shadow(reader, toast), "The second click does not undo")
+  assert.deepEqual(await hiddenSites(h), ["127.0.0.1"])
+})
+
+browserTest("hiding from the error card shows only the toast", async h => {
+  await h.install()
+  await h.page.goto(`${h.url}/empty`)
+  await h.page.waitForSelector(reader)
+  await h.click(read)
+  await waitFor(() => h.shadow(reader, '[role="alert"]'), "Visible reading error")
+  await h.click(hidePill)
+  await waitFor(() => h.shadow(reader, toast).then(value => value && !value.hidden), "The toast is shown")
+  assert.equal((await h.shadow(reader, ".pill-content"))?.hidden, true, "The error text gives way to the toast")
+  assert.equal(await h.page.$eval(reader, host => host.hasAttribute("data-expanded")), false, "The card folds into the toast")
+})
+
 browserTest("an unavailable neural model shows an error and keeps retry available", async h => {
   await h.install()
   await h.options.click('a[href="#voix"]')

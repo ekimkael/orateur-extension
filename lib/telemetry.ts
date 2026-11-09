@@ -93,6 +93,10 @@ export type TelemetryEvent =
   | { name: "pocket_download_completed"; properties?: undefined }
   | { name: "pocket_download_failed"; properties: { reason: "http" | "network" | "unknown" } }
   | { name: "extraction_failed"; properties: { reason: "not_injectable" | "not_article" | "pdf" | "fallback_text" } }
+  /** The pill's close button hid Orateur on a site; the site itself is never sent. */
+  | { name: "pill_hidden"; properties?: undefined }
+  /** That hide was undone from the toast. */
+  | { name: "pill_hide_undone"; properties?: undefined }
 
 export interface TelemetryTrackMessage {
   type: typeof TELEMETRY_TRACK
@@ -163,6 +167,8 @@ function isTelemetryEvent(value: unknown): value is TelemetryEvent {
     case "supertonic_download_completed":
     case "pocket_download_started":
     case "pocket_download_completed":
+    case "pill_hidden":
+    case "pill_hide_undone":
       return properties === undefined
     case "read_started":
     case "read_completed":

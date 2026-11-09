@@ -81,6 +81,7 @@ extension sends a limited set of events to [PostHog](https://posthog.com):
 - Choosing Supertonic in the reading pill, and model download starts,
   completions or failures with a fixed failure category.
 - Extraction failures or fallbacks with a fixed category.
+- Hiding Orateur on a site from the reading pill, and undoing it; the site is never sent.
 
 Each event includes the extension version and, when available, the browser
 name and its major version. The raw User-Agent is not included in event

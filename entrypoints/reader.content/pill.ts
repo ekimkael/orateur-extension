@@ -42,6 +42,12 @@ function applyPosition(position: PillPosition, host: HTMLElement) {
   host.dataset.orateurPosition = safe
 }
 
+/** How long the hide toast offers to undo, not counting hover, focus or a hidden tab. */
+const HIDE_TOAST_DELAY = 5000
+
+/** Pointer clicks on Undo sooner than this after the toast shows are ignored (OS double-click window). */
+const UNDO_GUARD = 500
+
 /** Libellé et intitulé accessible de chaque bouton, état par état. */
 const LABELS: Record<PillState, { primary: string; secondary: string }> = {
   idle: { primary: "play", secondary: "x" },
@@ -148,7 +154,13 @@ export function createPill(
   meta.className = "pill-meta"
   const spacer = document.createElement("span")
   spacer.className = "pill-spacer"
-  const secondary = button(onSecondary)
+  // `detail === 0` marks a keyboard activation: only then does the hide toast
+  // take the focus, so a mouse user's toast is never held open by focus.
+  let secondaryByKeyboard = false
+  const secondary = button((event) => {
+    secondaryByKeyboard = event.detail === 0
+    onSecondary()
+  })
   secondary.className = "pill-secondary"
   const settings = button((event) => togglePopover(event.detail === 0))
   settings.className = "pill-settings"
@@ -174,6 +186,54 @@ export function createPill(
   popover.setAttribute("role", "group")
   popover.setAttribute("aria-label", browser.i18n.getMessage("ariaReadingSettings"))
   row.append(popover)
+
+  /**
+   * Replaces the controls once the close button hid Orateur on the site
+   * (`confirmHidden`): it says so and offers to undo for `HIDE_TOAST_DELAY`.
+   */
+  const toast = document.createElement("div")
+  toast.className = "pill-toast"
+  toast.setAttribute("role", "status")
+  toast.hidden = true
+  const toastText = document.createElement("span")
+  toastText.className = "pill-toast-text"
+  toastText.id = "orateur-hidden-toast"
+  // Undo appears where ✕ was: a pointer click this soon is the second half of
+  // a double-click on ✕, not a decision. The keyboard (`detail === 0`) is exempt.
+  const undo = button((event) => {
+    if (event.detail > 0 && performance.now() - hideShownAt < UNDO_GUARD) return
+    undoHide?.()
+  })
+  undo.className = "pill-toast-undo"
+  undo.textContent = browser.i18n.getMessage("readerHiddenUndo")
+  undo.setAttribute("aria-label", undo.textContent)
+  undo.setAttribute("aria-describedby", toastText.id)
+  toast.append(toastText, undo)
+  row.append(toast)
+  /** Set while the toast shows; each ends it, with or without detaching the pill. */
+  let undoHide: (() => void) | null = null
+  let endHide: ((detach: boolean) => void) | null = null
+  let hideTimer: ReturnType<typeof setTimeout> | undefined
+  let hideRemaining = 0
+  let hideStarted = 0
+  let hideShownAt = 0
+  /** Hover, focus and a hidden tab each hold the countdown until they all end. */
+  const hidePauses = new Set<"hover" | "focus" | "tab">()
+  const onHideVisibility = () => document.hidden ? pauseHide("tab") : resumeHide("tab")
+  // A move, not `pointerenter`: the toast appears under the cursor that just
+  // clicked ✕, and a still cursor must not hold it open.
+  toast.addEventListener("pointermove", () => pauseHide("hover"))
+  toast.addEventListener("pointerleave", () => resumeHide("hover"))
+  toast.addEventListener("focusin", () => pauseHide("focus"))
+  toast.addEventListener("focusout", (event) => {
+    if (!toast.contains(event.relatedTarget as Node | null)) resumeHide("focus")
+  })
+  toast.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !endHide) return
+    event.preventDefault()
+    event.stopPropagation()
+    endHide(true)
+  })
 
   let currentPrefs = initialPrefs
   let isPopoverOpen = false
@@ -575,12 +635,104 @@ export function createPill(
   if (attached) attach()
   setState("idle")
 
+  /**
+   * Shows the hide toast in place of the controls. The site is already hidden
+   * (optimistic): `onUndo` reverts that, the toast only reports it. Without an
+   * action the toast leaves after `HIDE_TOAST_DELAY` and the pill is detached.
+   */
+  function confirmHidden(onUndo: () => void) {
+    if (endHide) return
+    const keyboard = secondaryByKeyboard
+    if (isPopoverOpen) closePopover(true)
+    // The error card folds too: the toast replaces the whole pill.
+    animateLayout(() => {
+      row.toggleAttribute("data-toast", true)
+      host.removeAttribute("data-expanded")
+      row.removeAttribute("data-active")
+      content.hidden = true
+      controls.hidden = true
+      toast.hidden = false
+      toastText.textContent = ""
+    })
+    hideShownAt = performance.now()
+    // Filled after the region shows, so screen readers announce the change.
+    requestAnimationFrame(() => {
+      if (endHide) toastText.textContent = browser.i18n.getMessage("readerHiddenToast")
+    })
+    hideRemaining = HIDE_TOAST_DELAY
+    hidePauses.clear()
+    document.addEventListener("visibilitychange", onHideVisibility)
+    endHide = (detach) => {
+      clearTimeout(hideTimer)
+      hidePauses.clear()
+      document.removeEventListener("visibilitychange", onHideVisibility)
+      undoHide = endHide = null
+      const restore = () => {
+        row.removeAttribute("data-toast")
+        toast.hidden = true
+        toastText.textContent = ""
+        controls.hidden = false
+        row.toggleAttribute("data-active", currentState !== "idle")
+        updateLayout()
+      }
+      if (!detach) return animateLayout(restore)
+      let exit: Animation | undefined
+      const done = () => {
+        settleMotion()
+        host.remove()
+        // `fill: forwards` held the faded frame until the removal; drop it so a
+        // later `attach()` (site restored from Settings) shows the pill.
+        exit?.cancel()
+        restore()
+      }
+      if (!host.isConnected || typeof row.animate !== "function") return done()
+      const frames = reducedMotion.matches
+        ? [{ opacity: 1 }, { opacity: 0 }]
+        : [{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(0.95)" }]
+      exit = row.animate(frames, { duration: 150, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "forwards" })
+      void exit.finished.then(done, done)
+    }
+    undoHide = () => {
+      const hadFocus = toast.contains(root.activeElement)
+      endHide?.(false)
+      onUndo()
+      if (hadFocus) secondary.focus()
+    }
+    // Start the countdown first: a pause measures the time already elapsed.
+    scheduleHide()
+    if (document.hidden) pauseHide("tab")
+    if (keyboard) undo.focus()
+  }
+
+  function scheduleHide() {
+    clearTimeout(hideTimer)
+    if (!endHide || hidePauses.size) return
+    hideStarted = Date.now()
+    hideTimer = setTimeout(() => endHide?.(true), Math.max(0, hideRemaining))
+  }
+
+  function pauseHide(reason: "hover" | "focus" | "tab") {
+    if (!endHide || hidePauses.has(reason)) return
+    if (!hidePauses.size) {
+      clearTimeout(hideTimer)
+      hideRemaining -= Date.now() - hideStarted
+    }
+    hidePauses.add(reason)
+  }
+
+  function resumeHide(reason: "hover" | "focus" | "tab") {
+    if (hidePauses.delete(reason)) scheduleHide()
+  }
+
   function setState(
     state: PillState,
     title?: string,
     interruptible = false,
     loadingInfo?: { label: string; percent?: number; reason?: TtsLoadingReason }
   ) {
+    // A reading started meanwhile (context menu) needs the controls back; the
+    // site stays hidden, as when a reading starts on an excluded site.
+    if (endHide && state !== "idle") endHide(false)
     const playbackStates = ["playing", "paused"]
     const layoutChanged = state !== currentState &&
       !(playbackStates.includes(state) && playbackStates.includes(currentState))
@@ -677,14 +829,23 @@ export function createPill(
     // extérieur et à Échap — un site exclu peut alterner détaché/rattaché
     // toute la session, `remove` ne devant jouer qu'une fois, au déchargement.
     detach: () => {
+      // The hide toast detaches the pill itself once it leaves; the hidden
+      // site's storage change must not cut it short.
+      // shortcut: a site restored from another tab during those 5 s is still
+      // detached here until the page reloads; track the sites if that matters.
+      if (endHide) return
       settleMotion()
       host.remove()
     },
+    confirmHidden,
     setState,
     setPosition,
     /** Resolves once the running transition ends, or is cancelled by the next one. */
     settled: () => Promise.all(animations.map((animation) => animation.finished)).then(() => {}, () => {}),
     remove: () => {
+      clearTimeout(hideTimer)
+      document.removeEventListener("visibilitychange", onHideVisibility)
+      undoHide = endHide = null
       settleMotion()
       document.removeEventListener("click", onDocumentClick, true)
       document.removeEventListener("keydown", onDocumentKeydown, true)

@@ -331,6 +331,8 @@ test("le catalogue accepte uniquement ses événements et leurs propriétés fer
     { name: "pocket_download_completed" },
     ...["http", "network", "unknown"].map((reason) => ({ name: "pocket_download_failed", properties: { reason } })),
     ...["not_injectable", "not_article", "pdf", "fallback_text"].map((reason) => ({ name: "extraction_failed", properties: { reason } })),
+    { name: "pill_hidden" },
+    { name: "pill_hide_undone" },
   ]
   await withRequests(async (requests) => {
     for (const event of events) await handleTelemetryTrack(event, CONFIG)
@@ -363,6 +365,9 @@ test("refuse événements malformés, champs libres et version fournie par le co
     { name: "pocket_download_failed", properties: { reason: "HTTP 503 for tokenizer.json" } },
     { name: "pocket_download_started", properties: { engine: "pocket" } },
     { name: "pocket_offered" },
+    // The hidden site must never travel with the event.
+    { name: "pill_hidden", properties: { site: "example.com" } },
+    { name: "pill_hide_undone", properties: {} },
     { name: "telemetry_enabled", properties: { distinct_id: "autre-id" } },
   ]
   await withRequests(async (requests) => {

@@ -65,6 +65,12 @@
   "ariaHidePill": {
     "message": "Ne plus afficher Orateur sur ce site"
   },
+  "readerHiddenToast": {
+    "message": "Orateur masqué sur ce site"
+  },
+  "readerHiddenUndo": {
+    "message": "Annuler"
+  },
   "ariaExtracting": {
     "message": "Extraction de l'article…"
   },
