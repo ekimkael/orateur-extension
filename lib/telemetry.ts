@@ -89,6 +89,9 @@ export type TelemetryEvent =
   | { name: "supertonic_download_started"; properties?: undefined }
   | { name: "supertonic_download_completed"; properties?: undefined }
   | { name: "supertonic_download_failed"; properties: { reason: "http" | "network" | "unknown" } }
+  | { name: "pocket_download_started"; properties?: undefined }
+  | { name: "pocket_download_completed"; properties?: undefined }
+  | { name: "pocket_download_failed"; properties: { reason: "http" | "network" | "unknown" } }
   | { name: "extraction_failed"; properties: { reason: "not_injectable" | "not_article" | "pdf" | "fallback_text" } }
 
 export interface TelemetryTrackMessage {
@@ -158,6 +161,8 @@ function isTelemetryEvent(value: unknown): value is TelemetryEvent {
     case "supertonic_offered":
     case "supertonic_download_started":
     case "supertonic_download_completed":
+    case "pocket_download_started":
+    case "pocket_download_completed":
       return properties === undefined
     case "read_started":
     case "read_completed":
@@ -171,9 +176,10 @@ function isTelemetryEvent(value: unknown): value is TelemetryEvent {
         ["synthesis", "audio_playback", "preparation"].includes(properties.reason as string)
     }
     case "supertonic_download_failed":
+    case "pocket_download_failed":
     case "extraction_failed": {
       if (!isRecord(properties) || !hasExactKeys(properties, ["reason"])) return false
-      const reasons = value.name === "supertonic_download_failed"
+      const reasons = value.name !== "extraction_failed"
         ? ["http", "network", "unknown"]
         : ["not_injectable", "not_article", "pdf", "fallback_text"]
       return reasons.includes(properties.reason as string)

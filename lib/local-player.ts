@@ -76,7 +76,7 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
   let disposed = false
   /**
    * True once a `reason: "downloading-model"` is seen during this reading,
-   * so `supertonic_download_completed`/`_failed` (telemetry, milestone 1c)
+   * so `<engine>_download_completed`/`_failed` (telemetry, milestone 1c)
    * count only real downloads, not every reading that finds the model cached.
    */
   let sawDownload = false
@@ -133,9 +133,9 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
       // Telemetry (milestone 1c): once per reading, on the first
       // "downloading-model"; later progress ticks take this same branch
       // without firing the event again.
-      if (engine === "supertonic" && state.reason === "downloading-model" && !sawDownload) {
+      if (state.reason === "downloading-model" && !sawDownload) {
         sawDownload = true
-        track({ name: "supertonic_download_started" })
+        track({ name: `${engine}_download_started` })
       }
       emit({ phase: "loading", reason: state.reason, progress: state.progress })
     } else if (state.phase === "playing") {
@@ -144,7 +144,7 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
       emit({ phase: "playing", block: state.block, total: state.total })
       if (sawDownload) {
         sawDownload = false
-        track({ name: "supertonic_download_completed" })
+        track({ name: `${engine}_download_completed` })
       }
     } else if (state.phase === "paused") {
       paused = true
@@ -163,7 +163,7 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
       })
       if (sawDownload) {
         sawDownload = false
-        track({ name: "supertonic_download_failed", properties: { reason: classifyTtsError(state.message) } })
+        track({ name: `${engine}_download_failed`, properties: { reason: classifyTtsError(state.message) } })
       }
     }
   }

@@ -191,7 +191,10 @@ export function createPocketTtsHost(
     void run(reading, block, controller.signal).catch((error: unknown) => {
       if (controller.signal.aborted) return
       controller.abort()
-      onState({ phase: "error", message: "Pocket playback failed", reason: error instanceof AudioPlaybackError ? "audio-playback" : undefined })
+      // The cause lets telemetry classify a failed download (HTTP, network);
+      // the pill shows its own translated message for Pocket, never this one.
+      const message = error instanceof Error && error.message ? error.message : "Pocket playback failed"
+      onState({ phase: "error", message, reason: error instanceof AudioPlaybackError ? "audio-playback" : undefined })
     })
   }
 

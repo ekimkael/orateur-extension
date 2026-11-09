@@ -98,9 +98,12 @@ for browser scenarios, network isolation and audio-test limitations.
 | `read_completed` | The reader reaches the end after audio starts; `engine` and `had_errors`. Users can skip passages, and some passages may fail, so this does not prove the whole article was heard. |
 | `read_failed` | Reading failure, at most once per session; `engine` and `reason`: `synthesis`, `audio_playback` or `preparation`. |
 | `supertonic_offered` | The user chooses Supertonic in the reading pill's settings. |
-| `supertonic_download_started` | Model download begins during a reading. |
+| `supertonic_download_started` | Supertonic model download begins during a reading. |
 | `supertonic_download_completed` | That model download completes. |
 | `supertonic_download_failed` | That model download fails; `reason`: `http`, `network` or `unknown`. |
+| `pocket_download_started` | Pocket model download begins during a reading. A reading that finds the model cached emits nothing. |
+| `pocket_download_completed` | That Pocket download completes, at the reading's first sound. |
+| `pocket_download_failed` | That Pocket download fails; `reason`: `http`, `network` or `unknown`. |
 | `extraction_failed` | Extraction fails or falls back; `reason`: `not_injectable`, `not_article`, `pdf` or `fallback_text`. |
 
 These are the events emitted by the main extension. Downloads started

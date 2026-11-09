@@ -99,7 +99,22 @@ test("Pocket sends its own voice and never sends pronunciation or Supertonic dow
   assert.equal(request.text, [EN, EN, EN].join("\n\n"))
   assert.equal("personalRules" in request, false)
   host({ phase: "loading", reason: "downloading-model", progress: 50 })
+  host({ phase: "loading", reason: "downloading-model", progress: 80 })
   host({ phase: "playing", block: 1, total: 3 })
+  // Pocket counts its own download, never under Supertonic's events.
+  assert.deepEqual(kinds(), [TTS_OPEN, "pocket_download_started", "pocket_download_completed"])
+})
+
+test("a failed Pocket download is counted with a closed reason; a cached Pocket model counts nothing", async () => {
+  const failed = await read({ pocket: true })
+  failed.host({ phase: "loading", reason: "downloading-model", progress: 10 })
+  failed.host({ phase: "error", message: "HTTP 503 for tokenizer.json" })
+  assert.deepEqual(sent.filter((message) => message.event).map((message) => message.event),
+    [{ name: "pocket_download_started" }, { name: "pocket_download_failed", properties: { reason: "http" } }])
+
+  const cached = await read({ pocket: true })
+  cached.host({ phase: "loading", reason: "loading-engine" })
+  cached.host({ phase: "playing", block: 1, total: 3 })
   assert.deepEqual(kinds(), [TTS_OPEN])
 })
 

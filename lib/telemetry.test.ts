@@ -327,6 +327,9 @@ test("le catalogue accepte uniquement ses événements et leurs propriétés fer
     { name: "supertonic_download_started" },
     { name: "supertonic_download_completed" },
     ...["http", "network", "unknown"].map((reason) => ({ name: "supertonic_download_failed", properties: { reason } })),
+    { name: "pocket_download_started" },
+    { name: "pocket_download_completed" },
+    ...["http", "network", "unknown"].map((reason) => ({ name: "pocket_download_failed", properties: { reason } })),
     ...["not_injectable", "not_article", "pdf", "fallback_text"].map((reason) => ({ name: "extraction_failed", properties: { reason } })),
   ]
   await withRequests(async (requests) => {
@@ -356,6 +359,10 @@ test("refuse événements malformés, champs libres et version fournie par le co
     { name: "read_failed", properties: { engine: "system", reason: "texte libre" } },
     { name: "extraction_failed", properties: { reason: "https://example.com" } },
     { name: "supertonic_download_failed", properties: { reason: "network", error: "texte libre" } },
+    { name: "pocket_download_failed", properties: { reason: "network", error: "free text" } },
+    { name: "pocket_download_failed", properties: { reason: "HTTP 503 for tokenizer.json" } },
+    { name: "pocket_download_started", properties: { engine: "pocket" } },
+    { name: "pocket_offered" },
     { name: "telemetry_enabled", properties: { distinct_id: "autre-id" } },
   ]
   await withRequests(async (requests) => {

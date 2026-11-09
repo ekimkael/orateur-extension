@@ -193,3 +193,12 @@ test("Pocket does not re-request a live paragraph that is already prepared", asy
   assert.deepEqual(prepared, [[0, false], [1, true]])
   host.dispose?.()
 })
+
+test("Pocket reports why synthesis failed, so a download error can be classified", async () => {
+  const { host, states, jobs } = setup()
+  host.speak(request)
+  await settle()
+  jobs[0]!.result.reject(new Error("Pocket model download failed (HTTP 503)"))
+  await settle()
+  assert.deepEqual(states.at(-1), { phase: "error", message: "Pocket model download failed (HTTP 503)", reason: undefined })
+})
