@@ -1,13 +1,11 @@
 /**
- * L'hôte Supertonic côté Chrome : un document offscreen, seul contexte MV3
- * capable de DOM + `<audio>` hors d'un onglet. Les lectures s'y connectent
- * directement par port (`lib/tts-port.ts`) ; le service worker ne fait que
- * l'ouvrir et lui relayer ce qu'il ne voit pas — ce document n'a que
- * `chrome.runtime`, ni `tabs` ni `storage` (vérifié en phase 0). Sur Firefox,
- * l'hôte vit directement dans la page de fond (voir background.ts) : ce
- * fichier n'existe pas là-bas.
+ * The local speech host on Chrome runs in an offscreen document so it can
+ * play audio outside a tab. Readers connect directly through a port
+ * (`lib/tts-port.ts`). The service worker opens the document and forwards
+ * tab and storage events. Firefox runs the host in its background page.
  */
 import { createTtsHost } from "../../lib/tts-host"
+import { createPocketTtsHost } from "../../lib/pocket-tts-host"
 import { createTtsServer } from "../../lib/tts-port"
 import { loadModelFiles } from "../../lib/supertonic/model-cache"
 import {
@@ -98,10 +96,16 @@ async function runModelDownload() {
   }
 }
 
-const server = createTtsServer((forward) => createTtsHost((state) => {
-  scheduleIdleClose()
-  forward(state)
-}))
+const server = createTtsServer(
+  (forward) => createTtsHost((state) => {
+    scheduleIdleClose()
+    forward(state)
+  }),
+  (forward) => createPocketTtsHost((state) => {
+    scheduleIdleClose()
+    forward(state)
+  }),
+)
 browser.runtime.onConnect.addListener(server.connect)
 
 // Un document sans lecture ne doit pas non plus rester ouvert indéfiniment

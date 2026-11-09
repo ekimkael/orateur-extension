@@ -39,15 +39,16 @@ at the bottom of the screen to pause, adjust speed, or change voice.
 Right-click a paragraph and choose "Read from here" to start there when
 Orateur can match it to the extracted article.
 
-━━ Two voices, your choice ━━
+━━ Three speech engines ━━
 
 • Your system's voice, ready instantly, nothing to download. Some system
   voices use their provider's online service.
-• Supertonic, a noticeably more natural neural voice that runs entirely on
-  your machine, selected by default on new installations. Updates keep your
-  existing engine. Its models download on first playback or when you request
-  the download in settings (about 400 MB), then it works offline. Budget a
-  few minutes for that first download.
+• Pocket TTS, the default for new installations, reads French and English
+  locally. The first reading in each language downloads about 140 MB for
+  offline use. Updates preserve your engine and voices.
+• Supertonic, a local neural engine with ten voices, downloads about 400 MB
+  on first playback or when requested in settings. Personal pronunciation
+  rules are available with Supertonic and system voices.
 
 ━━ Send to Orateur ━━
 
@@ -64,8 +65,8 @@ selected text to Orateur to listen later.
 
 ━━ Privacy ━━
 
-No account needed for in-page reading. Supertonic processes text locally after
-its model download; system voice privacy depends on the selected voice provider.
+No account needed for in-page reading. Pocket TTS and Supertonic process text
+locally after model download. System voice privacy depends on the voice provider.
 Page text is sent to the Orateur web app only when you choose to save it there.
 Usage statistics
 are on by default and can be turned off in Settings → Privacy. They use a
@@ -118,9 +119,9 @@ demand, only when the user asks for a reading or a send to Orateur.
 ### `unlimitedStorage`
 
 ```
-The local speech engine (Supertonic) keeps about 400 MB of ONNX models in the
-extension's OPFS after playback or a download request. Without this permission, the
-per-origin quota can evict them and force a full re-download.
+The local speech engines cache model files in extension storage. Pocket TTS
+uses about 140 MB per downloaded language and Supertonic uses about 400 MB.
+The permission helps retain the files for offline playback.
 ```
 
 ### `offscreen`

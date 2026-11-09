@@ -36,6 +36,7 @@ import {
   TTS_OPEN,
   TTS_TAB_REMOVED,
   TTS_TOKEN_CHANGED,
+  type ModelCacheQueryMessage,
   type ModelProgressState,
 } from "../lib/tts-messages"
 import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessage } from "../lib/telemetry"
@@ -45,7 +46,10 @@ import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessag
 // (entrypoints/offscreen/main.ts) — jamais ici, où il alourdirait le service
 // worker pour rien.
 import { createTtsHost } from "../lib/tts-host"
+import { createPocketTtsHost } from "../lib/pocket-tts-host"
 import { createTtsServer } from "../lib/tts-port"
+import { isPocketVoice, toPocketLanguage } from "../lib/pocket/catalog"
+import { isPocketModelCached } from "../lib/pocket/model-cache"
 import { seedEngine } from "../lib/reader-prefs"
 // Même garde `import.meta.env.FIREFOX` : côté Chrome, c'est le document
 // offscreen qui appelle loadModelFiles(), jamais ce fichier.
@@ -98,7 +102,7 @@ async function ensureOffscreen(): Promise<boolean> {
     .createDocument({
       url: "offscreen.html",
       reasons: ["WORKERS"],
-      justification: "Synthèse et lecture Supertonic hors d'un onglet.",
+      justification: "Local speech synthesis and playback outside the reading tab.",
     })
     .catch((e: unknown) => console.error("[orateur] offscreen KO", e))
   return api.hasDocument()
@@ -106,7 +110,7 @@ async function ensureOffscreen(): Promise<boolean> {
 
 /** L'hôte Firefox — une seule instance, gardée en mémoire par la page de fond persistante. */
 let firefoxServer: ReturnType<typeof createTtsServer> | null = null
-const ensureFirefoxServer = () => (firefoxServer ??= createTtsServer(createTtsHost))
+const ensureFirefoxServer = () => (firefoxServer ??= createTtsServer(createTtsHost, createPocketTtsHost))
 
 /**
  * Téléchargement explicite du modèle depuis la page d'options (jalon 1d).
@@ -214,7 +218,7 @@ export default defineBackground({
       contexts: ["page", "link"],
     })
 
-    if (details.reason === "install") void seedEngine("supertonic")
+    if (details.reason === "install") void seedEngine("pocket")
     else if (details.reason === "update") void seedEngine("system")
 
     if (details.reason === "install") {
@@ -302,9 +306,19 @@ export default defineBackground({
 
   // Content scripts share the page's OPFS; only extension contexts can inspect this cache.
   browser.runtime.onMessage.addListener(
-    (message: { type?: string }, _sender, sendResponse) => {
+    (message: Partial<ModelCacheQueryMessage>, _sender, sendResponse) => {
       if (message?.type !== MODEL_CACHE_QUERY) return
-      void isModelCached().then(sendResponse)
+      if (message.engine === "pocket") {
+        const lang = typeof message.lang === "string" ? toPocketLanguage(message.lang) : null
+        if ((message.lang !== undefined && !lang) ||
+          (message.voice !== undefined && !isPocketVoice(message.voice))) {
+          sendResponse(false)
+          return
+        }
+        void isPocketModelCached(lang ?? undefined, message.voice).then(sendResponse, () => sendResponse(false))
+      } else {
+        void isModelCached().then(sendResponse, () => sendResponse(false))
+      }
       return true
     }
   )

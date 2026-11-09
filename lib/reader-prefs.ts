@@ -1,6 +1,9 @@
 import type { SupertonicVoice } from "./supertonic/types.ts"
+import { DEFAULT_POCKET_VOICE, isPocketVoice, type PocketVoice } from "./pocket/catalog.ts"
+import { ENGINE_CAPABILITIES } from "./engine-capabilities.ts"
 
-export type ReaderEngine = "system" | "supertonic"
+/** Speech engines available to the reader. */
+export type ReaderEngine = "system" | "supertonic" | "pocket"
 
 export type PillPosition =
   | "top-left"
@@ -15,11 +18,11 @@ export type PillPosition =
  *
  * `speechSynthesis` refuse un `rate` hors [0.1, 10] en levant : la borne est
  * bien plus serrée ici, une lecture au-delà n'étant plus intelligible. Même
- * plage pour Supertonic (`audio.playbackRate`) : un seul curseur pour les
- * deux moteurs.
+ * plage pour les moteurs locaux (`audio.playbackRate`).
  */
 export const SPEED = { min: 0.8, max: 1.5, step: 0.1 } as const
 
+/** Reading settings stored per browser profile. */
 export interface ReaderPreferences {
   engine: ReaderEngine
   speed: number
@@ -31,6 +34,8 @@ export interface ReaderPreferences {
    * navigateur choisir ».
    */
   supertonicVoice: SupertonicVoice
+  /** Independent of the user's system and Supertonic voice choices. */
+  pocketVoice: PocketVoice
   /**
    * Suivre la lecture sur la page : surligner le paragraphe lu et l'amener
    * dans le champ de vision.
@@ -45,36 +50,51 @@ export interface ReaderPreferences {
 }
 
 const PREFS_KEY = "orateur:reader-prefs"
+let pendingWrite = Promise.resolve()
 const DEFAULT_PREFS: ReaderPreferences = {
   engine: "supertonic",
   speed: 1,
   voiceURI: null,
   supertonicVoice: "F1",
+  pocketVoice: DEFAULT_POCKET_VOICE,
   follow: true,
   position: "bottom-right",
 }
 
-export async function loadPrefs(): Promise<ReaderPreferences> {
-  const data = await browser.storage.local.get(PREFS_KEY)
-  const stored = data[PREFS_KEY] as Partial<ReaderPreferences> | undefined
+function normalizePrefs(value: unknown): ReaderPreferences {
+  const stored = value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Partial<ReaderPreferences>
+    : undefined
   const prefs = { ...DEFAULT_PREFS, ...stored }
-  // Le storage n'est pas une source sûre : une version précédente de
-  // l'extension ou une édition manuelle peut y laisser une vitesse que la
-  // synthèse refuserait, et l'exception tomberait au `speak()`.
-  return { ...prefs, speed: clampSpeed(prefs.speed) }
+  // Stored values can come from older builds or manual edits.
+  return {
+    ...prefs,
+    engine: typeof prefs.engine === "string" && Object.hasOwn(ENGINE_CAPABILITIES, prefs.engine) ? prefs.engine : "system",
+    speed: clampSpeed(prefs.speed),
+    pocketVoice: isPocketVoice(prefs.pocketVoice) ? prefs.pocketVoice : DEFAULT_POCKET_VOICE,
+  }
 }
 
-export async function savePrefs(prefs: Partial<ReaderPreferences>) {
-  // Le `set` doit être attendu : sans ça deux réglages cliqués coup sur coup
-  // relisent tous les deux l'état d'avant, et le second écrase le premier.
-  const current = await loadPrefs()
-  await browser.storage.local.set({ [PREFS_KEY]: { ...current, ...prefs } })
+/** Loads stored preferences with defaults for fields added by later builds. */
+export async function loadPrefs(): Promise<ReaderPreferences> {
+  const data = await browser.storage.local.get(PREFS_KEY)
+  return normalizePrefs(data[PREFS_KEY])
+}
+
+/** Saves the supplied preferences alongside the current settings. */
+export function savePrefs(prefs: Partial<ReaderPreferences>): Promise<void> {
+  // The engine and voice controls can change before the first write finishes.
+  const write = pendingWrite.then(async () => {
+    const current = await loadPrefs()
+    await browser.storage.local.set({ [PREFS_KEY]: { ...current, ...prefs } })
+  })
+  pendingWrite = write.catch(() => {})
+  return write
 }
 
 /**
- * Writes `engine` only when none is stored yet. Install seeds the natural
- * voices; an update pins "system" for users who never saved a setting, who
- * would otherwise switch engine (and face a 398 MB download) without asking.
+ * Writes `engine` only when none is stored yet. Fresh installs seed Pocket.
+ * Updates keep the system voice for profiles that predate engine selection.
  */
 export async function seedEngine(engine: ReaderEngine) {
   const data = await browser.storage.local.get(PREFS_KEY)
@@ -82,12 +102,11 @@ export async function seedEngine(engine: ReaderEngine) {
   if (!stored?.engine) await savePrefs({ engine })
 }
 
+/** Subscribes to normalized changes to the reader preferences. */
 export function onPrefsChanged(callback: (prefs: ReaderPreferences) => void) {
-  const handler = (changes: Record<string, any>) => {
+  const handler = (changes: Record<string, { newValue?: unknown }>) => {
     if (PREFS_KEY in changes) {
-      const newVal = changes[PREFS_KEY].newValue as Partial<ReaderPreferences> | undefined
-      const prefs = { ...DEFAULT_PREFS, ...newVal }
-      callback({ ...prefs, speed: clampSpeed(prefs.speed) })
+      callback(normalizePrefs(changes[PREFS_KEY]?.newValue))
     }
   }
   browser.storage.onChanged.addListener(handler)

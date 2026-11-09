@@ -4,7 +4,7 @@ import type { ReaderEngine } from "../lib/reader-prefs"
 import type { SupertonicVoice } from "../lib/supertonic/types.ts"
 
 interface VoicePreviewButtonProps {
-  engine: ReaderEngine
+  engine: Exclude<ReaderEngine, "pocket">
   voiceURI: string | null
   supertonicVoice: SupertonicVoice
   /** Vitesse réglée : l'extrait se joue à ce rythme, pas à un rythme neutre. */

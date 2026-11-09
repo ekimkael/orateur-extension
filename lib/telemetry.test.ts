@@ -317,6 +317,9 @@ test("le catalogue accepte uniquement ses événements et leurs propriétés fer
   const events = [
     { name: "telemetry_enabled" },
     { name: "read_started", properties: { engine: "supertonic" } },
+    { name: "read_started", properties: { engine: "pocket" } },
+    { name: "read_completed", properties: { engine: "pocket", had_errors: false } },
+    { name: "read_failed", properties: { engine: "pocket", reason: "synthesis" } },
     { name: "read_completed", properties: { engine: "system", had_errors: false } },
     { name: "read_completed", properties: { engine: "supertonic", had_errors: true } },
     ...["synthesis", "audio_playback", "preparation"].map((reason) => ({ name: "read_failed", properties: { engine: "system", reason } })),

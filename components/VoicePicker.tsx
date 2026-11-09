@@ -2,24 +2,30 @@ import { useEffect, useState } from "react"
 import { useTranslation } from "../hooks/useTranslation"
 import { VoicePreviewButton } from "./VoicePreviewButton"
 import type { ReaderEngine } from "../lib/reader-prefs"
+import { POCKET_VOICES, isPocketVoice, type PocketVoice } from "../lib/pocket/catalog.ts"
 import { SUPERTONIC_VOICES, SUPERTONIC_VOICE_LABEL_KEYS, type SupertonicVoice } from "../lib/supertonic/types.ts"
 
 interface VoicePickerProps {
   engine: ReaderEngine
   voiceURI: string | null
   supertonicVoice: SupertonicVoice
+  pocketVoice: PocketVoice
   speed: number
   onChangeSystemVoice: (voiceURI: string | null) => void
   onChangeSupertonicVoice: (voice: SupertonicVoice) => void
+  onChangePocketVoice: (voice: PocketVoice) => void
 }
 
+/** Selects a voice from the active engine's catalog. */
 export function VoicePicker({
   engine,
   voiceURI,
   supertonicVoice,
+  pocketVoice,
   speed,
   onChangeSystemVoice,
   onChangeSupertonicVoice,
+  onChangePocketVoice,
 }: VoicePickerProps) {
   const t = useTranslation()
   const [systemVoices, setSystemVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -35,7 +41,21 @@ export function VoicePicker({
   }, [])
 
   const select =
-    engine === "supertonic" ? (
+    engine === "pocket" ? (
+      <select
+        aria-labelledby="voice-picker-label"
+        value={pocketVoice}
+        onChange={(e) => {
+          if (isPocketVoice(e.target.value)) onChangePocketVoice(e.target.value)
+        }}
+      >
+        {POCKET_VOICES.map((id) => (
+          <option key={id} value={id}>
+            {id === "auto" ? t("voicePocketAuto") : id[0]!.toUpperCase() + id.slice(1)}
+          </option>
+        ))}
+      </select>
+    ) : engine === "supertonic" ? (
       <select
         aria-labelledby="voice-picker-label"
         value={supertonicVoice}
@@ -71,7 +91,7 @@ export function VoicePicker({
       </span>
       <div className="voice-row">
         {select}
-        <VoicePreviewButton engine={engine} voiceURI={voiceURI} supertonicVoice={supertonicVoice} speed={speed} />
+        {engine !== "pocket" && <VoicePreviewButton engine={engine} voiceURI={voiceURI} supertonicVoice={supertonicVoice} speed={speed} />}
       </div>
     </div>
   )

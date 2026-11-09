@@ -94,7 +94,7 @@ for browser scenarios, network isolation and audio-test limitations.
 | Event | Meaning and allowed properties |
 | --- | --- |
 | `telemetry_enabled` | A user re-enables statistics in Settings. Default activation does not emit this event; it is not an installation count. |
-| `read_started` | First confirmed audio start in a session; `engine`: `system` or `supertonic`. Requests that fail before audio do not count. |
+| `read_started` | First confirmed audio start in a session; `engine`: `system`, `supertonic` or `pocket`. Requests that fail before audio do not count. |
 | `read_completed` | The reader reaches the end after audio starts; `engine` and `had_errors`. Users can skip passages, and some passages may fail, so this does not prove the whole article was heard. |
 | `read_failed` | Reading failure, at most once per session; `engine` and `reason`: `synthesis`, `audio_playback` or `preparation`. |
 | `supertonic_offered` | The user chooses Supertonic in the reading pill's settings. |

@@ -231,6 +231,12 @@ export class TextToSpeech {
     this.sampleRate = cfgs.ae.sample_rate
   }
 
+  /** Releases ONNX sessions after the host has drained active inference. */
+  async dispose(): Promise<void> {
+    await Promise.allSettled([this.dpOrt, this.textEncOrt, this.vectorEstOrt, this.vocoderOrt]
+      .map((session) => session.release()))
+  }
+
   private async _infer(
     textList: string[],
     langList: string[],

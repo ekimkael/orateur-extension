@@ -7,6 +7,8 @@ import { promisify } from "node:util"
 
 const run = promisify(execFile)
 const ortFiles = ["ort.bundle.min.mjs", "ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"]
+const pocketFiles = ["pocket/worker.js", "pocket/tts_wasm.js", "pocket/tts_wasm_bg.wasm", "pocket/LICENSE"]
+const wasmHeader = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0])
 
 function inside(directory, path) {
   const rel = relative(directory, path)
@@ -133,7 +135,14 @@ export async function validatePackageDirectory(path, { expectedVersion } = {}) {
     }
   }
   for (const file of ortFiles) await requireFile(`ort/${file}`, "runtime")
-  for (const file of ["extract", "reader", "selection"]) await requireFile(`content-scripts/${file}.js`, "runtime")
+  for (const file of pocketFiles) await requireFile(file, "runtime")
+  const wasm = await readFile(resolve(directory, "pocket/tts_wasm_bg.wasm"))
+  if (!wasm.subarray(0, wasmHeader.length).equals(wasmHeader)) throw new Error("pocket/tts_wasm_bg.wasm: invalid WebAssembly header")
+  for (const file of ["extract", "reader", "selection"]) {
+    const ref = `content-scripts/${file}.js`
+    const source = await readFile(await requireFile(ref, "runtime"), "utf8")
+    if (pocketFiles.some((asset) => source.includes(asset))) throw new Error(`${ref}: Pocket runtime belongs in the speech host`)
+  }
   if (manifest.manifest_version === 3) await requireFile("offscreen.html", "runtime")
   const declared = new Set((manifest.content_scripts ?? []).flatMap((script) => script.js ?? []).map((ref) => ref.replace(/^\//, "")))
   for (const script of ["reader", "selection"]) if (!declared.has(`content-scripts/${script}.js`)) throw new Error(`manifest.json: missing declared ${script} content script`)

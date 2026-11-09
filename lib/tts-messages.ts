@@ -51,21 +51,42 @@ export const TTS_TAB_REMOVED = "orateur:tts:tab-removed"
 export const TTS_SET_SPEED = "orateur:tts:set-speed"
 export const TTS_SEEK = "orateur:tts:seek"
 
-export interface TtsSpeakMessage {
+/** Local engines served by the extension's shared TTS port. */
+export type LocalTtsEngine = "supertonic" | "pocket"
+
+interface TtsSpeakBase {
   type: typeof TTS_SPEAK
   text: string
   title?: string
-  lang: SupportedLang
-  voice: SupertonicVoice
   speed: number
   /** Premier paragraphe à synthétiser lors d'une reprise. */
   startBlock?: number
   /** Refresh each page paragraph from the live DOM before synthesis. */
   livePage?: boolean
-  personalRules?: PronunciationRule[]
   /** Le jeton de la pastille émettrice — même mécanisme que READER_TOKEN. */
   token: string
 }
+
+/** Supertonic commands without an engine come from an older content script. */
+export interface SupertonicSpeakMessage extends TtsSpeakBase {
+  engine?: "supertonic"
+  lang: SupportedLang
+  voice: SupertonicVoice
+  personalRules?: PronunciationRule[]
+}
+
+/** Pocket receives extracted text without Orateur pronunciation rules. */
+export interface PocketSpeakMessage extends TtsSpeakBase {
+  engine: "pocket"
+  lang: string
+  voice: string
+  /** Private windows can use verified cached files without starting downloads. */
+  cacheOnly?: boolean
+  personalRules?: never
+}
+
+/** The engine discriminator keeps each model's voice and language independent. */
+export type TtsSpeakMessage = SupertonicSpeakMessage | PocketSpeakMessage
 
 /** Host to tab: re-read paragraph `block` from the live page. */
 export interface TtsPrepareBlockMessage {
@@ -75,9 +96,10 @@ export interface TtsPrepareBlockMessage {
   prefetch?: boolean
 }
 
-export interface TtsPreparedBlock {
+/** Live text prepared by the tab in the selected model's language. */
+export interface TtsPreparedBlock<Language extends string = SupportedLang> {
   text: string
-  lang: SupportedLang
+  lang: Language
 }
 
 export type TtsControlAction = "pause" | "resume" | "stop"
@@ -125,7 +147,7 @@ export interface TtsPreparedMessage {
   type: typeof TTS_PREPARED
   id: number
   /** `null`: nothing to read there anymore. */
-  prepared: TtsPreparedBlock | null
+  prepared: TtsPreparedBlock<string> | null
 }
 
 export interface TtsTokenChangedMessage {
@@ -216,6 +238,12 @@ export interface ModelStateQueryMessage {
 
 export interface ModelCacheQueryMessage {
   type: typeof MODEL_CACHE_QUERY
+  /** Missing on older callers, whose cache is Supertonic's. */
+  engine?: LocalTtsEngine
+  /** Query one Pocket language. Omitted when the options only need to know if any model is cached. */
+  lang?: string
+  /** The Pocket voice required for this reading. */
+  voice?: string
 }
 
 export interface ModelProgressMessage {

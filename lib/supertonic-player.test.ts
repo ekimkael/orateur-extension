@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import type { PlayerEvent } from "./player.ts"
 import type { ReaderPreferences } from "./reader-prefs"
-import { createSupertonicPlayer } from "./supertonic-player.ts"
+import { createPocketPlayer, createSupertonicPlayer } from "./local-player.ts"
 import {
   TTS_CONTROL,
   TTS_EVENT,
@@ -52,16 +52,19 @@ const EN = "The cat is sitting on the mat and watching the window with attention
 /** Lets the open handshake and queued commands go through. */
 const settle = () => new Promise((resolve) => setImmediate(resolve))
 
-async function read({ source = null as { prepare: (...args: any[]) => Promise<string> } | null, ready = true, paragraphs = [EN, EN, EN], beforeOpen = (_player: ReturnType<typeof createSupertonicPlayer>) => {} } = {}) {
+async function read({ source = null as { prepare: (...args: any[]) => Promise<string> } | null, ready = true, paragraphs = [EN, EN, EN], beforeOpen = (_player: ReturnType<typeof createSupertonicPlayer>) => {}, pocket = false } = {}) {
   sent.length = 0
   hostReady = ready
   opened = null
   const events: PlayerEvent[] = []
-  const prefs = { speed: 1, follow: true, supertonicVoice: "F1" } as ReaderPreferences
-  const player = createSupertonicPlayer({
+  const prefs = { speed: 1, follow: true, supertonicVoice: "F1", pocketVoice: "estelle" } as ReaderPreferences
+  const options = {
     paragraphs, text: paragraphs.join("\n\n"), title: "", lang: "en", startBlock: 1, personalRules: [],
-    source: source as any, token: "tab-token", prefs: () => prefs, emit: (event) => events.push(event),
-  })
+    source: source as any, token: "tab-token", prefs: () => prefs, emit: (event: PlayerEvent) => events.push(event),
+  } as const
+  const player = pocket
+    ? createPocketPlayer({ ...options, voice: prefs.pocketVoice, cacheOnly: true })
+    : createSupertonicPlayer(options)
   player.start()
   beforeOpen(player)
   await settle()
@@ -84,6 +87,20 @@ test("commands given before the port opens follow the start, in order", async ()
   const { port } = await read({ beforeOpen: (player) => { player.pause(); player.seek(0) } })
   assert.deepEqual(port!.posted.map((message) => message.type), [TTS_SPEAK, TTS_CONTROL, TTS_SEEK])
   assert.deepEqual(port!.posted.at(-1), { type: TTS_SEEK, block: 0, paused: true }, "A seek while paused stays paused")
+})
+
+test("Pocket sends its own voice and never sends pronunciation or Supertonic download events", async () => {
+  const { port, host } = await read({ pocket: true })
+  const request = port!.posted[0]
+  assert.equal(request.engine, "pocket")
+  assert.equal(request.voice, "estelle")
+  assert.equal(request.cacheOnly, true)
+  assert.equal(request.lang, "en")
+  assert.equal(request.text, [EN, EN, EN].join("\n\n"))
+  assert.equal("personalRules" in request, false)
+  host({ phase: "loading", reason: "downloading-model", progress: 50 })
+  host({ phase: "playing", block: 1, total: 3 })
+  assert.deepEqual(kinds(), [TTS_OPEN])
 })
 
 test("an unavailable host fails the start with a readable message", async () => {

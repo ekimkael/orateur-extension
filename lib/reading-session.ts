@@ -6,16 +6,16 @@
  */
 
 import type { ReaderEngine, ReaderPreferences } from "./reader-prefs"
+import { ENGINE_CAPABILITIES } from "./engine-capabilities.ts"
 import { loadPronunciationRules } from "./pronunciation-rules.ts"
 import type { PronunciationRule } from "./pronunciation/personal.ts"
 import type { createLivePage } from "./live-page.ts"
-import type { SupportedLang } from "./supertonic-lang.ts"
-import { resolveDocLang } from "./detect-lang.ts"
 import { markTab } from "./tab-title.ts"
 import type { Player, PlayerEvent, ReadFailure } from "./player.ts"
-import { cancelSpeech, createSystemPlayer } from "./system-player.ts"
-import { createSupertonicPlayer } from "./supertonic-player.ts"
-import { MODEL_CACHE_QUERY, type TtsLoadingReason } from "./tts-messages.ts"
+import { cancelSpeech } from "./system-player.ts"
+import { createPlayer, selectPlayer } from "./player-factory.ts"
+import type { TtsLoadingReason } from "./tts-messages.ts"
+import { splitBlocks } from "./reading-language.ts"
 import { NOTIFY, READ_PAGE, READER_TOKEN, type NotifyMessage, type ReadPagePayload } from "./reader-messages.ts"
 import { track } from "./telemetry.ts"
 import { moveReadingBlock } from "./reading-navigation.ts"
@@ -169,13 +169,14 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
   /** Choisit le moteur, puis démarre — le reste ne se recroise plus. */
   async function start(payload: ReadPagePayload, fromHere = false) {
     const mine = ++startGeneration
-    const paragraphs = splitParagraphs(payload.text)
+    const paragraphs = splitBlocks(payload.text)
     const total = paragraphs.length
     if (!total) return fold()
-    const source = payload.livePage ? page.liveSource(paragraphs) : null
-    let personalRules: PronunciationRule[]
+    const selection = await selectPlayer(prefs(), payload.lang, payload.text)
+    if (mine !== startGeneration) return
+    let personalRules: PronunciationRule[] = []
     try {
-      personalRules = await loadPronunciationRules()
+      if (ENGINE_CAPABILITIES[selection.engine].pronunciation) personalRules = await loadPronunciationRules()
     } catch {
       if (mine === startGeneration) view.setState("error", payload.title ?? "")
       return
@@ -200,46 +201,17 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     readingTitle = title
     readingTotal = total
     pageSource?.stop()
+    const source = payload.livePage ? page.liveSource(paragraphs) : null
     pageSource = source
 
-    let supertonicLang: SupportedLang | undefined
-    if (prefs().engine === "supertonic") {
-      // Same rule as the system voice: the page's declaration unless
-      // the text clearly contradicts it (Gmail declares its UI language,
-      // not the message's), detection alone when nothing is declared.
-      const lang = resolveDocLang(payload.lang, payload.text)
-      // A private window must not trigger the 398 MB first download: the
-      // model may not persist there (OPFS is blocked in Firefox private
-      // browsing). An already cached model is still used.
-      const privateWithoutModel =
-        browser.extension.inIncognitoContext &&
-        !(await browser.runtime.sendMessage({ type: MODEL_CACHE_QUERY }).catch(() => false))
-      if (mine !== startGeneration) return
-      if (lang && !privateWithoutModel) supertonicLang = lang
-      else {
-        // Langue hors du modèle même après détection : un repli silencieux
-        // serait déroutant — dire pourquoi la voix système est utilisée à sa
-        // place.
-        void browser.runtime.sendMessage({
-          type: NOTIFY,
-          message: browser.i18n.getMessage(
-            lang ? "noticeSupertonicPrivateWindow" : "noticeSupertonicLangUnsupported"
-          ),
-        } satisfies NotifyMessage)
-      }
-    }
-
-    const options = {
+    const next: Player = createPlayer(selection, {
       // The players speak the title as an intro; an empty one is silent.
       paragraphs, text: payload.text, title: payload.announceTitle === false ? "" : title,
       startBlock, personalRules, source, prefs,
       emit: (event: PlayerEvent) => {
         if (player === next) onPlayerEvent(next.engine, event)
       },
-    }
-    const next: Player = supertonicLang
-      ? createSupertonicPlayer({ ...options, lang: supertonicLang, token })
-      : createSystemPlayer({ ...options, lang: payload.lang })
+    }, token)
     // Same engine: the new reading replaces the old queue by itself. A
     // stop sent to the TTS host could even overtake the new start.
     if (player?.engine !== next.engine) player?.stop()
@@ -258,7 +230,7 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     // La pastille a pu être masquée : une lecture lancée depuis le menu
     // contextuel doit quand même offrir de quoi l'arrêter.
     view.attach()
-    // Supertonic reports its own loading; the page's voices start at once.
+    // Local engines report their own loading; system voices start at once.
     if (next.engine === "system") view.setState("playing", title)
     view.setPosition(startBlock, readingTotal)
     void persistProgress(startBlock)
@@ -341,12 +313,11 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     },
     /** Settings changed (any tab); `previous` holds the values before. */
     prefsChanged(previous: ReaderPreferences) {
-      if (!reading) return
       // Neither engine can take over the other's queue: without this, Play
       // resumed the old engine and the new choice was silently ignored. The
       // saved progress lets the next start offer to pick up where it stopped.
       if (prefs().engine !== previous.engine) return stop()
-      player?.update(previous)
+      if (reading) player?.update(previous)
     },
     /** Un autre onglet a pris la parole : se replier, sans toucher au moteur. */
     storageChanged(changes: Record<string, { newValue?: unknown }>) {
@@ -384,10 +355,6 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     },
   }
 }
-
-/** Même découpe que `splitBlocks` côté hôte : un bloc par paragraphe. */
-const splitParagraphs = (text: string) =>
-  text.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean)
 
 /**
  * Traduit la cause émise par tts-host.ts en clé i18n — voir tts-messages.ts.

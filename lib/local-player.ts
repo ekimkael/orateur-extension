@@ -1,10 +1,10 @@
 /**
- * Supertonic, from the page's side: the TTS host (offscreen document on
+ * Local speech, from the page's side: the TTS host (offscreen document on
  * Chrome, background page on Firefox) synthesizes, schedules and keeps the
  * position; this player opens its own port to it (`lib/tts-port.ts`), sends
  * commands and translates the host's `TTS_EVENT`s into `PlayerEvent`s.
  *
- * Value imports stay out of `lib/supertonic/*`: they would pull the engine
+ * Runtime imports stay out of this file: they would pull the engine
  * into the bundle of a script loaded on every page.
  */
 
@@ -12,6 +12,7 @@ import { buildReadingIntro } from "./reading-intro.ts"
 import { resolveBlockLangs } from "./reading-language.ts"
 import { detectLang, resolveDocLang } from "./detect-lang.ts"
 import { toSupertonicLang, type SupportedLang } from "./supertonic-lang.ts"
+import type { PocketLanguage, PocketVoice } from "./pocket/catalog.ts"
 import { track } from "./telemetry.ts"
 import {
   TTS_CONTROL,
@@ -43,7 +44,21 @@ import type { Player, PlayerOptions } from "./player.ts"
  *   `READER_TOKEN` to stop when another tab takes the floor.
  */
 export function createSupertonicPlayer(options: PlayerOptions & { lang: SupportedLang; token: string }): Player {
-  const { paragraphs, text, title, lang, startBlock, personalRules, source, token, prefs, emit } = options
+  return createLocalPlayer({ ...options, engine: "supertonic" })
+}
+
+/** Reads with Pocket through the same port, without pronunciation rules. */
+export function createPocketPlayer(
+  options: PlayerOptions & { lang: PocketLanguage; token: string; voice: PocketVoice; cacheOnly: boolean },
+): Player {
+  return createLocalPlayer({ ...options, engine: "pocket" })
+}
+
+function createLocalPlayer(options: PlayerOptions & { token: string } & (
+  | { engine: "supertonic"; lang: SupportedLang }
+  | { engine: "pocket"; lang: PocketLanguage; voice: PocketVoice; cacheOnly: boolean }
+)): Player {
+  const { engine, paragraphs, text, title, lang, startBlock, personalRules, source, token, prefs, emit } = options
 
   // `lang` est la langue résolue (déclaration ou détection), pas
   // forcément celle de la page : l'annonce du titre doit sonner dans la
@@ -55,7 +70,7 @@ export function createSupertonicPlayer(options: PlayerOptions & { lang: Supporte
   const intro = buildReadingIntro(lang, title)
   // Same per-block languages as the host computes: a block re-prepared
   // from the live page falls back on them, not on the page declaration.
-  const blockLangs = resolveBlockLangs(paragraphs, lang)
+  const blockLangs = engine === "supertonic" ? resolveBlockLangs(paragraphs, lang) : []
   let block = startBlock
   let paused = false
   let disposed = false
@@ -81,7 +96,11 @@ export function createSupertonicPlayer(options: PlayerOptions & { lang: Supporte
     return browser.runtime.sendMessage({ type: TTS_OPEN }).catch(() => false).then((ready) => {
       if (disposed) return null
       if (!ready) {
-        emit({ phase: "error", reason: "preparation", message: browser.i18n.getMessage("errorSupertonicStartFailed") })
+        emit({
+          phase: "error",
+          reason: "preparation",
+          message: browser.i18n.getMessage(engine === "pocket" ? "errorPocketStartFailed" : "errorSupertonicStartFailed"),
+        })
         return null
       }
       const opened = browser.runtime.connect({ name: TTS_PORT })
@@ -115,7 +134,7 @@ export function createSupertonicPlayer(options: PlayerOptions & { lang: Supporte
       // Télémétrie (jalon 1c) : une seule fois par lecture, au tout premier
       // "downloading-model" — les ticks de progression suivants repassent
       // par cette même branche sans redéclencher l'événement.
-      if (state.reason === "downloading-model" && !sawDownload) {
+      if (engine === "supertonic" && state.reason === "downloading-model" && !sawDownload) {
         sawDownload = true
         track({ name: "supertonic_download_started" })
       }
@@ -140,7 +159,8 @@ export function createSupertonicPlayer(options: PlayerOptions & { lang: Supporte
         reason: audio ? "audio_playback" : "preparation",
         // `state.message` d'une exception (ONNX, réseau) n'a rien de
         // traduisible ; seule l'erreur audio statique de tts-host.ts l'est.
-        message: audio ? browser.i18n.getMessage("ttsAudioError") : state.message,
+        message: audio ? browser.i18n.getMessage("ttsAudioError")
+          : engine === "pocket" ? browser.i18n.getMessage("errorPocketSynthesis") : state.message,
       })
       if (sawDownload) {
         sawDownload = false
@@ -149,18 +169,22 @@ export function createSupertonicPlayer(options: PlayerOptions & { lang: Supporte
     }
   }
 
-  function prepare(message: Partial<TtsPrepareBlockMessage>): Promise<TtsPreparedBlock | null> {
+  function prepare(message: Partial<TtsPrepareBlockMessage>): Promise<TtsPreparedBlock<string> | null> {
     const index = message.block!
     if (!source || !Number.isInteger(message.id) ||
       !Number.isInteger(index) || index < 0 || index >= paragraphs.length ||
       (message.prefetch !== undefined && typeof message.prefetch !== "boolean")) return Promise.resolve(null)
-    return source.prepare(index, prefs().follow, !!message.prefetch, index > block ? "nearest" : "center").then((text): TtsPreparedBlock | null => {
+    return source.prepare(index, prefs().follow, !!message.prefetch, index > block ? "nearest" : "center").then((text) => {
       if (disposed) return null
+      const paragraph = index === 0 && intro ? `${intro} ${text}` : text
+      // Pocket loads one model per reading. A translated block must not cause
+      // a second model download or invalidate a private-window cache check.
+      if (engine === "pocket") return { text: paragraph, lang }
       // A short block decides nothing alone: Gmail's French declaration
       // would win over the English message the start already resolved.
       const resolved = toSupertonicLang(blockLangs[index] ?? "")
-      const lang = (resolved ? detectLang(text, resolved) : resolveDocLang(document.documentElement.lang, text)) ?? "na"
-      return { text: index === 0 && intro ? `${intro} ${text}` : text, lang }
+      const blockLang = (resolved ? detectLang(text, resolved) : resolveDocLang(document.documentElement.lang, text)) ?? "na"
+      return { text: paragraph, lang: blockLang }
     })
   }
 
@@ -176,11 +200,11 @@ export function createSupertonicPlayer(options: PlayerOptions & { lang: Supporte
   }
 
   return {
-    engine: "supertonic",
+    engine,
     start() {
       emit({ phase: "loading" })
       connection = open()
-      send({
+      const request = {
         type: TTS_SPEAK,
         // Sur le texte de la page, l'annonce du titre n'y est écrite nulle
         // part : l'hôte la recolle au premier paragraphe (`splitBlocks`),
@@ -188,13 +212,14 @@ export function createSupertonicPlayer(options: PlayerOptions & { lang: Supporte
         text: intro ? `${intro} ${text}` : text,
         title,
         lang,
-        voice: prefs().supertonicVoice,
         speed: prefs().speed,
         startBlock,
-        personalRules,
         token,
         livePage: !!source,
-      })
+      } as const
+      send(options.engine === "pocket"
+        ? { ...request, engine: options.engine, voice: options.voice, cacheOnly: options.cacheOnly }
+        : { ...request, engine: "supertonic", voice: prefs().supertonicVoice, personalRules })
     },
     pause() {
       paused = true

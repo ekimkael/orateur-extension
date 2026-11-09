@@ -25,6 +25,7 @@ test("part sur les défauts quand rien n'est stocké", async () => {
     speed: 1,
     voiceURI: null,
     supertonicVoice: "F1",
+    pocketVoice: "auto",
     follow: true,
     position: "bottom-right",
   })
@@ -49,6 +50,7 @@ test("savePrefs n'écrase que la clé fournie", async () => {
     speed: 0.8,
     voiceURI: "urn:voix",
     supertonicVoice: "F1",
+    pocketVoice: "auto",
     follow: true,
     position: "bottom-right",
   })
@@ -88,6 +90,7 @@ test("deux écritures successives ne se perdent pas", async () => {
     speed: 1.2,
     voiceURI: "urn:voix",
     supertonicVoice: "F1",
+    pocketVoice: "auto",
     follow: true,
     position: "bottom-right",
   })
@@ -95,8 +98,10 @@ test("deux écritures successives ne se perdent pas", async () => {
 
 test("seedEngine never overrides a stored engine", async () => {
   fakeStorage()
-  await seedEngine("supertonic")
-  assert.equal((await loadPrefs()).engine, "supertonic")
+  await seedEngine("pocket")
+  assert.equal((await loadPrefs()).engine, "pocket")
+  await seedEngine("system")
+  assert.equal((await loadPrefs()).engine, "pocket")
 
   fakeStorage({ [KEY]: { speed: 1.2 } })
   await seedEngine("system")
@@ -105,4 +110,35 @@ test("seedEngine never overrides a stored engine", async () => {
   fakeStorage({ [KEY]: { engine: "supertonic" } })
   await seedEngine("system")
   assert.equal((await loadPrefs()).engine, "supertonic")
+})
+
+test("Pocket has its own voice and preserves the voices stored by older versions", async () => {
+  fakeStorage({ [KEY]: { engine: "supertonic", supertonicVoice: "F2", voiceURI: "urn:voice" } })
+
+  await savePrefs({ engine: "pocket", pocketVoice: "estelle" })
+  await savePrefs({ engine: "system" })
+  await savePrefs({ engine: "supertonic" })
+
+  const prefs = await loadPrefs()
+  assert.equal(prefs.pocketVoice, "estelle")
+  assert.equal(prefs.supertonicVoice, "F2")
+  assert.equal(prefs.voiceURI, "urn:voice")
+})
+
+test("choosing a Pocket voice while the engine choice is being saved keeps both settings", async () => {
+  fakeStorage({ [KEY]: { engine: "system", voiceURI: "urn:voice" } })
+
+  await Promise.all([savePrefs({ engine: "pocket" }), savePrefs({ pocketVoice: "estelle" })])
+
+  const prefs = await loadPrefs()
+  assert.equal(prefs.engine, "pocket")
+  assert.equal(prefs.pocketVoice, "estelle")
+  assert.equal(prefs.voiceURI, "urn:voice")
+})
+
+test("unknown stored engine and Pocket voice resolve to safe choices", async () => {
+  fakeStorage({ [KEY]: { engine: "constructor", pocketVoice: "custom-url" } })
+  const prefs = await loadPrefs()
+  assert.equal(prefs.engine, "system")
+  assert.equal(prefs.pocketVoice, "auto")
 })

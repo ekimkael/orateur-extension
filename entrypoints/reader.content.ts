@@ -21,7 +21,9 @@ import { createLivePage } from "../lib/live-page.ts"
 import { blockRange, createAnchorFinder, findBlockIndex } from "../lib/read-anchor.ts"
 import { createReadingSession, type ReaderViewState } from "../lib/reading-session.ts"
 import { START_READING, type ReadPagePayload, type StartReadingMessage } from "../lib/reader-messages.ts"
-import { MODEL_CACHE_QUERY, type TtsLoadingReason } from "../lib/tts-messages"
+import { MODEL_CACHE_QUERY, type ModelCacheQueryMessage, type TtsLoadingReason } from "../lib/tts-messages"
+import { ENGINE_CAPABILITIES } from "../lib/engine-capabilities.ts"
+import { POCKET_VOICES, isPocketVoice, toPocketLanguage } from "../lib/pocket/catalog.ts"
 // Type uniquement — importer la valeur (la liste des 10 voix, ses libellés)
 // depuis lib/supertonic/* ferait entrer le moteur dans ce bundle. La petite
 // liste ci-dessous, plus bas dans ce fichier, est donc dupliquée à dessein.
@@ -666,9 +668,8 @@ function createPill(
     error: { primary: browser.i18n.getMessage("ariaRetryReading"), secondary: browser.i18n.getMessage("ariaHidePill") },
   }
   const ENGINES: Array<[ReaderEngine, string]> = [
+    ["pocket", browser.i18n.getMessage("enginePocket")],
     ["system", browser.i18n.getMessage("engineSystem")],
-    // "Voix naturelles IA" côté interface (jalon 1d) — même libellé que la
-    // page d'options, "Supertonic" reste le nom du modèle, pas du moteur.
     ["supertonic", browser.i18n.getMessage("engineNaturalAI")],
   ]
   /**
@@ -815,13 +816,13 @@ function createPill(
   })
 
   // Only a confirmed missing extension cache needs the first-download note.
-  let modelCached: boolean | undefined
+  let modelCached: Partial<Record<"supertonic" | "pocket", boolean>> = {}
   let modelCacheRequest = 0
-  const supertonicNote = document.createElement("div")
-  supertonicNote.className = "settings-note"
+  const modelNote = document.createElement("div")
+  modelNote.className = "settings-note"
   const noteLead = document.createElement("strong")
   const noteRest = document.createElement("div")
-  // The download happens on the first Supertonic reading, so the button just
+  // The download happens on the first local-model reading, so the button just
   // starts one: progress then shows in the pill, where the eye already is.
   const noteDownload = document.createElement("button")
   noteDownload.type = "button"
@@ -831,8 +832,8 @@ function createPill(
     // Already loading or reading: onPrimary would pause, not download.
     if (currentState === "idle" || currentState === "error") onPrimary()
   })
-  supertonicNote.append(noteLead, noteRest, noteDownload)
-  popover.append(supertonicNote)
+  modelNote.append(noteLead, noteRest, noteDownload)
+  popover.append(modelNote)
 
   const speed = document.createElement("input")
   const speedValue = settingsRow(browser.i18n.getMessage("settingsSpeedLabel"), speed)
@@ -851,7 +852,9 @@ function createPill(
   const voice = document.createElement("select")
   settingsRow(browser.i18n.getMessage("settingsVoiceLabel"), voice)
   voice.addEventListener("change", () => {
-    if (currentPrefs.engine === "supertonic") {
+    if (currentPrefs.engine === "pocket") {
+      if (isPocketVoice(voice.value)) void savePrefs({ pocketVoice: voice.value })
+    } else if (currentPrefs.engine === "supertonic") {
       savePrefs({ supertonicVoice: voice.value as SupertonicVoice })
     } else {
       // La valeur vide porte « laisser le navigateur choisir » : un select
@@ -933,7 +936,9 @@ function createPill(
     engine.value = currentPrefs.engine
     speed.value = String(currentPrefs.speed)
     speedValue.textContent = formatSpeed(currentPrefs.speed)
-    if (currentPrefs.engine === "supertonic") {
+    if (currentPrefs.engine === "pocket") {
+      voice.value = currentPrefs.pocketVoice
+    } else if (currentPrefs.engine === "supertonic") {
       voice.value = currentPrefs.supertonicVoice
     } else {
       // Une voix absente de la liste — désinstallée, ou enregistrée sur une
@@ -943,36 +948,50 @@ function createPill(
     }
     follow.checked = currentPrefs.follow
     updateMeta()
-    updateSupertonicNote()
-    if (isPopoverOpen && currentPrefs.engine === "supertonic") void refreshModelCached()
+    updateModelNote()
+    if (isPopoverOpen && ENGINE_CAPABILITIES[currentPrefs.engine].requiresModel) void refreshModelCached()
   }
 
   /** Reflète `modelCached` sur le texte et la visibilité de la note. */
-  function updateSupertonicNote() {
-    const hidden = currentPrefs.engine !== "supertonic" || modelCached !== false
-    if (supertonicNote.hidden !== hidden && animations.length) settleMotion()
-    supertonicNote.hidden = hidden
-    if (supertonicNote.hidden) return
-    noteLead.textContent = browser.i18n.getMessage("optionsModelAlertPendingLead")
-    noteRest.textContent = browser.i18n.getMessage("optionsModelAlertPending")
-    noteDownload.textContent = browser.i18n.getMessage("optionsModelDownloadCta")
+  function updateModelNote() {
+    const engine = currentPrefs.engine
+    const hidden = engine === "system" || modelCached[engine] !== false
+    if (modelNote.hidden !== hidden && animations.length) settleMotion()
+    modelNote.hidden = hidden
+    if (modelNote.hidden) return
+    const pocket = engine === "pocket"
+    noteLead.textContent = pocket ? "" : browser.i18n.getMessage("optionsModelAlertPendingLead")
+    noteRest.textContent = browser.i18n.getMessage(pocket ? "optionsPocketModelNote" : "optionsModelAlertPending")
+    noteDownload.textContent = browser.i18n.getMessage(pocket ? "optionsPocketReadCta" : "optionsModelDownloadCta")
   }
 
   async function refreshModelCached() {
+    const engine = currentPrefs.engine
+    if (engine === "system") return
     const request = ++modelCacheRequest
     let cached: unknown
     try {
-      cached = await browser.runtime.sendMessage({ type: MODEL_CACHE_QUERY })
+      const lang = engine === "pocket" ? toPocketLanguage(document.documentElement.lang) ?? undefined : undefined
+      const voice = engine === "pocket" ? currentPrefs.pocketVoice : undefined
+      cached = await browser.runtime.sendMessage({ type: MODEL_CACHE_QUERY, engine, lang, voice } satisfies ModelCacheQueryMessage)
     } catch {
       cached = undefined
     }
     if (request !== modelCacheRequest) return
-    modelCached = typeof cached === "boolean" ? cached : undefined
-    updateSupertonicNote()
+    modelCached[engine] = typeof cached === "boolean" ? cached : undefined
+    updateModelNote()
     if (isPopoverOpen) fitPopover()
   }
 
   function renderVoices() {
+    if (currentPrefs.engine === "pocket") {
+      voice.replaceChildren(...POCKET_VOICES.map((id) => voiceChoice(
+        id,
+        id === "auto" ? browser.i18n.getMessage("voicePocketAuto") : id[0]!.toUpperCase() + id.slice(1),
+      )))
+      syncControls()
+      return
+    }
     if (currentPrefs.engine === "supertonic") {
       voice.replaceChildren(...SUPERTONIC_VOICE_OPTIONS.map(([id, label]) => voiceChoice(id, label)))
       syncControls()
@@ -1125,7 +1144,7 @@ function createPill(
       settings.setAttribute("aria-expanded", String(open))
       updateLayout()
       if (open) {
-        modelCached = undefined
+        modelCached = {}
         if (!voicesWatched) {
           voicesWatched = true
           // Chrome charge ses voix après coup : sans cet événement la liste reste
@@ -1241,7 +1260,7 @@ function createPill(
     }
     if (isPopoverOpen) {
       fitPopover()
-      if (wasLoading && state === "playing" && currentPrefs.engine === "supertonic") {
+      if (wasLoading && state === "playing" && ENGINE_CAPABILITIES[currentPrefs.engine].requiresModel) {
         void refreshModelCached()
       }
     }
@@ -1294,8 +1313,10 @@ function createPill(
         settleMotion()
         applyPosition(prefs.position, host)
       }
+      const engineChanged = currentPrefs.engine !== prefs.engine
       currentPrefs = prefs
-      syncControls()
+      if (engineChanged) renderVoices()
+      else syncControls()
     },
     setTheme: (theme: ColorTheme) => applyTheme(theme, host),
   }

@@ -104,6 +104,9 @@
   "voiceDefault": {
     "message": "Par défaut"
   },
+  "voicePocketAuto": {
+    "message": "Automatique selon la langue"
+  },
   "voiceFemale1": {
     "message": "Clara"
   },
@@ -276,7 +279,31 @@
     "message": "Moteur et voix"
   },
   "engineNaturalAI": {
-    "message": "Voix naturelles IA"
+    "message": "Supertonic"
+  },
+  "enginePocket": {
+    "message": "Pocket TTS"
+  },
+  "enginePocketDesc": {
+    "message": "Voix locales pour le français et l’anglais."
+  },
+  "optionsPocketModelNote": {
+    "message": "La première lecture en français ou en anglais télécharge environ 140 Mo pour cette langue. Pocket TTS peut ensuite lire hors ligne. Votre texte reste sur cet appareil."
+  },
+  "optionsPocketReadCta": {
+    "message": "Lancer la lecture"
+  },
+  "noticePocketLangUnsupported": {
+    "message": "Pocket TTS ne prend pas en charge cette langue. Cette lecture utilise une voix système."
+  },
+  "noticePocketPrivateWindow": {
+    "message": "Le modèle Pocket TTS est indisponible dans cette fenêtre privée. La lecture utilise une voix système. Pocket TTS reste sélectionné."
+  },
+  "errorPocketStartFailed": {
+    "message": "Pocket TTS n’a pas pu démarrer. Réessayez."
+  },
+  "errorPocketSynthesis": {
+    "message": "Pocket TTS n’a pas pu lire ce passage. Réessayez ou choisissez une voix système dans les réglages."
   },
   "engineSystemDesc": {
     "message": "Prête tout de suite. Rien à télécharger."
@@ -345,10 +372,16 @@
     "message": "Rien de téléchargé pour l'instant."
   },
   "optionsModelGoToVoice": {
-    "message": "Choisissez les voix naturelles pour les télécharger →"
+    "message": "Choisir une voix →"
   },
   "optionsClearCacheConfirm": {
     "message": "Confirmer la suppression"
+  },
+  "optionsPocketCacheSize": {
+    "message": "$1 Mo sur votre appareil."
+  },
+  "optionsClearCacheError": {
+    "message": "Impossible de supprimer les fichiers. Réessayez."
   },
   "optionsClearCacheHint": {
     "message": "Cliquez à nouveau dans les 4 s pour confirmer. Sinon, c'est annulé automatiquement."
@@ -363,7 +396,8 @@
     "message": "Ouvrir Orateur"
   },
   "optionsSectionPronunciation": { "message": "Prononciation" },
-  "pronunciationHelp": { "message": "Corrigez la prononciation des noms, sigles et termes métier. Ces règles restent sur cet appareil et s’appliquent dès la prochaine lecture, sans changer le texte affiché." },
+  "pronunciationHelp": { "message": "Corrigez la prononciation des noms, sigles et termes métier avec Supertonic et les voix système. Ces règles restent sur cet appareil et s’appliquent dès la prochaine lecture, sans changer le texte affiché." },
+  "pronunciationUnavailablePocket": { "message": "Pour écouter vos règles enregistrées, passez de Pocket TTS à Supertonic ou aux voix système." },
   "pronunciationMatchingHelp": { "message": "Les mots et expressions entiers sont reconnus dans la langue du paragraphe. Ajoutez les pluriels séparément. Apostrophes et tirets séparent les mots ; lettres, chiffres et _ les prolongent. Les accents comptent. L’expression la plus longue gagne, puis la règle respectant la casse. Vos règles passent avant les corrections intégrées, sans remplacement en cascade." },
   "pronunciationMatchingDetails": { "message": "Comment les règles s’appliquent" },
   "pronunciationNumbersHelp": { "message": "Les nombres groupés sont corrigés automatiquement : 40 000 se lit « quarante mille ». Les décimales suivent la langue du paragraphe ; les zéros initiaux et les groupes de téléphone sont préservés." },

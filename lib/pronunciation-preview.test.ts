@@ -6,7 +6,7 @@ import type { ReaderPreferences } from "./reader-prefs.ts"
 import type { TtsState } from "./tts-messages.ts"
 
 const rule: PronunciationRule = { id: "test", language: "fr", source: "GitHub", replacement: "plateforme de code", caseSensitive: false }
-const prefs: ReaderPreferences = { engine: "system", speed: 1.2, voiceURI: "selected", supertonicVoice: "F1", follow: true, position: "bottom-right" }
+const prefs: ReaderPreferences = { engine: "system", speed: 1.2, voiceURI: "selected", supertonicVoice: "F1", pocketVoice: "auto", follow: true, position: "bottom-right" }
 
 class Utterance extends EventTarget {
   text: string
@@ -120,6 +120,15 @@ test("an unavailable neural model produces an error without downloading or inter
   await h.preview.speak(rule, { ...prefs, engine: "supertonic" })
   assert.deepEqual(h.states.at(-1), { phase: "error", message: "model-unavailable" })
   assert.equal(fetch.mock.callCount(), 0)
+  assert.equal(h.cancellations(), 0)
+  assert.equal(h.listeners.size, 0)
+})
+
+test("Pocket pronunciation preview never speaks through a system voice or takes ownership", async (t) => {
+  const h = harness(t)
+  await h.preview.speak(rule, { ...prefs, engine: "pocket" })
+  assert.deepEqual(h.states, [{ phase: "error", message: "pronunciation-unavailable" }])
+  assert.equal(h.said.length, 0)
   assert.equal(h.cancellations(), 0)
   assert.equal(h.listeners.size, 0)
 })

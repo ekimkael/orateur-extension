@@ -82,9 +82,9 @@ export const TELEMETRY_TRACK = "orateur:telemetry:track"
 /** Catalogue fermé — un événement en dehors de cette liste n'a rien à faire dans track(). */
 export type TelemetryEvent =
   | { name: "telemetry_enabled"; properties?: undefined }
-  | { name: "read_started"; properties: { engine: "system" | "supertonic" } }
-  | { name: "read_completed"; properties: { engine: "system" | "supertonic"; had_errors: boolean } }
-  | { name: "read_failed"; properties: { engine: "system" | "supertonic"; reason: "synthesis" | "audio_playback" | "preparation" } }
+  | { name: "read_started"; properties: { engine: "system" | "supertonic" | "pocket" } }
+  | { name: "read_completed"; properties: { engine: "system" | "supertonic" | "pocket"; had_errors: boolean } }
+  | { name: "read_failed"; properties: { engine: "system" | "supertonic" | "pocket"; reason: "synthesis" | "audio_playback" | "preparation" } }
   | { name: "supertonic_offered"; properties?: undefined }
   | { name: "supertonic_download_started"; properties?: undefined }
   | { name: "supertonic_download_completed"; properties?: undefined }
@@ -162,7 +162,7 @@ function isTelemetryEvent(value: unknown): value is TelemetryEvent {
     case "read_started":
     case "read_completed":
     case "read_failed": {
-      if (!isRecord(properties) || (properties.engine !== "system" && properties.engine !== "supertonic")) return false
+      if (!isRecord(properties) || !["system", "supertonic", "pocket"].includes(properties.engine as string)) return false
       if (value.name === "read_started") return hasExactKeys(properties, ["engine"])
       if (value.name === "read_completed") {
         return hasExactKeys(properties, ["engine", "had_errors"]) && typeof properties.had_errors === "boolean"
