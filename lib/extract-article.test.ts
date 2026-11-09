@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { JSDOM } from "jsdom"
-import { extractArticle, extractGmailMessage, visibleText } from "./extract-article.ts"
+import { extractArticle, visibleText } from "./extract-article.ts"
+import { extractGmailMessage } from "./extract/gmail.ts"
 import { splitUnits } from "./tts-host.ts"
 
 /**

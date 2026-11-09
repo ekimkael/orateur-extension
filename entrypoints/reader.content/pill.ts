@@ -1,130 +1,16 @@
-/**
- * Lecture de l'article directement sur la page, via la synthèse vocale native
- * du navigateur (`speechSynthesis`) — pas d'appel réseau, pas de dépendance.
- *
- * La pastille est posée sur toutes les pages, repliée sur un bouton ▶ tant
- * qu'aucune lecture n'est en cours : c'est ce qui permet de lancer la lecture
- * sans passer par le menu contextuel. Elle se déplie en barre pause/stop
- * pendant la lecture.
- */
-
-import {
-  loadPrefs,
-  savePrefs,
-  onPrefsChanged,
-  SPEED,
-  type ReaderEngine,
-  type ReaderPreferences,
-  type PillPosition,
-} from "../lib/reader-prefs"
-import { createLivePage } from "../lib/live-page.ts"
-import { blockRange, createAnchorFinder, findBlockIndex } from "../lib/read-anchor.ts"
-import { createReadingSession, type ReaderViewState } from "../lib/reading-session.ts"
-import { START_READING, type ReadPagePayload, type StartReadingMessage } from "../lib/reader-messages.ts"
-import { MODEL_CACHE_QUERY, type TtsLoadingReason } from "../lib/tts-messages"
-// Type uniquement — importer la valeur (la liste des 10 voix, ses libellés)
-// depuis lib/supertonic/* ferait entrer le moteur dans ce bundle. La petite
-// liste ci-dessous, plus bas dans ce fichier, est donc dupliquée à dessein.
-import type { SupertonicVoice } from "../lib/supertonic/types.ts"
-import { track } from "../lib/telemetry.ts"
-import { isHidden, loadHiddenSites, addHiddenSite, onHiddenSitesChanged } from "../lib/site-rules.ts"
-import { charteTokens } from "../lib/charte.ts"
-import { applyTheme } from "../lib/theme.ts"
-import { loadUiPrefs, onUiPrefsChanged, type ColorTheme } from "../lib/ui-prefs.ts"
+import { savePrefs, SPEED, type ReaderEngine, type ReaderPreferences, type PillPosition } from "../../lib/reader-prefs"
+import type { ReaderViewState } from "../../lib/reading-session.ts"
+import { MODEL_CACHE_QUERY, type ModelCacheQueryMessage, type TtsLoadingReason } from "../../lib/tts-messages"
+import { ENGINE_CAPABILITIES } from "../../lib/engine-capabilities.ts"
+import { isPocketVoice, toPocketLanguage } from "../../lib/pocket/catalog.ts"
+import type { SupertonicVoice } from "../../lib/supertonic/types.ts"
+import { voiceOptions } from "../../lib/voice-options.ts"
+import { track } from "../../lib/telemetry.ts"
+import { applyTheme } from "../../lib/theme.ts"
+import type { ColorTheme } from "../../lib/ui-prefs.ts"
+import { PILL_CSS } from "./styles.ts"
 
 type PillState = ReaderViewState
-
-export default defineContentScript({
-  // Déclaré dans le manifest, contrairement à l'extracteur : la pastille doit
-  // déjà être là avant le geste de l'utilisateur. Aucun avertissement de plus,
-  // la bulle de sélection réclame déjà <all_urls>.
-  matches: ["<all_urls>"],
-  runAt: "document_start",
-  // Pas d'`allFrames` (défaut : frame principale) : une pastille par page, là
-  // où la bulle de sélection en veut une par iframe.
-  async main(ctx) {
-    const initialPageLanguage = document.documentElement?.lang ?? ""
-    if (document.readyState === "loading") {
-      await new Promise<void>((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }))
-    }
-    const token = Math.random().toString(36).slice(2)
-    // Réassigné, pas figé : une lecture doit partir sur les réglages du moment,
-    // y compris ceux changés depuis un autre onglet.
-    let [prefs, hiddenSites, uiPrefs] = await Promise.all([loadPrefs(), loadHiddenSites(), loadUiPrefs()])
-    let contextTarget: Element | null = null
-
-    const pill = createPill(() => void session.toggle(), onSecondary, () => session.navigate(-1), () => session.navigate(1), prefs, !isHidden(location.hostname, hiddenSites), uiPrefs.theme)
-    const follower = createFollower()
-    follower.setEnabled(prefs.follow)
-    const session = createReadingSession({
-      token,
-      view: pill,
-      follower,
-      prefs: () => prefs,
-      page: {
-        liveSource: (paragraphs) => createLivePage(document, paragraphs, 5000, () =>
-          document.documentElement.lang !== initialPageLanguage ||
-          document.documentElement.classList.contains("translated-ltr") ||
-          document.documentElement.classList.contains("translated-rtl")
-        ),
-        url: canonicalUrl,
-        contextBlock: (paragraphs) => findBlockIndex(document, paragraphs, contextTarget),
-        confirmResume: () => confirm(browser.i18n.getMessage("readerResumePrompt")),
-      },
-    })
-
-    browser.runtime.onMessage.addListener(onMessage)
-    browser.storage.onChanged.addListener(session.storageChanged)
-    document.addEventListener("contextmenu", rememberContextTarget, true)
-    const unsubscribeHiddenSites = onHiddenSitesChanged((sites) => {
-      if (isHidden(location.hostname, sites)) pill.detach()
-      else pill.attach()
-    })
-    const unsubscribeUiPrefs = onUiPrefsChanged((next) => pill.setTheme(next.theme))
-    const unsubscribePrefs = onPrefsChanged((newPrefs) => {
-      const previous = prefs
-      prefs = newPrefs
-      pill.updatePrefs(newPrefs)
-      follower.setEnabled(newPrefs.follow)
-      session.prefsChanged(previous)
-    })
-    ctx.addEventListener(window, "pagehide", () => session.pageHidden())
-    ctx.onInvalidated(() => {
-      browser.runtime.onMessage.removeListener(onMessage)
-      browser.storage.onChanged.removeListener(session.storageChanged)
-      document.removeEventListener("contextmenu", rememberContextTarget, true)
-      unsubscribePrefs()
-      unsubscribeHiddenSites()
-      unsubscribeUiPrefs()
-      session.invalidate()
-      pill.remove()
-    })
-
-    function onMessage(message: Partial<StartReadingMessage>) {
-      if (message?.type !== START_READING || !message.text) return
-      void session.start(message as ReadPagePayload, message.fromHere)
-    }
-
-    function rememberContextTarget(event: Event) {
-      contextTarget = event.target instanceof Element ? event.target : null
-    }
-
-    /** ⏹ pendant la lecture, ✕ au repos : ne plus afficher Orateur sur ce domaine. */
-    function onSecondary() {
-      if (session.reading) return session.stop()
-      session.cancel()
-      pill.detach()
-      void addHiddenSite(location.hostname)
-    }
-  },
-})
-
-function canonicalUrl() {
-  const href = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href || location.href
-  const url = new URL(href, location.href)
-  url.hash = ""
-  return url.href
-}
 
 /**
  * `*-center` ajoute `left:50%` + une translation plutôt qu'un `right`/`left`
@@ -156,322 +42,6 @@ function applyPosition(position: PillPosition, host: HTMLElement) {
   host.dataset.orateurPosition = safe
 }
 
-const PILL_CSS = charteTokens(".pill-row") + `
-* { box-sizing: border-box }
-[hidden] { display: none !important }
-.pill-row {
-  accent-color: var(--primary);
-  display: flex;
-  flex-direction: column;
-  max-width: calc(100vw - 48px);
-  padding: 6px;
-  border-radius: 999px;
-  font: 400 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
-  -webkit-font-smoothing: antialiased;
-  color: var(--foreground);
-  border: 1px solid transparent;
-  position: relative;
-  isolation: isolate;
-}
-.pill-surface {
-  position: absolute;
-  left: -1px;
-  top: -1px;
-  width: calc(100% + 2px);
-  height: calc(100% + 2px);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--card);
-  box-shadow: var(--shadow);
-  transform-origin: top left;
-  pointer-events: none;
-  z-index: -1;
-}
-.pill-surface-card { border-radius: 20px; opacity: 0 }
-:host([data-expanded]) .pill-surface-card { opacity: 1 }
-:host([data-expanded]) .pill-surface-compact { opacity: 0 }
-.pill-content-copy {
-  position: absolute;
-  padding: 2px 4px 12px;
-  pointer-events: none;
-}
-.pill-row[data-active] { width: min(336px, calc(100vw - 48px)) }
-:host([data-expanded]) .pill-row {
-  padding: 12px;
-  border-radius: 20px;
-}
-.pill-content { padding: 2px 4px 12px; min-width: 0 }
-.pill-row[data-settings-open]:not([data-loading]) .pill-content {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
-.pill-title {
-  display: block;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-}
-.pill-status-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 4px }
-.pill-status { flex: 1; min-width: 0; color: var(--muted-foreground); overflow-wrap: anywhere }
-.pill-percent { font-variant-numeric: tabular-nums; color: var(--muted-foreground) }
-.pill-controls { display: flex; align-items: center; gap: 4px }
-.pill-transport { display: flex; align-items: center; gap: 4px }
-.pill-meta { flex: 1; text-align: center; font-size: 12px; color: var(--muted-foreground); font-variant-numeric: tabular-nums }
-.pill-spacer { flex: 1 }
-.pill-row[data-loading] {
-  flex-direction: row;
-  align-items: center;
-  gap: 4px;
-}
-.pill-row[data-loading] .pill-controls { display: contents }
-.pill-row[data-loading] .pill-transport { order: 1 }
-.pill-row[data-loading] .pill-content {
-  order: 2;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  padding: 0 4px;
-}
-.pill-row[data-loading] .pill-settings { order: 3 }
-.pill-row[data-loading] .pill-secondary { order: 4 }
-.pill-row[data-loading] .pill-status-row { flex: 1; min-width: 0; margin: 0 }
-.pill-row[data-loading] .pill-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.pill-row[data-loading] .pill-primary:disabled { opacity: 1; cursor: wait }
-.pill-row[data-loading] .pill-progress { flex: 1; height: 6px; margin: 0 }
-.pill-row[data-downloading] .pill-status-row {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex: none;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: inherit;
-  font-size: 15px;
-  cursor: pointer;
-}
-button:hover:not(:disabled), .pill-settings[aria-expanded="true"] { background: color-mix(in srgb, var(--foreground) 8%, transparent) }
-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
-button:disabled { opacity: 0.55; cursor: default }
-@media (prefers-reduced-motion: no-preference) {
-  button { transition: transform 160ms var(--ease-out) }
-  button:active:not(:disabled):not(:focus-visible) { transform: scale(0.97); transition-duration: 100ms }
-}
-/*
- * Bouton principal (▶/⏸) : seul rempli de la pastille, à la couleur de marque
- * — c'est lui qui lance ou suspend la lecture, les deux autres ne font
- * qu'accompagner ou interrompre.
- */
-.pill-primary { width: 40px; height: 40px; background: var(--primary); color: var(--primary-foreground) }
-.pill-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 88%, black) }
-.pill-primary:focus-visible { outline-color: var(--foreground) }
-/*
- * Icône en masque plutôt qu'en emoji : le rendu diffère en couleur et en
- * chasse selon l'OS. Le masque suit currentColor, donc l'état désactivé et le
- * focus restent cohérents avec les autres boutons, et rien n'entre dans le
- * DOM — pas de SVG à injecter sur une page en Trusted Types.
- */
-button[data-icon]::before {
-  content: "";
-  width: 16px;
-  height: 16px;
-  background: currentColor;
-  -webkit-mask: var(--icon) center / contain no-repeat;
-  mask: var(--icon) center / contain no-repeat;
-}
-button[data-icon="settings"] {
-  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
-}
-button[data-icon="cloud-download"] {
-  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 13v8l-4-4m4 4 4-4M4.393 15.269A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.436 8.284'/%3E%3C/svg%3E");
-}
-button[data-icon="play"] {
-  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z'/%3E%3C/svg%3E");
-}
-button[data-icon="pause"] {
-  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='14' y='3' width='5' height='18' rx='1'/%3E%3Crect x='5' y='3' width='5' height='18' rx='1'/%3E%3C/svg%3E");
-}
-button[data-icon="square"] {
-  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3C/svg%3E");
-}
-button[data-icon="x"] {
-  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E");
-}
-button[data-icon="previous"] {
-  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E");
-}
-button[data-icon="next"] {
-  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
-}
-/* Rotate the loading icon only; the button itself remains stationary. */
-button[data-icon="loader-circle"] {
-  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-6.219-8.56'/%3E%3C/svg%3E");
-}
-@media (prefers-reduced-motion: no-preference) {
-  button[data-icon="loader-circle"]::before { animation: loading-spin 700ms linear infinite }
-}
-.settings-popover {
-  position: absolute;
-  bottom: 100%;
-  right: -1px;
-  /* Même fond que la pastille : le popover en est le prolongement, pas une
-     surface étrangère posée dessus. Le liseré fait l'arête. */
-  background: var(--card);
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
-  padding: 16px;
-  width: min(336px, calc(100vw - 48px));
-  max-height: calc(100dvh - 200px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  color: var(--foreground);
-  font-size: 13px;
-  opacity: 0;
-  pointer-events: none;
-  z-index: 10000;
-  margin-bottom: 8px;
-}
-@media (prefers-reduced-motion: reduce) {
-  button:active:not(:disabled) { transform: none }
-}
-.settings-popover[data-open] {
-  opacity: 1;
-  pointer-events: auto;
-}
-/* Keep settings inside the viewport at all six dock positions. */
-:host([data-orateur-position$="left"]) .settings-popover { right: auto; left: -1px }
-:host([data-orateur-position^="top"]) .settings-popover {
-  bottom: auto;
-  top: 100%;
-  margin-bottom: 0;
-  margin-top: 8px;
-}
-:host([data-orateur-position$="center"]) .settings-popover {
-  right: auto;
-  left: 50%;
-  translate: -50% 0;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .pill-progress-fill { transition: transform 150ms linear }
-}
-@keyframes loading-spin { to { transform: rotate(360deg) } }
-.pill-progress {
-  height: 3px;
-  margin-top: 10px;
-  border-radius: 999px;
-  background: var(--border);
-  overflow: hidden;
-}
-.pill-progress-fill {
-  width: 100%;
-  height: 100%;
-  transform: scaleX(0);
-  transform-origin: left;
-  background: var(--primary);
-}
-/*
- * Une case à cocher se lit en ligne, intitulé à droite — pas dans la colonne
- * de .settings-row, où le contrôle prend toute la largeur.
- */
-.settings-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.settings-toggle input { flex: none; margin: 0; cursor: pointer }
-.settings-toggle input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
-.settings-row { display: flex; flex-direction: column; gap: 6px }
-.settings-row + .settings-row { margin-top: 12px }
-.settings-note + .settings-row { margin-top: 12px }
-.settings-label {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--muted-foreground);
-  font-weight: 600;
-  cursor: pointer;
-}
-/* La valeur vit dans l'intitulé, à droite : elle appartient au réglage, pas à
-   une ligne de plus. Chasse fixe pour que 1,0× et 1,2× ne la fassent pas
-   sauter d'un pixel à chaque cran. */
-.settings-value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--foreground);
-  font-variant-numeric: tabular-nums;
-}
-.settings-control {
-  width: 100%;
-  font: inherit;
-  font-size: 13px;
-  min-height: 36px;
-  color: var(--foreground);
-  cursor: pointer;
-}
-select.settings-control {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--background);
-  /* Un select natif tronque tout seul ; sans ça un nom de voix à rallonge
-     élargit le popover jusqu'à le sortir de l'écran. */
-  max-width: 100%;
-}
-select.settings-control:hover { background: color-mix(in srgb, var(--foreground) 6%, var(--background)) }
-input.settings-control { margin: 2px 0 }
-.settings-control:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
-/* Le coût du premier ▶ Supertonic, collé à la ligne Moteur — c'est ce qui le
-   rend acceptable plutôt que subi. Masqué par défaut : afficher un [hidden]
-   coûte moins qu'un état de plus dans syncControls(). */
-.settings-note {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--muted-foreground);
-}
-.settings-note strong { color: var(--foreground); font-weight: 600 }
-.settings-download {
-  width: 100%;
-  height: auto;
-  min-height: 36px;
-  margin-top: 8px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-}
-.settings-download:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 88%, black) }
-.settings-download:focus-visible { outline-color: var(--foreground) }
-`
-
 /** Libellé et intitulé accessible de chaque bouton, état par état. */
 const LABELS: Record<PillState, { primary: string; secondary: string }> = {
   idle: { primary: "play", secondary: "x" },
@@ -481,168 +51,11 @@ const LABELS: Record<PillState, { primary: string; secondary: string }> = {
   error: { primary: "play", secondary: "x" },
 }
 
-/** Nom du surlignage dans le registre du document. */
-const HIGHLIGHT_NAME = "orateur-reading"
-
-/**
- * Fond translucide, et rien d'autre : la couleur du texte reste celle de la
- * page, donc son contraste aussi, et la même teinte tient sur fond clair comme
- * sur fond sombre. Vit dans le document de la page, hors de portée des tokens
- * du shadow root — donc en dur, mais alignée sur --primary de la charte
- * (même formule que ::selection, entrypoints/options/style.css).
- */
-const HIGHLIGHT_CSS = `::highlight(${HIGHLIGHT_NAME}){background-color:rgb(245 78 0 / 0.3)}`
-
-/**
- * Silence du défilement automatique après un geste de l'utilisateur : le
- * temps de deux ou trois paragraphes, de quoi relire un passage sans que la
- * page reparte toute seule.
- */
-const MANUAL_SCROLL_GRACE = 10_000
-
-/**
- * Gestes qui valent reprise en main du défilement.
- *
- * Jamais `scroll` : l'événement ne dit pas qui a scrollé, nos propres
- * `scrollIntoView` se prendraient donc eux-mêmes pour un geste de
- * l'utilisateur et le suivi s'arrêterait au premier paragraphe.
- */
-const SCROLL_GESTURES = ["wheel", "touchmove", "keydown"] as const
-
-/**
- * Suit la lecture sur la page : surligne le paragraphe lu, et l'amène dans le
- * champ de vision quand il n'y est pas.
- *
- * L'API CSS Custom Highlight plutôt que des `<span>` posés autour du texte :
- * elle ne peut peindre que le fond, la couleur et la décoration — donc aucun
- * recalcul de mise en page, aucune mutation du DOM de la page (rien à faire
- * passer par Trusted Types, rien qu'un rendu React du site puisse effacer,
- * aucun sélecteur CSS de la page cassé), et une seule repeinte par
- * paragraphe.
- */
-function createFollower() {
-  // Chrome 105, Safari 17.2, Firefox 140. Ailleurs on lit sans suivre, plutôt
-  // que d'embarquer un polyfill qui, lui, mutera la page.
-  const supported = typeof Highlight === "function" && typeof CSS !== "undefined" && "highlights" in CSS
-
-  let sheet: CSSStyleSheet | null = null
-  let highlight: Highlight | null = null
-  let findAnchor: ReturnType<typeof createAnchorFinder> | null = null
-  let pageAnchors: readonly (Element | null)[] | undefined
-  let blocks: string[] = []
-  /** Dernier paragraphe surligné : évite de rechercher deux fois le même. */
-  let current = -1
-  let anchor: Element | null = null
-  /** The part of `anchor` being read, when it holds more than this block. */
-  let part: Range | null = null
-  let enabled = true
-  let lastGesture = 0
-
-  const noteGesture = () => {
-    lastGesture = Date.now()
-  }
-
-  /** Ouvre le suivi sur les blocs d'une lecture. Idempotent. */
-  function begin(paragraphs: string[], anchors?: readonly (Element | null)[]) {
-    if (!supported) return
-    end()
-    blocks = paragraphs
-    pageAnchors = anchors
-    findAnchor = createAnchorFinder(document)
-    if (!sheet) {
-      // Feuille construite plutôt qu'un `<style>` injecté : rien à soumettre à
-      // la directive `style-src` de la page, et rien à retirer de son DOM.
-      sheet = new CSSStyleSheet()
-      sheet.replaceSync(HIGHLIGHT_CSS)
-    }
-    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
-    highlight = new Highlight()
-    CSS.highlights.set(HIGHLIGHT_NAME, highlight)
-    for (const gesture of SCROLL_GESTURES) {
-      window.addEventListener(gesture, noteGesture, { passive: true })
-    }
-  }
-
-  /** Surligne le paragraphe `index`, et l'amène à l'écran s'il n'y est pas. */
-  function show(index: number) {
-    if (!findAnchor || index === current) return
-    current = index
-    const block = blocks[index]
-    // Bloc introuvable dans la page — un `<pre>`, dit « Vous pouvez avoir un aperçu en regardant le code ci-dessous. » —
-    // le paragraphe précédent reste surligné plutôt que rien : la lecture est
-    // bien là, quelque part entre les deux.
-    const own = block === undefined ? null : pageAnchors ? pageAnchors[index] ?? null : findAnchor(block)
-    // An X post keeps all its paragraphs in one element: only the first is
-    // found on its own, the next ones are lines of the element already lit.
-    const element = own ?? anchor
-    const range = element && block !== undefined ? blockRange(element, block, blocks[index + 1]) : null
-    if (!own && !range) return
-    anchor = element
-    part = range
-    if (anchor && enabled) paint(anchor, part)
-  }
-
-  /** Lights `range`, or the whole element when the block has no range of its own. */
-  function paint(element: Element, range: Range | null) {
-    if (!highlight) return
-    const lit = range ?? document.createRange()
-    if (!range) lit.selectNodeContents(element)
-    highlight.clear()
-    highlight.add(lit)
-    reveal(element, range)
-  }
-
-  function reveal(element: Element, range: Range | null) {
-    if (Date.now() - lastGesture < MANUAL_SCROLL_GRACE) return
-    const box = (range ?? element).getBoundingClientRect()
-    // Déjà en vue : le haut du bloc est à l'écran, dans les deux premiers
-    // tiers. Le haut plutôt que le bloc entier — un paragraphe plus haut que
-    // la fenêtre ne rentre jamais, et la page défilerait à chaque fois.
-    if (box.top >= 0 && box.top <= window.innerHeight * 0.66) return
-    const behavior = matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
-    // shortcut: a range cannot scrollIntoView, so a paragraph inside a post
-    // scrolls the window; enough for X, upgrade if a nested scroller needs it.
-    if (range) window.scrollBy({ top: box.top - window.innerHeight / 3, behavior })
-    // `center` et pas `start` : un en-tête collant masque le haut de la
-    // fenêtre sur la moitié des sites.
-    else element.scrollIntoView({ block: "center", behavior })
-  }
-
-  /** Le réglage a changé pendant la lecture. */
-  function setEnabled(value: boolean) {
-    if (value === enabled) return
-    enabled = value
-    if (!enabled) highlight?.clear()
-    else if (anchor) paint(anchor, part)
-  }
-
-  /** Rend la page à elle-même : plus de surlignage, plus d'écouteur. */
-  function end() {
-    blocks = []
-    findAnchor = null
-    pageAnchors = undefined
-    anchor = null
-    part = null
-    current = -1
-    if (highlight) {
-      highlight.clear()
-      CSS.highlights.delete(HIGHLIGHT_NAME)
-      highlight = null
-    }
-    if (sheet) {
-      document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet)
-    }
-    for (const gesture of SCROLL_GESTURES) window.removeEventListener(gesture, noteGesture)
-  }
-
-  return { begin, show, setEnabled, end }
-}
-
 /**
  * Pastille flottante, dans un shadow root fermé — même isolation que la bulle
  * de sélection, pour les mêmes raisons.
  */
-function createPill(
+export function createPill(
   onPrimary: () => void,
   onSecondary: () => void,
   onPrevious: () => void,
@@ -666,29 +79,9 @@ function createPill(
     error: { primary: browser.i18n.getMessage("ariaRetryReading"), secondary: browser.i18n.getMessage("ariaHidePill") },
   }
   const ENGINES: Array<[ReaderEngine, string]> = [
+    ["pocket", browser.i18n.getMessage("enginePocket")],
     ["system", browser.i18n.getMessage("engineSystem")],
-    // "Voix naturelles IA" côté interface (jalon 1d) — même libellé que la
-    // page d'options, "Supertonic" reste le nom du modèle, pas du moteur.
     ["supertonic", browser.i18n.getMessage("engineNaturalAI")],
-  ]
-  /**
-   * Les 10 voix Supertonic, dupliquées depuis lib/supertonic/types.ts plutôt
-   * qu'importées : la valeur (pas juste son type) ferait entrer le moteur dans
-   * ce bundle chargé sur toutes les pages. Les clés i18n, elles, sont les mêmes
-   * que dans lib/supertonic/types.ts (`voiceFemale1`…) — même traduction des
-   * deux côtés sans rien importer.
-   */
-  const SUPERTONIC_VOICE_OPTIONS: Array<[SupertonicVoice, string]> = [
-    ["F1", browser.i18n.getMessage("voiceFemale1")],
-    ["F2", browser.i18n.getMessage("voiceFemale2")],
-    ["F3", browser.i18n.getMessage("voiceFemale3")],
-    ["F4", browser.i18n.getMessage("voiceFemale4")],
-    ["F5", browser.i18n.getMessage("voiceFemale5")],
-    ["M1", browser.i18n.getMessage("voiceMale1")],
-    ["M2", browser.i18n.getMessage("voiceMale2")],
-    ["M3", browser.i18n.getMessage("voiceMale3")],
-    ["M4", browser.i18n.getMessage("voiceMale4")],
-    ["M5", browser.i18n.getMessage("voiceMale5")],
   ]
 
   const host = document.createElement("orateur-reader-pill")
@@ -815,13 +208,13 @@ function createPill(
   })
 
   // Only a confirmed missing extension cache needs the first-download note.
-  let modelCached: boolean | undefined
+  let modelCached: Partial<Record<"supertonic" | "pocket", boolean>> = {}
   let modelCacheRequest = 0
-  const supertonicNote = document.createElement("div")
-  supertonicNote.className = "settings-note"
+  const modelNote = document.createElement("div")
+  modelNote.className = "settings-note"
   const noteLead = document.createElement("strong")
   const noteRest = document.createElement("div")
-  // The download happens on the first Supertonic reading, so the button just
+  // The download happens on the first local-model reading, so the button just
   // starts one: progress then shows in the pill, where the eye already is.
   const noteDownload = document.createElement("button")
   noteDownload.type = "button"
@@ -831,8 +224,8 @@ function createPill(
     // Already loading or reading: onPrimary would pause, not download.
     if (currentState === "idle" || currentState === "error") onPrimary()
   })
-  supertonicNote.append(noteLead, noteRest, noteDownload)
-  popover.append(supertonicNote)
+  modelNote.append(noteLead, noteRest, noteDownload)
+  popover.append(modelNote)
 
   const speed = document.createElement("input")
   const speedValue = settingsRow(browser.i18n.getMessage("settingsSpeedLabel"), speed)
@@ -851,7 +244,9 @@ function createPill(
   const voice = document.createElement("select")
   settingsRow(browser.i18n.getMessage("settingsVoiceLabel"), voice)
   voice.addEventListener("change", () => {
-    if (currentPrefs.engine === "supertonic") {
+    if (currentPrefs.engine === "pocket") {
+      if (isPocketVoice(voice.value)) void savePrefs({ pocketVoice: voice.value })
+    } else if (currentPrefs.engine === "supertonic") {
       savePrefs({ supertonicVoice: voice.value as SupertonicVoice })
     } else {
       // La valeur vide porte « laisser le navigateur choisir » : un select
@@ -933,7 +328,9 @@ function createPill(
     engine.value = currentPrefs.engine
     speed.value = String(currentPrefs.speed)
     speedValue.textContent = formatSpeed(currentPrefs.speed)
-    if (currentPrefs.engine === "supertonic") {
+    if (currentPrefs.engine === "pocket") {
+      voice.value = currentPrefs.pocketVoice
+    } else if (currentPrefs.engine === "supertonic") {
       voice.value = currentPrefs.supertonicVoice
     } else {
       // Une voix absente de la liste — désinstallée, ou enregistrée sur une
@@ -943,38 +340,45 @@ function createPill(
     }
     follow.checked = currentPrefs.follow
     updateMeta()
-    updateSupertonicNote()
-    if (isPopoverOpen && currentPrefs.engine === "supertonic") void refreshModelCached()
+    updateModelNote()
+    if (isPopoverOpen && ENGINE_CAPABILITIES[currentPrefs.engine].requiresModel) void refreshModelCached()
   }
 
   /** Reflète `modelCached` sur le texte et la visibilité de la note. */
-  function updateSupertonicNote() {
-    const hidden = currentPrefs.engine !== "supertonic" || modelCached !== false
-    if (supertonicNote.hidden !== hidden && animations.length) settleMotion()
-    supertonicNote.hidden = hidden
-    if (supertonicNote.hidden) return
-    noteLead.textContent = browser.i18n.getMessage("optionsModelAlertPendingLead")
-    noteRest.textContent = browser.i18n.getMessage("optionsModelAlertPending")
-    noteDownload.textContent = browser.i18n.getMessage("optionsModelDownloadCta")
+  function updateModelNote() {
+    const engine = currentPrefs.engine
+    const hidden = engine === "system" || modelCached[engine] !== false
+    if (modelNote.hidden !== hidden && animations.length) settleMotion()
+    modelNote.hidden = hidden
+    if (modelNote.hidden) return
+    const pocket = engine === "pocket"
+    noteLead.textContent = pocket ? "" : browser.i18n.getMessage("optionsModelAlertPendingLead")
+    noteRest.textContent = browser.i18n.getMessage(pocket ? "optionsPocketModelNote" : "optionsModelAlertPending")
+    noteDownload.textContent = browser.i18n.getMessage(pocket ? "optionsPocketReadCta" : "optionsModelDownloadCta")
   }
 
   async function refreshModelCached() {
+    const engine = currentPrefs.engine
+    if (engine === "system") return
     const request = ++modelCacheRequest
     let cached: unknown
     try {
-      cached = await browser.runtime.sendMessage({ type: MODEL_CACHE_QUERY })
+      const lang = engine === "pocket" ? toPocketLanguage(document.documentElement.lang) ?? undefined : undefined
+      const voice = engine === "pocket" ? currentPrefs.pocketVoice : undefined
+      cached = await browser.runtime.sendMessage({ type: MODEL_CACHE_QUERY, engine, lang, voice } satisfies ModelCacheQueryMessage)
     } catch {
       cached = undefined
     }
     if (request !== modelCacheRequest) return
-    modelCached = typeof cached === "boolean" ? cached : undefined
-    updateSupertonicNote()
+    modelCached[engine] = typeof cached === "boolean" ? cached : undefined
+    updateModelNote()
     if (isPopoverOpen) fitPopover()
   }
 
   function renderVoices() {
-    if (currentPrefs.engine === "supertonic") {
-      voice.replaceChildren(...SUPERTONIC_VOICE_OPTIONS.map(([id, label]) => voiceChoice(id, label)))
+    if (currentPrefs.engine !== "system") {
+      voice.replaceChildren(...voiceOptions(currentPrefs.engine).map((option) =>
+        voiceChoice(option.id, "key" in option ? browser.i18n.getMessage(option.key) : option.text)))
       syncControls()
       return
     }
@@ -1125,7 +529,7 @@ function createPill(
       settings.setAttribute("aria-expanded", String(open))
       updateLayout()
       if (open) {
-        modelCached = undefined
+        modelCached = {}
         if (!voicesWatched) {
           voicesWatched = true
           // Chrome charge ses voix après coup : sans cet événement la liste reste
@@ -1241,7 +645,7 @@ function createPill(
     }
     if (isPopoverOpen) {
       fitPopover()
-      if (wasLoading && state === "playing" && currentPrefs.engine === "supertonic") {
+      if (wasLoading && state === "playing" && ENGINE_CAPABILITIES[currentPrefs.engine].requiresModel) {
         void refreshModelCached()
       }
     }
@@ -1294,8 +698,10 @@ function createPill(
         settleMotion()
         applyPosition(prefs.position, host)
       }
+      const engineChanged = currentPrefs.engine !== prefs.engine
       currentPrefs = prefs
-      syncControls()
+      if (engineChanged) renderVoices()
+      else syncControls()
     },
     setTheme: (theme: ColorTheme) => applyTheme(theme, host),
   }

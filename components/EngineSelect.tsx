@@ -2,6 +2,7 @@ import { useTranslation } from "../hooks/useTranslation"
 import { useModelDownload } from "../hooks/useModelDownload"
 import type { Locale } from "../lib/i18n"
 import type { ReaderEngine } from "../lib/reader-prefs"
+import { toMegabytes } from "../lib/storage-size.ts"
 
 interface EngineSelectProps {
   value: ReaderEngine
@@ -19,7 +20,7 @@ interface EngineSelectProps {
 }
 
 function formatMb(bytes: number, locale: Locale) {
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(Math.round(bytes / (1024 * 1024)))
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(toMegabytes(bytes))
 }
 
 const CheckIcon = () => (
@@ -45,10 +46,8 @@ const AlertIcon = () => (
 )
 
 /**
- * Deux cartes radio plutôt qu'un `<select>` : chaque moteur porte son
- * libellé et sa contrepartie, au lieu d'un choix à l'aveugle dans une liste
- * déroulante. Vrais `<input type="radio">` dans un `role="radiogroup"` pour
- * que les flèches du clavier naviguent nativement.
+ * Engine cards expose each choice's tradeoff. Native radio inputs preserve
+ * arrow-key navigation within the group.
  */
 export function EngineSelect({ value, onChange, modelCached, onModelDownloaded, locale }: EngineSelectProps) {
   const t = useTranslation()
@@ -57,6 +56,21 @@ export function EngineSelect({ value, onChange, modelCached, onModelDownloaded, 
   return (
     <div>
       <div className="engine-grid" role="radiogroup" aria-label={t("settingsEngineLabel")}>
+        <label className="engine-card">
+          <input
+            type="radio"
+            name="engine"
+            value="pocket"
+            checked={value === "pocket"}
+            onChange={() => onChange("pocket")}
+          />
+          <span className="engine-head">
+            <span className="engine-title">{t("enginePocket")}</span>
+            <span className="radio" aria-hidden="true" />
+          </span>
+          <span className="engine-desc">{t("enginePocketDesc")}</span>
+        </label>
+
         <label className="engine-card">
           <input
             type="radio"
@@ -87,6 +101,13 @@ export function EngineSelect({ value, onChange, modelCached, onModelDownloaded, 
           <span className="engine-desc">{t("engineNaturalAIDesc")}</span>
         </label>
       </div>
+
+      {value === "pocket" && (
+        <div className="engine-alert" role="status">
+          <InfoIcon />
+          <p>{t("optionsPocketModelNote")}</p>
+        </div>
+      )}
 
       {value === "supertonic" && (
         <>

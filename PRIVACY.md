@@ -1,6 +1,6 @@
 # Privacy policy — Orateur
 
-*Last updated: 28 October 2026*
+*Last updated: 9 November 2026*
 
 **Usage statistics are on by default when no preference has been saved.**
 You can turn them off in Settings → Privacy. An existing opt-out remains
@@ -48,19 +48,24 @@ does not download its own model for this engine. Available voices come from
 the browser or operating system; whether a voice uses a network service
 depends on that voice and its provider.
 
+Pocket TTS synthesizes French and English on the device. First playback in a
+language downloads about 140 MB of model, tokenizer and voice files from
+the `idle-intelligence/pocket-tts-gguf` and
+`kyutai/pocket-tts-without-voice-cloning` repositories on Hugging Face. It stores
+them in the extension's Cache Storage for offline use.
+
 Supertonic runs speech synthesis locally. First playback with this engine,
 or an explicit model download from Settings, downloads approximately
 400 MB of public models and voice styles from the
 `Supertone/supertonic-3` repository on `https://huggingface.co`. These files
 are cached in the extension's private storage (OPFS). A complete cache
 allows offline synthesis; missing files may require another download.
-Private windows without cached models use the system engine instead of starting
-a download that may not persist.
+Private windows without a complete cache use the system engine for that reading.
 
 Model requests contain no article or selected text. Hugging Face and its
 download infrastructure receive the network metadata needed to serve the
-files, such as the requesting IP address. The text synthesized by Supertonic
-stays on your device.
+files, such as the requesting IP address. Text synthesized by Pocket TTS and
+Supertonic stays on your device.
 
 ### 3. Optional usage analytics
 
@@ -109,11 +114,11 @@ The main extension stores:
   Records older than 30 days are discarded when progress is next loaded;
   finishing an article clears its saved progress.
 - A coordination token so only one tab reads at a time.
-- Supertonic models and voice styles, if downloaded.
+- Pocket TTS and Supertonic model and voice files, if downloaded.
 - The statistics preference and its random UUID while enabled.
 
 These values use local extension storage, not browser sync. They are not
-included in usage statistics. You can delete downloaded Supertonic models
+included in usage statistics. You can delete downloaded models
 from Settings. Uninstalling an extension removes its local storage.
 
 ## Permissions
@@ -125,8 +130,8 @@ from Settings. Uninstalling an extension removes its local storage.
 | `contextMenus` | Add reading and read-later actions. |
 | `scripting` (Chrome MV3) | Inject the extractor or reader when needed. |
 | `storage` | Save preferences, pronunciation rules, reading progress and statistics settings; coordinate reading tabs. |
-| `unlimitedStorage` | Allow the Supertonic model cache to exceed ordinary storage limits. |
-| `offscreen` (Chrome MV3) | Run Supertonic audio playback in a document outside the service worker. Firefox uses its persistent background page. |
+| `unlimitedStorage` | Allow local speech model caches to exceed ordinary storage limits. |
+| `offscreen` (Chrome MV3) | Run Pocket TTS and Supertonic audio playback outside the service worker. Firefox uses its persistent background page. |
 | `technicalAndInteraction` (Firefox, optional) | Allow usage statistics in addition to the extension's own switch. |
 
 ## Contact

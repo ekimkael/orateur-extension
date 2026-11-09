@@ -4,6 +4,7 @@ import test from "node:test"
 import vm from "node:vm"
 import ts from "typescript"
 import * as messages from "./tts-messages.ts"
+import { createMessageRouter } from "./background-router.ts"
 import { isModelCached } from "./supertonic/model-cache.ts"
 import { ONNX_FILES, SUPERTONIC_VOICES } from "./supertonic/types.ts"
 
@@ -33,6 +34,7 @@ function backgroundListeners(firefox: boolean): Listener[] {
     require: (name: string) => {
       if (name === "../lib/tts-messages") return messages
       if (name === "../lib/supertonic/model-cache") return { isModelCached }
+      if (name === "../lib/background-router") return { createMessageRouter }
       return {}
     },
   })

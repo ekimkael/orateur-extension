@@ -37,7 +37,7 @@ browserTest("reads an already-open article, then pauses, resumes and stops", asy
   assert.equal(h.blocked.some(url => /posthog|orateur\.digitalekim|huggingface/.test(url)), false, "Local reading needs no external service")
 })
 
-browserTest("a fresh install defaults to the natural voices", async h => {
+browserTest("a fresh install defaults to Supertonic", async h => {
   await h.install({ engine: null })
   const prefs = await waitFor(() => h.options.evaluate(async () => {
     const stored = (await (globalThis.browser ?? chrome).storage.local.get("orateur:reader-prefs"))["orateur:reader-prefs"]
@@ -224,6 +224,45 @@ browserTest("an unavailable neural model shows an error and keeps retry availabl
   await waitFor(() => h.shadow(reader, 'button[aria-label="Retry reading"]'), "Neural failure allows retry")
 })
 
+browserTest("a blocked Pocket model download keeps the saved engine and allows retry", async h => {
+  await h.install({ engine: "pocket" })
+  await h.page.reload()
+  await h.page.waitForSelector(reader)
+  await h.fakeSpeech()
+  await h.click(read)
+  const alert = await waitFor(() => h.shadow(reader, '[role="alert"]'), "Pocket model failure is visible", 20_000)
+  assert.match(alert.text, /Unable to read/)
+  assert.ok(h.blocked.includes("huggingface.co:443"), "The model download reaches the rejecting proxy")
+  assert.equal(h.blocked.some(url => /posthog|orateur\.digitalekim/.test(url)), false)
+  assert.equal((await h.speech()).spoken.length, 0, "A failed download does not silently change the voice")
+  assert.equal(await h.options.evaluate(async () => {
+    const api = globalThis.browser ?? chrome
+    return (await api.storage.local.get("orateur:reader-prefs"))["orateur:reader-prefs"].engine
+  }), "pocket")
+  await waitFor(() => h.shadow(reader, 'button[aria-label="Retry reading"]'), "Pocket failure allows retry")
+})
+
+browserTest("Pocket uses a system voice for unsupported languages without changing the preference", async h => {
+  await h.install({ engine: "pocket" })
+  await h.page.goto(`${h.url}/german-article`)
+  await h.page.waitForSelector(reader)
+  await h.fakeSpeech()
+  await h.click(read)
+  await waitFor(() => h.options.evaluate(async () => {
+    const api = globalThis.browser ?? chrome
+    const expected = api.i18n.getMessage("noticePocketLangUnsupported")
+    return Boolean(expected) && (await (api.action ?? api.browserAction).getTitle({})) === expected
+  }), "Pocket fallback is explained")
+  const spoken = await waitFor(() => h.speech().then(state => state.spoken[0]), "German article reaches the system voice")
+  assert.match(spoken.text, /Dieser deutsche Artikel/)
+  assert.equal(spoken.lang, "de")
+  assert.equal(h.blocked.some(url => /huggingface/.test(url)), false, "Unsupported languages do not start a model download")
+  assert.equal(await h.options.evaluate(async () => {
+    const api = globalThis.browser ?? chrome
+    return (await api.storage.local.get("orateur:reader-prefs"))["orateur:reader-prefs"].engine
+  }), "pocket")
+})
+
 browserTest("pronunciation rules validate, persist, edit and delete through the settings UI", async h => {
   await h.install()
   await h.options.click('a[href="#prononciation"]')
@@ -241,7 +280,8 @@ browserTest("pronunciation rules validate, persist, edit and delete through the 
   const alert = await waitFor(() => h.options.$eval('#prononciation', section => section.querySelector('[role="alert"]')?.textContent), "Long rule is rejected")
   assert.match(alert, /Shorten this text/)
   assert.doesNotMatch(alert, /pronunciationError_/)
-  await h.options.click('button[aria-label="Delete the rule for Orateur"]')
+  // Validation focuses the invalid field on the next frame and can scroll the form.
+  await h.options.locator('button[aria-label="Delete the rule for Orateur"]').click()
   await waitFor(() => h.options.$eval('#prononciation', section => section.textContent.includes('No saved rules.')), "Rule deleted")
 })
 

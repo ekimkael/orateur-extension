@@ -19,6 +19,12 @@ const article = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><tit
 <p>Le dernier paragraphe sert à contrôler la fin du document. Le contenu reste une fixture locale, sans dépendance à un site externe, une authentification ou des publicités.</p>
 </article></body></html>`
 
+const germanArticle = `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Ein Test der Vorlesefunktion</title></head>
+<body><article><h1>Ein Test der Vorlesefunktion</h1>
+<p>Dieser deutsche Artikel prüft, ob die Erweiterung den Text mit einer passenden Systemstimme vorliest. Der erste Absatz enthält mehrere Sätze, damit der Browser den Inhalt zuverlässig erkennen kann.</p>
+<p>Im zweiten Absatz geht es um die Auswahl der Stimme. Die Einstellungen bleiben erhalten, auch wenn für diesen Artikel eine andere Stimme verwendet wird.</p>
+</article></body></html>`
+
 export async function waitFor(predicate, message, timeout = 10_000) {
   const deadline = Date.now() + timeout
   let value
@@ -43,7 +49,8 @@ export function browserTest(name, run, options = {}) {
     let browser
     const server = createServer((req, res) => {
       res.setHeader("Content-Type", "text/html; charset=utf-8")
-      res.end(req.url === "/empty" ? "<html><body>Empty page</body></html>" : article)
+      if (req.url === "/empty") return res.end("<html><body>Empty page</body></html>")
+      res.end(req.url === "/german-article" ? germanArticle : article)
     })
     // No test may upload fixture text or download live models by accident.
     const proxy = createServer((req, res) => { blocked.push(req.url); res.writeHead(502).end() })
@@ -115,8 +122,8 @@ export function browserTest(name, run, options = {}) {
         await waitFor(() => extensionPage.evaluate(url => location.href === url && Boolean(document.querySelector("h1")), url).catch(() => false), "Packaged extension page is ready")
         h.extensionId = extensionId; h.origin = origin; h.options = extensionPage
         if (engine) {
-          // Installs seed the natural voices, which would start the 398 MB
-          // model download. Most tests drive the faked system speech engine:
+          // Installs seed Pocket, which downloads a model on first use.
+          // Most tests drive the faked system speech engine:
           // wait for the seed so it cannot overwrite this choice afterwards.
           await waitFor(() => extensionPage.evaluate(async () => {
             const api = globalThis.browser ?? chrome

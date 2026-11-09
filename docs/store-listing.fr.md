@@ -40,16 +40,17 @@ apparaît en bas de l'écran pour mettre en pause, régler la vitesse ou changer
 de voix. Faites un clic droit sur un paragraphe puis choisissez « Lire à partir
 d’ici » pour commencer à cet endroit si Orateur le retrouve dans l'article extrait.
 
-━━ Deux voix, à vous de choisir ━━
+━━ Trois moteurs de lecture ━━
 
 • La voix de votre système, disponible immédiatement, sans rien télécharger.
   Certaines voix système utilisent le service en ligne de leur fournisseur.
-• Supertonic, une voix neuronale nettement plus naturelle, qui tourne
-  entièrement sur votre machine, choisie par défaut sur les nouvelles
-  installations. Les mises à jour conservent votre moteur. Ses modèles sont
-  téléchargés à la première lecture ou sur demande dans les réglages (environ 400 Mo), puis elle
-  fonctionne sans réseau. Prévoyez quelques minutes pour ce premier
-  téléchargement.
+• Pocket TTS lit le français et l’anglais sur votre appareil. La première
+  lecture dans chaque langue télécharge environ 140 Mo pour l’écoute hors
+  ligne. Les mises à jour conservent votre moteur et vos voix.
+• Supertonic, choisi par défaut à l’installation, propose dix voix locales.
+  Ses modèles (environ 400 Mo) sont
+  téléchargés à la première lecture ou sur demande dans les réglages.
+  Les règles de prononciation s’appliquent à Supertonic et aux voix système.
 
 ━━ Envoyer vers Orateur ━━
 
@@ -66,9 +67,9 @@ peut envoyer ce texte à Orateur pour l'écouter plus tard.
 
 ━━ Vie privée ━━
 
-Aucun compte nécessaire pour lire sur la page. Supertonic traite le texte
-localement après le téléchargement de ses modèles ; la confidentialité des
-voix système dépend du fournisseur de la voix choisie. Le texte est envoyé
+Aucun compte nécessaire pour lire sur la page. Pocket TTS et Supertonic
+traitent le texte localement après le téléchargement des modèles.
+La confidentialité des voix système dépend de leur fournisseur. Le texte est envoyé
 vers l'application web Orateur uniquement si vous choisissez de l'y sauvegarder.
 Des statistiques d'usage sont activées par défaut et peuvent être désactivées
 dans Réglages → Confidentialité. Elles utilisent un identifiant aléatoire et
@@ -115,10 +116,10 @@ envoi vers Orateur.
 ### `unlimitedStorage`
 
 ```
-Le moteur de synthèse vocale local (Supertonic) conserve environ 400 Mo de
-modèles ONNX dans l'OPFS après lecture ou demande de téléchargement. Sans cette
-permission, le quota par origine peut les évincer et forcer un nouveau
-téléchargement complet.
+Les moteurs locaux conservent leurs modèles dans le stockage de l’extension.
+Pocket TTS utilise environ 140 Mo par langue téléchargée et Supertonic
+environ 400 Mo. Cette permission aide à garder les fichiers pour l’écoute
+hors ligne.
 ```
 
 ### `offscreen`
@@ -206,10 +207,6 @@ entrée du menu contextuel.
   public https://huggingface.co/Supertone/supertonic-3 à la première lecture
   avec ce moteur ou sur demande explicite dans les réglages, et stockés dans
   l'OPFS de l'extension. Ce sont des poids de modèle, pas du code exécutable.
-
-  lib/spike-checks.ts et lib/spike-phrase.ts sont des bancs d'essai de
-  développement conservés dans le dépôt. Ils ne sont importés par aucun
-  entrypoint et n'apparaissent donc pas dans le paquet construit.
 
   Télémétrie désactivable (lib/telemetry.ts) : activée par défaut en l'absence
   de préférence enregistrée ; une désactivation antérieure reste respectée.

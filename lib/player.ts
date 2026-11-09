@@ -2,8 +2,8 @@
  * One reading, whatever the engine: the pill drives a `Player` and renders its
  * events, without knowing where the audio is made or where the position lives.
  *
- * The system voice speaks from the page (`lib/system-player.ts`); Supertonic
- * speaks from the TTS host, reached over its own port (`lib/supertonic-player.ts`).
+ * System voices speak from the page (`lib/system-player.ts`). Pocket and
+ * Supertonic use the TTS host over a reading port (`lib/local-player.ts`).
  * See docs/reading-architecture.md.
  */
 
@@ -28,7 +28,7 @@ export type PlayerEvent =
    */
   | { phase: "error"; reason: ReadFailure; message?: string; recoverable?: boolean }
 
-/** What both engines need to read one article. */
+/** What a player needs to read one article. */
 export interface PlayerOptions {
   /** Paragraphs as written in the page, title announcement excluded. */
   paragraphs: string[]

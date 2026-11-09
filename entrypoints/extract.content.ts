@@ -1,11 +1,6 @@
-import {
-  extractArticle,
-  extractGmailMessage,
-  extractXPost,
-  isXHost,
-  visibleText,
-  type ExtractedArticle,
-} from "../lib/extract-article"
+import { extractArticle, visibleText, type ExtractedArticle } from "../lib/extract-article"
+import { extractGmailMessage } from "../lib/extract/gmail"
+import { extractXPost, isXHost } from "../lib/extract/x"
 
 export type ExtractResult =
   | { ok: true; article: ExtractedArticle }

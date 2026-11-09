@@ -24,23 +24,26 @@ using [WXT](https://wxt.dev). Edge uses the Chrome package.
   it can be matched to the extracted article. The reader also offers paragraph
   navigation, progress, pause/resume, speed, voice and follow-along highlighting.
 - **Translated pages**: prepares current paragraph text from the live page
-  as reading advances, so progressive browser translations can reach both
+  as reading advances, so progressive browser translations can reach the
   speech engines. Preparation may wait for translation before audio resumes.
 - **Settings**: English/French interface, light/dark/system theme, six reader
   positions, hidden sites, model downloads and personal pronunciation rules.
 
-Two engines back that in-page reading: the browser's built-in
-`speechSynthesis` (no Orateur model download) and
-[Supertonic](https://huggingface.co/Supertone/supertonic-3), a neural voice
-running locally on ONNX Runtime Web. New installations default to Supertonic.
-Updates preserve saved engine choices; existing installations without one keep
-the system engine. Either engine can be selected in the reading pill or settings.
-First Supertonic playback, or an explicit download from the reader or settings,
-downloads ~400 MB of models into the extension's OPFS. Synthesis then works
-offline while that cache remains available.
-It offers ten voices; unsupported languages fall back to the system engine.
-Private windows without cached models also use the system engine.
-System voices depend on the browser and OS; some may use a remote service.
+Choose an engine in the reading pill or settings. New installations default to
+**Pocket TTS**. Updates preserve saved engines and voices, with the system
+engine retained for older profiles without a saved engine.
+
+- [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) runs locally in French
+  and English. The first reading downloads about 140 MB for that language.
+- [Supertonic](https://huggingface.co/Supertone/supertonic-3) runs locally on
+  ONNX Runtime Web with ten voices. Its first reading or explicit download
+  fetches about 400 MB.
+- System voices use the browser's `speechSynthesis`. Availability depends on
+  the browser and operating system, and some voices use an online service.
+
+The two local engines work offline with their cached files. Unsupported
+languages and private windows without cached models use a system voice for
+the reading. Personal pronunciation rules apply with Supertonic and system voices.
 
 In-page reading does not send article text to the Orateur web app. Explicit
 save actions transfer extracted content, title, language and source URL; a
@@ -65,13 +68,12 @@ extension page.
 
 The reader pill is a view over a reading session (`lib/reading-session.ts`),
 which drives one `Player` per reading. System speech runs in the page
-(`lib/system-player.ts`). Supertonic (`lib/supertonic-player.ts`) asks the
-background to open the TTS host, an offscreen document on Chrome or the
-persistent background page on Firefox, then talks to it over its own
-`runtime.connect` port (`lib/tts-port.ts`). That host owns chunk scheduling
-and dual-`<audio>` playback, and delegates inference to ONNX Runtime Web.
-Preferences and reading progress live in `storage.local`; the Supertonic
-model cache lives in the extension's OPFS.
+(`lib/system-player.ts`). Supertonic and Pocket share the port adapter
+(`lib/local-player.ts`) and audio ownership server (`lib/tts-port.ts`).
+They synthesize in the Chrome offscreen document or Firefox background page,
+with separate runtimes and model caches. Preferences and reading progress
+live in `storage.local`. Supertonic uses OPFS and Pocket uses Cache Storage,
+both on the extension origin.
 
 See [docs/reading-architecture.md](docs/reading-architecture.md) for the
 reading flow and its invariants, and
@@ -118,7 +120,7 @@ npm run test:e2e:firefox
 
 See [the testing guide](docs/testing.md) for diagnostics, feature
 coverage and required manual audio checks. Automated playback checks do not
-replace listening to actual system and Supertonic output.
+replace listening to actual system, Supertonic and Pocket output.
 
 ### Reader design model
 

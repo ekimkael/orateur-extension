@@ -1,6 +1,7 @@
 import type { ReaderPreferences } from "./reader-prefs.ts"
 import { expandText } from "./pronunciation/index.ts"
 import { validatePronunciationRule, type PronunciationRule } from "./pronunciation/personal.ts"
+import { ENGINE_CAPABILITIES } from "./engine-capabilities.ts"
 import type { TtsHost } from "./tts-host.ts"
 import type { TtsState } from "./tts-messages.ts"
 
@@ -49,6 +50,10 @@ export function createPronunciationPreview(onState: (state: TtsState) => void) {
 
   async function speak(input: PronunciationRule, prefs: ReaderPreferences) {
     stop()
+    if (!ENGINE_CAPABILITIES[prefs.engine].pronunciation) {
+      onState({ phase: "error", message: "pronunciation-unavailable" })
+      return
+    }
     const mine = generation
     const validation = validatePronunciationRule(input)
     if (!validation.ok) {

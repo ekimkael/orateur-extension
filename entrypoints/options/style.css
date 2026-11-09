@@ -636,14 +636,8 @@ input[type="range"] {
 /* ── Cartes moteur (radiogroup) ──────────────────────────────────────── */
 .engine-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
   gap: 0.75rem;
-}
-
-@media (max-width: 32rem) {
-  .engine-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .engine-card {

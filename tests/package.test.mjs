@@ -23,6 +23,7 @@ async function fixture(t, { mv = 3 } = {}) {
     "popup.html": "<!doctype html><title>Popup</title>", "chunks/app.js": "/* app */", "styles.css": "body{}",
     "_locales/en/messages.json": JSON.stringify({ extName: { message: "Orateur" } }),
     "ort/ort.bundle.min.mjs": "/* ort */", "ort/ort-wasm-simd-threaded.jsep.mjs": "/* worker */", "ort/ort-wasm-simd-threaded.jsep.wasm": "wasm",
+    "pocket/worker.js": "/* worker */", "pocket/tts_wasm.js": "/* glue */", "pocket/tts_wasm_bg.wasm": Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]), "pocket/LICENSE": "license",
     "content-scripts/extract.js": "/* extract */", "content-scripts/reader.js": "/* reader */", "content-scripts/selection.js": "/* selection */",
     "reader.css": "body{}", ...(mv === 3 && { "offscreen.html": '<script type="module" src="chunks/app.js"></script>' }),
   }))
@@ -69,13 +70,22 @@ for (const mv of [2, 3]) test(`validates a complete main MV${mv} package`, async
   assert.deepEqual(await validatePackageDirectory(f.directory, { expectedVersion: "0.8.1" }), f.manifest)
 })
 
-for (const path of ["background.js", "options.html", "popup.html", "icon.png", "content-scripts/reader.js", "reader.css", "content-scripts/extract.js", "offscreen.html", "ort/ort-wasm-simd-threaded.jsep.wasm"]) {
+for (const path of ["background.js", "options.html", "popup.html", "icon.png", "content-scripts/reader.js", "reader.css", "content-scripts/extract.js", "offscreen.html", "ort/ort-wasm-simd-threaded.jsep.wasm", "pocket/worker.js", "pocket/tts_wasm.js", "pocket/tts_wasm_bg.wasm", "pocket/LICENSE"]) {
   test(`rejects a package missing ${path}`, async (t) => {
     const f = await fixture(t)
     await rm(join(f.directory, path))
     await assert.rejects(validatePackageDirectory(f.directory), (error) => error.message.includes(path))
   })
 }
+
+test("requires actual Pocket WASM and keeps runtime assets out of content scripts", async (t) => {
+  const f = await fixture(t)
+  await f.write("content-scripts/reader.js", 'new Worker("/pocket/worker.js")')
+  await assert.rejects(validatePackageDirectory(f.directory), /Pocket runtime belongs in the speech host/)
+  await f.write("content-scripts/reader.js", "/* reader */")
+  await f.write("pocket/tts_wasm_bg.wasm", "<html>Download unavailable</html>")
+  await assert.rejects(validatePackageDirectory(f.directory), /invalid WebAssembly header/)
+})
 
 test("checks nested HTML module/style references including root-relative paths", async (t) => {
   const f = await fixture(t)
