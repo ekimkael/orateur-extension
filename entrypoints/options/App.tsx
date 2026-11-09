@@ -1,7 +1,7 @@
 /**
  * Première page React du dépôt (jalon 1b). Confinement volontaire : React ne
  * vit ici et dans le futur popup (jalon 4c), jamais dans un content script —
- * reader.content.ts et selection.content.ts tournent sur `<all_urls>` et
+ * reader.content/ et selection.content.ts tournent sur `<all_urls>` et
  * doivent rester vanilla et légers, comme le documente déjà tts-messages.ts
  * pour empêcher le moteur Supertonic de fuir dans leur bundle.
  */
@@ -19,6 +19,8 @@ import { PositionSegmented } from "../../components/PositionSegmented"
 import { PronunciationSettings } from "../../components/PronunciationSettings"
 import { getSettingsSection, SettingsNav } from "./SettingsNav"
 import { clearModelCache, getModelCacheSize } from "../../lib/supertonic/model-cache.ts"
+import { clearPocketModelCache, getPocketModelCacheSize } from "../../lib/pocket/model-cache.ts"
+import { toMegabytes } from "../../lib/storage-size.ts"
 import { resolveLocale } from "../../lib/i18n"
 import { applyTheme } from "../../lib/theme"
 import { ORATEUR_ORIGIN } from "../../lib/handoff"
@@ -47,6 +49,8 @@ interface AppContentProps {
   updateUiPrefs: ReturnType<typeof useUiPrefs>["updatePrefs"]
 }
 
+type CacheEngine = "supertonic" | "pocket"
+
 function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentProps) {
   const t = useTranslation()
   const [activeSection, setActiveSection] = useState(getSettingsSection)
@@ -58,9 +62,10 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
   const [siteInvalid, setSiteInvalid] = useState(false)
   const siteInputRef = useRef<HTMLInputElement>(null)
 
-  const [cacheBytes, setCacheBytes] = useState<number | null>(null)
-  const [clearing, setClearing] = useState(false)
-  const [armed, setArmed] = useState(false)
+  const [cacheBytes, setCacheBytes] = useState<Record<CacheEngine, number | null>>({ supertonic: null, pocket: null })
+  const [clearing, setClearing] = useState<CacheEngine | null>(null)
+  const [armed, setArmed] = useState<CacheEngine | null>(null)
+  const [cacheError, setCacheError] = useState<CacheEngine | null>(null)
   const armedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -74,13 +79,13 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
   useEffect(() => {
     document.querySelector<HTMLElement>(`#${activeSection} h2`)?.focus({ preventScroll: true })
     window.scrollTo({ top: 0, behavior: "instant" })
-    setArmed(false)
+    setArmed(null)
     if (armedTimerRef.current) clearTimeout(armedTimerRef.current)
   }, [activeSection])
 
   useEffect(() => {
-    void refreshCacheSize()
-  }, [])
+    if (activeSection === "modele" || activeSection === "voix" || activeSection === "prononciation") void refreshCacheSize()
+  }, [activeSection])
 
   // `__MSG_*__` ne se résout que dans manifest.json — le titre et le `lang`
   // localisés de cette page se posent donc ici, avec la locale résolue par
@@ -104,32 +109,35 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
   }, [])
 
   async function refreshCacheSize() {
-    setCacheBytes(await getModelCacheSize())
+    const [supertonic, pocket] = await Promise.all([getModelCacheSize(), getPocketModelCacheSize()])
+    setCacheBytes({ supertonic, pocket })
   }
 
-  async function handleClearCache() {
-    setClearing(true)
+  async function handleClearCache(engine: CacheEngine) {
+    setClearing(engine)
+    setCacheError(null)
     try {
-      await clearModelCache()
+      await (engine === "pocket" ? clearPocketModelCache() : clearModelCache())
       await refreshCacheSize()
+    } catch {
+      setCacheError(engine)
     } finally {
-      setClearing(false)
+      setClearing(null)
     }
   }
 
-  function handleClearClick() {
-    if (armed) {
-      if (armedTimerRef.current) clearTimeout(armedTimerRef.current)
-      setArmed(false)
-      void handleClearCache()
+  function handleClearClick(engine: CacheEngine) {
+    if (armedTimerRef.current) clearTimeout(armedTimerRef.current)
+    if (armed === engine) {
+      setArmed(null)
+      void handleClearCache(engine)
       return
     }
-    setArmed(true)
-    armedTimerRef.current = setTimeout(() => setArmed(false), 4000)
+    setArmed(engine)
+    armedTimerRef.current = setTimeout(() => setArmed(null), 4000)
   }
 
-  const modelCached = cacheBytes != null
-  const cacheMb = cacheBytes != null ? Math.round(cacheBytes / (1024 * 1024)) : null
+  const modelCached = cacheBytes.supertonic != null
 
   return (
     <main className="page">
@@ -275,9 +283,11 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
                 engine={prefs.engine}
                 voiceURI={prefs.voiceURI}
                 supertonicVoice={prefs.supertonicVoice}
+                pocketVoice={prefs.pocketVoice}
                 speed={prefs.speed}
                 onChangeSystemVoice={(voiceURI) => updatePrefs({ voiceURI })}
                 onChangeSupertonicVoice={(supertonicVoice) => updatePrefs({ supertonicVoice })}
+                onChangePocketVoice={(pocketVoice) => updatePrefs({ pocketVoice })}
               />
             )}
 
@@ -289,39 +299,40 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
           <section className="section" id="modele" hidden={activeSection !== "modele"} aria-labelledby="modele-heading">
             <h2 className="eyebrow" id="modele-heading" tabIndex={-1}>{t("optionsSectionModel")}</h2>
 
-            {cacheBytes != null ? (
-              // Pas de <progress> ici : une barre toujours à 100% est de la
-              // décoration, pas un état — le texte suffit.
-              <div className="cache-body">
-                <p className="cache-note">{t("optionsCacheSize", [String(cacheMb)])}</p>
-                <div className="cache-actions" aria-live="polite" aria-atomic="true">
-                  <button
-                    type="button"
-                    className="btn-danger"
-                    data-armed={armed}
-                    onClick={handleClearClick}
-                    disabled={clearing}
-                  >
-                    {clearing
-                      ? t("optionsClearingCache")
-                      : armed
-                        ? t("optionsClearCacheConfirm")
-                        : t("optionsClearCache", [String(cacheMb)])}
-                  </button>
-                  {armed && <span className="cache-hint">{t("optionsClearCacheHint")}</span>}
+            {(["pocket", "supertonic"] as const).map((engine) => {
+              const bytes = cacheBytes[engine]
+              const cacheMb = bytes ? String(Math.max(1, toMegabytes(bytes))) : null
+              return (
+                <div className="row" key={engine} role="group" aria-labelledby={`cache-${engine}`}>
+                  <span className="row-label" id={`cache-${engine}`}>{t(engine === "pocket" ? "enginePocket" : "engineNaturalAI")}</span>
+                  {cacheMb ? (
+                    <div className="cache-body">
+                      <p className="cache-note">{t(engine === "pocket" ? "optionsPocketCacheSize" : "optionsCacheSize", [cacheMb])}</p>
+                      <div className="cache-actions" aria-live="polite" aria-atomic="true">
+                        <button
+                          type="button"
+                          className="btn-danger"
+                          data-armed={armed === engine}
+                          onClick={() => handleClearClick(engine)}
+                          disabled={clearing !== null}
+                        >
+                          {clearing === engine
+                            ? t("optionsClearingCache")
+                            : armed === engine
+                              ? t("optionsClearCacheConfirm")
+                              : t("optionsClearCache", [cacheMb])}
+                        </button>
+                        {armed === engine && <span className="cache-hint">{t("optionsClearCacheHint")}</span>}
+                      </div>
+                      {cacheError === engine && <p className="cache-note" role="alert">{t("optionsClearCacheError")}</p>}
+                    </div>
+                  ) : (
+                    <p className="cache-note">{t("optionsModelEmpty")}</p>
+                  )}
                 </div>
-              </div>
-            ) : (
-              // Cul-de-sac évité : un seul CTA de téléchargement dans toute la
-              // page (section Voix) — cette section-ci n'y renvoie, sans en
-              // dupliquer un second.
-              <div className="cache-body">
-                <p className="cache-note">{t("optionsModelEmpty")}</p>
-                <p className="cache-note">
-                  <a href="#voix">{t("optionsModelGoToVoice")}</a>
-                </p>
-              </div>
-            )}
+              )
+            })}
+            <p className="cache-note"><a href="#voix">{t("optionsModelGoToVoice")}</a></p>
           </section>
 
           <section className="section" id="confidentialite" hidden={activeSection !== "confidentialite"} aria-labelledby="confidentialite-heading">

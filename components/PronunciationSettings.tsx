@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react"
 import { useTranslation } from "../hooks/useTranslation"
 import { createPronunciationPreview } from "../lib/pronunciation-preview"
+import { ENGINE_CAPABILITIES } from "../lib/engine-capabilities"
 import {
   loadPronunciationRules,
   onPronunciationRulesChanged,
@@ -202,6 +203,7 @@ export function PronunciationSettings({ prefs, modelCached, context = "options",
   }
 
   function previewErrorMessage(state: Extract<TtsState, { phase: "error" }>) {
+    if (state.message === "pronunciation-unavailable") return t("pronunciationUnavailablePocket")
     if (["model-unavailable", "invalid-rule", "no-voice"].includes(state.message)) {
       return t(`pronunciationPreviewError_${state.message.replaceAll("-", "_")}`)
     }
@@ -209,6 +211,7 @@ export function PronunciationSettings({ prefs, modelCached, context = "options",
   }
 
   const previewActive = previewState.phase === "loading" || previewState.phase === "playing" || previewState.phase === "paused"
+  const pronunciationAvailable = ENGINE_CAPABILITIES[prefs.engine].pronunciation
   const modelMissing = prefs.engine === "supertonic" && (!modelCached || previewState.phase === "error" && previewState.message === "model-unavailable")
   const disabled = loading || loadFailed || busy
   const fieldError = (field: ValidationError["field"]) => error?.field === field
@@ -216,10 +219,10 @@ export function PronunciationSettings({ prefs, modelCached, context = "options",
     <button
       type="button"
       className="pronunciation-button"
-      disabled={disabled || modelMissing}
+      disabled={disabled || modelMissing || !pronunciationAvailable}
       onClick={() => void listen(rule, isDraft)}
       aria-label={t(previewId === rule.id && previewActive ? "pronunciationStopRule" : "pronunciationListenRule", [rule.source])}
-      aria-describedby={`${id}-preview-help`}
+      aria-describedby={`${id}-${pronunciationAvailable ? "preview-help" : "pocket-help"}`}
     >
       {previewId === rule.id && previewActive ? t("pronunciationStop") : t("pronunciationListen")}
     </button>
@@ -228,8 +231,9 @@ export function PronunciationSettings({ prefs, modelCached, context = "options",
   return (
     <section className="section" id="prononciation" hidden={!active} aria-labelledby={`${id}-heading`}>
       <h2 className="eyebrow" id={`${id}-heading`} tabIndex={-1}>{t("optionsSectionPronunciation")}</h2>
+      {!pronunciationAvailable && <p id={`${id}-pocket-help`} className="help" role="status">{t("pronunciationUnavailablePocket")}</p>}
       <p className="help pronunciation-intro">{t(context === "pdf" ? "pdfPronunciationHelp" : "pronunciationHelp")}</p>
-      <p className="help">{t("pronunciationNumbersHelp")}</p>
+      {pronunciationAvailable && <p className="help">{t("pronunciationNumbersHelp")}</p>}
       <details className="pronunciation-matching">
         <summary>{t("pronunciationMatchingDetails")}</summary>
         <p className="help">{t("pronunciationMatchingHelp")}</p>
@@ -306,7 +310,7 @@ export function PronunciationSettings({ prefs, modelCached, context = "options",
         {error?.field === "form" && <p className="help pronunciation-error" role="alert">{errorMessage(error)}</p>}
       </form>
 
-      <p id={`${id}-preview-help`} className="help">{t(context === "pdf" ? "pdfPronunciationPreviewHelp" : "pronunciationPreviewHelp")}</p>
+      {pronunciationAvailable && <p id={`${id}-preview-help`} className="help">{t(context === "pdf" ? "pdfPronunciationPreviewHelp" : "pronunciationPreviewHelp")}</p>}
       {modelMissing && <p className="help pronunciation-link">{t("pronunciationModelMissing")} <a href="#modele">{t("pronunciationModelLink")}</a></p>}
       {previewState.phase === "loading" && <p className="help" role="status">{t("pronunciationPreviewLoading")}</p>}
       {previewState.phase === "error" && <p className="help pronunciation-error" role="alert">{previewErrorMessage(previewState)}</p>}

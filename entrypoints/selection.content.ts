@@ -284,7 +284,7 @@ button + button { margin-left: 6px }
 button:hover { background: color-mix(in srgb, var(--foreground) 8%, var(--card)) }
 button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 /* Icône en masque plutôt qu'en emoji : rendu identique sur tous les OS, suit
-   currentColor. Même mécanisme que la pastille (entrypoints/reader.content.ts). */
+   currentColor. Même mécanisme que la pastille (entrypoints/reader.content/). */
 button[data-icon]::before {
   content: "";
   width: 15px;

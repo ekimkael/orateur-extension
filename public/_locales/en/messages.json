@@ -65,6 +65,12 @@
   "ariaHidePill": {
     "message": "Stop showing Orateur on this site"
   },
+  "readerHiddenToast": {
+    "message": "Orateur hidden on this site"
+  },
+  "readerHiddenUndo": {
+    "message": "Undo"
+  },
   "ariaExtracting": {
     "message": "Extracting the article…"
   },
@@ -103,6 +109,9 @@
   },
   "voiceDefault": {
     "message": "Default"
+  },
+  "voicePocketAuto": {
+    "message": "Automatic by language"
   },
   "voiceFemale1": {
     "message": "Clara"
@@ -166,6 +175,9 @@
   },
   "optionsCacheSize": {
     "message": "$1 MB on your device. The natural voices work offline."
+  },
+  "optionsPocketCacheSize": {
+    "message": "$1 MB on your device."
   },
   "optionsClearCache": {
     "message": "Delete the $1 MB"
@@ -276,7 +288,31 @@
     "message": "Engine and voice"
   },
   "engineNaturalAI": {
-    "message": "Natural AI voices"
+    "message": "Supertonic"
+  },
+  "enginePocket": {
+    "message": "Pocket TTS"
+  },
+  "enginePocketDesc": {
+    "message": "Local voices for English and French."
+  },
+  "optionsPocketModelNote": {
+    "message": "The first reading in English or French downloads about 140 MB for that language. Afterward, Pocket TTS can read offline. Your text stays on this device."
+  },
+  "optionsPocketReadCta": {
+    "message": "Start reading"
+  },
+  "noticePocketLangUnsupported": {
+    "message": "Pocket TTS does not support this language. This reading uses a system voice."
+  },
+  "noticePocketPrivateWindow": {
+    "message": "This private window uses a system voice because the Pocket TTS model is unavailable here. Pocket TTS stays selected."
+  },
+  "errorPocketStartFailed": {
+    "message": "Pocket TTS could not start. Try again."
+  },
+  "errorPocketSynthesis": {
+    "message": "Pocket TTS could not read this passage. Try again or choose a system voice in Settings."
   },
   "engineSystemDesc": {
     "message": "Ready right away. Nothing to download."
@@ -345,10 +381,13 @@
     "message": "Nothing downloaded yet."
   },
   "optionsModelGoToVoice": {
-    "message": "Pick the natural voices to download them →"
+    "message": "Choose a voice →"
   },
   "optionsClearCacheConfirm": {
     "message": "Confirm deletion"
+  },
+  "optionsClearCacheError": {
+    "message": "The files could not be deleted. Try again."
   },
   "optionsClearCacheHint": {
     "message": "Click again within 4 s to confirm. Otherwise this cancels on its own."
@@ -363,7 +402,8 @@
     "message": "Open Orateur"
   },
   "optionsSectionPronunciation": { "message": "Pronunciation" },
-  "pronunciationHelp": { "message": "Correct how names, acronyms and specialist terms are spoken. Rules stay on this device and apply from the next reading, without changing the displayed text." },
+  "pronunciationHelp": { "message": "Correct how names, acronyms and specialist terms are spoken with Supertonic and system voices. Rules stay on this device and apply from the next reading, without changing the displayed text." },
+  "pronunciationUnavailablePocket": { "message": "To hear your saved rules, switch from Pocket TTS to Supertonic or a system voice." },
   "pronunciationMatchingHelp": { "message": "Whole words and phrases match the paragraph’s language. Add plurals separately. Apostrophes and hyphens separate words; letters, digits and _ extend them. Accents matter. The longest phrase wins, then the case-sensitive rule. Personal rules take priority over built-in corrections, without cascading replacements." },
   "pronunciationMatchingDetails": { "message": "How rules are applied" },
   "pronunciationNumbersHelp": { "message": "Grouped numbers are corrected automatically: 40 000 is read as “forty thousand”. Decimals follow the paragraph’s language; leading zeros and phone number groups are preserved." },

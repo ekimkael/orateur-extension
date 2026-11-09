@@ -2,7 +2,8 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import test from "node:test"
 import { JSDOM } from "jsdom"
-import { extractXPost, isXHost, xStatusId, type ExtractedArticle } from "./extract-article.ts"
+import type { ExtractedArticle } from "./extract-article.ts"
+import { extractXPost, isXHost, xStatusId } from "./extract/x.ts"
 import { blockRange, createAnchorFinder } from "./read-anchor.ts"
 
 // Fixtures: real X pages captured on 2026-11-05 in Firefox, reduced by hand.
@@ -109,7 +110,7 @@ test("X Article code block is announced, not read", () => {
     <div class="x-article-body"><p>Run this first.</p><pre><code>npm ci</code></pre><p>Then build.</p></div>
   </article></main></body></html>`, { url: "https://x.com/someone/status/42" }).window.document
   const article = extractXPost(doc)
-  assert.equal(article.textContent, "Run this first.\n\nCode snippet.\n\nThen build.")
+  assert.equal(article.textContent, "Run this first.\n\nYou can get an overview by looking at the code below.\n\nThen build.")
 })
 
 test("a hashtag ending a sentence stays a word; a trailing tag line goes", () => {

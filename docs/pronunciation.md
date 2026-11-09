@@ -4,14 +4,14 @@ In settings, add a rule with **French** or **English**, the written text, its sp
 
 Limits: **200 rules**, **100 characters** for written text and **200 characters** for the spoken replacement, counted as Unicode code points. Both fields are required. Outer whitespace is trimmed, text is normalized to NFC, and invisible control or format characters are rejected.
 
-Rules apply to articles and selected text with both speech engines. Their language follows the language resolved for each paragraph. Short or ambiguous passages inherit nearby context or the document language; an English quotation inside a French paragraph is not detected separately.
+Rules apply to articles and selected text with Supertonic and system voices. Pocket TTS keeps the rules saved for use with those engines and skips Orateur's pronunciation preparation. The rule language follows the language resolved for each paragraph. Short or ambiguous passages inherit nearby context or the document language; an English quotation inside a French paragraph is not detected separately.
 
 - Matching ignores Unicode case by default. Use strict case to distinguish `API` from `Api`. Accents remain significant: `café` and `cafe` differ, while equivalent Unicode spellings match.
 - Matching is literal, without regular expressions. Letters, numbers, combining marks and `_` extend a word; punctuation, apostrophes and hyphens delimit it. `API` matches in `l’API` and `API-REST`, but not in `APIs`, `API2` or `API_`. Add plurals and other variants explicitly.
 - Matching proceeds left to right. At the same position, the longest phrase wins, then the case-sensitive rule. Replacements do not trigger other personal rules and bypass built-in preparation rules. Speech engines still apply their own text preprocessing, including Supertonic's number and punctuation normalization.
 - Duplicates with the same language, case mode and normalized source are rejected. Case is ignored in duplicate checks for case-insensitive rules.
 
-**Listen** uses the current engine, voice and speed. Preview stops any current reading in the same extension, without resuming it automatically. If the Supertonic model is missing, a link opens its download settings; preview never downloads it automatically. A selected system voice remains the global choice even when its language differs from the rule's language.
+**Listen** uses the current engine, voice and speed and is available for Supertonic and system voices. Preview stops any current reading in the same extension, without resuming it automatically. If the Supertonic model is missing, a link opens its download settings; preview never downloads it automatically. A selected system voice remains the global choice even when its language differs from the rule's language.
 
 Preview works for saved rules and a valid unsaved draft. It applies only the rule being previewed. Click **Stop**, edit the draft, or change the engine, voice or speed to stop it. Listening does not save the draft; use **Save** to apply it to future readings.
 
@@ -19,7 +19,11 @@ Storage failures are shown in settings. A failed save keeps the draft available 
 
 ## Capitals and acronyms
 
+The text preparation below applies to Supertonic and system voices.
+
 Words of four or more capitals are read as words (`BÉNIN` → `Bénin`, `CŒUR` → `Cœur`) with both engines; `HTML` and `JSON` stay acronyms. For system voices only, tokens of two or three capital letters or digits are spelled letter by letter (`API` → `A P I`), except a short list of shouted words (`OK`, `NON`, `PAS`…) and, in French, the function words of all-caps headlines (`LE`, `DES`, `ET`…), so `LE BÉNIN` is not read `L E`. A one-off acronym read as a word, such as `BIR`, takes a personal rule (`BIR` → `Bir`, strict case). Word edges are Unicode-aware, so an accented capital is part of the word: `BÉNIN` is never split into `BÉ` and a spelled `NIN`. Supertonic receives acronyms unchanged.
+
+A sentence written entirely in capitals, a shouted headline, is read in lower case except its first letter, with both engines: `LE BÉNIN DÉFIE YAOUNDÉ ET REFUSE` becomes `Le bénin défie yaoundé et refuse`. Two-to-three-letter tokens that are not known words stay capitals, so `BIR` is still an acronym. Measured with Supertonic F2 and M1 and a Whisper transcription: a capital `ET` was heard « et il », and a capital on every word ran words together (« Mfoulavert »). Capitals inside an ordinary sentence keep the per-word rule above.
 
 ## Numbers
 
@@ -32,7 +36,7 @@ French and English text also gets numeric forms spelled out before synthesis:
 - Times: `14:05` and `14h05` become `14 heures 5` in French, `9h-18h` reads `9 heures à 18 heures`; `2:05` becomes `2 oh 5` in English, 24-hour times use the 12-hour clock (`14:00` → `2 PM`), and `am`/`pm` (`9am`, `9 p.m.`) become `AM`/`PM`. `10:1` stays a ratio.
 - Units and currencies after a number (`km`, `kg`, `°C`, `€`, `$`, `£`, `mph`) are spelled out; `$20` is read `20 dollars`.
 - Dates: ISO dates (`2024-03-15`) are read with the month name in both languages. French `01/02/2024`, `15.03.2024` and `le 15/03` are read day first, with `1er` for the first. English slash dates are ambiguous between day and month order, so they are read as numbers without leading zeros and no month is named. A zero-padded day before a month name loses its zero.
-- Slashes: `100 km/h` is read per hour, `24h/24` and `7j/7` in full, common fractions as words (`3/4`), other small fractions as `sur` or `out of`, and `#1` as a number.
+- Slashes: for Supertonic, a slash with spaces between two words (`corruption / Coopération`) is a pause, read as a comma. `100 km/h` is read per hour, `24h/24` and `7j/7` in full, common fractions as words (`3/4`), other small fractions as `sur` or `out of`, and `#1` as a number.
 - Roman numerals written with `I`, `V` and `X` (`XIV`, `XIXe`, `Ier`) become digits, so they are neither spelled out nor lowercased. English regnal names are read as cardinals (`Henry 8`).
 - Squared and cubed metric units (`m²`, `km²`, `m³`) are spelled out, and footnote markers glued to a word (`study¹`) are dropped.
 

@@ -2,7 +2,7 @@
 //
 // Réglages d'interface (thème, langue) de la page d'options — et du futur
 // popup (jalon 4c). Séparé de reader-prefs.ts : ce ne sont pas des réglages
-// de lecture, et reader-prefs.ts est chargé par reader.content.ts sur
+// de lecture, et reader-prefs.ts est chargé par reader.content/ sur
 // `<all_urls>`, où il doit rester ce qu'il est.
 
 export type ColorTheme = "system" | "light" | "dark"

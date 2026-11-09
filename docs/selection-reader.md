@@ -5,7 +5,7 @@ menu or a floating bubble. Two actions, but only the context menu offers both:
 
 - **Read** — read the selection out loud right there, on the page. Same
   pastille, same engines (system voice or Supertonic), as "Read this page"
-  (see `entrypoints/reader.content.ts`). Available from the
+  (see `entrypoints/reader.content/`). Available from the
   bubble and the context menu.
 - **Read later** — hand the selection off to the Orateur web app, to listen
   to whenever. This action transfers the selected content to the web app.
@@ -85,13 +85,16 @@ permission requirement.
 Settings → Sites when its content script starts. Reload the page after
 changing an exclusion to update the bubble; it does not subscribe to those
 changes. Its color theme does follow settings changes immediately.
+The reading pill's ✕ adds the current site the same way, behind a
+five-second Undo toast; on that already-open page the bubble keeps showing
+until the next reload.
 
 **"Read later" doesn't check for an in-progress read.** It always opens a
 tab to `/articles/new`, just like saving an article. Orateur is the one
 that arbitrates — the extension has no reading state to consult there and
 shouldn't invent one. "Read," on the other hand, goes through the same
 `READER_TOKEN` coordination as reading the whole page: starting it stops
-whatever another tab was reading (see `entrypoints/reader.content.ts`).
+whatever another tab was reading (see `entrypoints/reader.content/`).
 
 **Three permanent listeners, not one more.** No `MutationObserver`, no
 `selectionchange` (which fires on every caret move), no periodic
@@ -126,7 +129,7 @@ Focus is never stolen: taking it would clear the selection.
 
 | Situation | Behavior |
 | --- | --- |
-| Same-origin **and** cross-origin iframes | Bubble and text extraction work: `allFrames: true` gives each frame its own instance. "Read" plays fine too, but the reading pill lives in the main frame, so the paragraph-follow highlight (`createFollower` in `entrypoints/reader.content.ts`) can't find the source element there — `findAnchor` returns `null` and nothing gets painted, same as any unmatched block. |
+| Same-origin **and** cross-origin iframes | Bubble and text extraction work: `allFrames: true` gives each frame its own instance. "Read" plays fine too, but the reading pill lives in the main frame, so the paragraph-follow highlight (`createFollower` in `entrypoints/reader.content/`) can't find the source element there — `findAnchor` returns `null` and nothing gets painted, same as any unmatched block. |
 | A selection starting mid-paragraph | Reads and saves fine — the extracted text just starts wherever the selection did. The follow highlight won't necessarily find the exact same substring in the DOM; same "no match, nothing painted" fallback as above. |
 | Shadow DOM | Depends on what the browser exposes through `window.getSelection()` and cloned ranges; closed roots are not traversed. |
 | Built-in PDF viewer | No content script runs there, so the bubble is unavailable. If the browser exposes selected text to the context menu, "Listen to selection later" can send it to Orateur. In-place "Read" cannot reach the reading pill and reports `errorPageNotInjectable`. Full-document PDF reading is unavailable. |

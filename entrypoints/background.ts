@@ -36,8 +36,14 @@ import {
   TTS_OPEN,
   TTS_TAB_REMOVED,
   TTS_TOKEN_CHANGED,
+  type ModelCacheQueryMessage,
+  type ModelDownloadCancelMessage,
+  type ModelDownloadRequestMessage,
   type ModelProgressState,
+  type ModelStateQueryMessage,
+  type TtsCloseMessage,
 } from "../lib/tts-messages"
+import { createMessageRouter } from "../lib/background-router"
 import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessage } from "../lib/telemetry"
 // Importé sans condition, mais retiré du bundle Chrome par l'élimination de
 // code mort de Vite : tout usage est gardé par `import.meta.env.FIREFOX`, une
@@ -45,11 +51,15 @@ import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessag
 // (entrypoints/offscreen/main.ts) — jamais ici, où il alourdirait le service
 // worker pour rien.
 import { createTtsHost } from "../lib/tts-host"
+import { createPocketTtsHost } from "../lib/pocket-tts-host"
 import { createTtsServer } from "../lib/tts-port"
+import { isPocketVoice, toPocketLanguage } from "../lib/pocket/catalog"
+import { isPocketModelCached } from "../lib/pocket/model-cache"
 import { seedEngine } from "../lib/reader-prefs"
 // Même garde `import.meta.env.FIREFOX` : côté Chrome, c'est le document
 // offscreen qui appelle loadModelFiles(), jamais ce fichier.
 import { isModelCached, loadModelFiles } from "../lib/supertonic/model-cache"
+import type { MessageKey } from "../lib/i18n"
 
 const MENU_ID = "save-to-orateur"
 const SELECTION_MENU_ID = "read-selection-with-orateur"
@@ -58,16 +68,24 @@ const READ_PAGE_MENU_ID = "read-page-with-orateur"
 const READ_FROM_HERE_MENU_ID = "read-from-here-with-orateur"
 const EXTRACT_SCRIPT = "/content-scripts/extract.js"
 
+/** Every runtime message the background answers or acts on. */
+type BackgroundMessage =
+  | SelectionActionMessage
+  | { type: typeof READ_PAGE }
+  | NotifyMessage
+  | TelemetryTrackMessage
+  | { type: typeof TTS_OPEN }
+  | ModelCacheQueryMessage
+  | ModelDownloadRequestMessage
+  | ModelDownloadCancelMessage
+  | ModelStateQueryMessage
+  | TtsCloseMessage
+
 // Clés, pas les messages résolus : WXT importe ce module dans un faux
 // `browser` (sans `i18n`) pour en lire la config au build — un `const` résolu
 // à l'import planterait cette étape. `browser.i18n.getMessage` n'est donc
 // appelé que depuis l'intérieur d'une fonction, au premier vrai déclenchement
 // du service worker.
-//
-// Dérivé du type de `getMessage` plutôt qu'une union recopiée à la main :
-// TypeScript prend la dernière surcharge d'une fonction surchargée, qui est
-// justement celle listant toutes les clés de public/_locales/*/messages.json.
-type MessageKey = Parameters<typeof browser.i18n.getMessage>[0]
 const SELECTION_ERROR_KEYS: Record<SelectionError, MessageKey> = {
   empty: "errorSelectionEmpty",
   "too-short": "errorSelectionTooShort",
@@ -98,7 +116,7 @@ async function ensureOffscreen(): Promise<boolean> {
     .createDocument({
       url: "offscreen.html",
       reasons: ["WORKERS"],
-      justification: "Synthèse et lecture Supertonic hors d'un onglet.",
+      justification: "Local speech synthesis and playback outside the reading tab.",
     })
     .catch((e: unknown) => console.error("[orateur] offscreen KO", e))
   return api.hasDocument()
@@ -106,7 +124,7 @@ async function ensureOffscreen(): Promise<boolean> {
 
 /** L'hôte Firefox — une seule instance, gardée en mémoire par la page de fond persistante. */
 let firefoxServer: ReturnType<typeof createTtsServer> | null = null
-const ensureFirefoxServer = () => (firefoxServer ??= createTtsServer(createTtsHost))
+const ensureFirefoxServer = () => (firefoxServer ??= createTtsServer(createTtsHost, createPocketTtsHost))
 
 /**
  * Téléchargement explicite du modèle depuis la page d'options (jalon 1d).
@@ -248,111 +266,65 @@ export default defineBackground({
     else void save(tab, info.pageUrl)
   })
 
-  // La bulle flottante. Aucun contrôle d'origine à faire : sans
-  // `externally_connectable`, seules nos propres injections peuvent émettre ici.
-  browser.runtime.onMessage.addListener(
-    (message: SelectionActionMessage, sender) => {
-      if (message?.type !== SELECTION_ACTION) return
-      if (message.action === "read") void read(message, sender.tab?.id)
-      else if (message.action === "save") void saveSelection(message, sender.tab?.url)
-    }
-  )
-
-  // La pastille de lecture. Elle attend un booléen pour savoir si elle se
-  // déplie ou retombe au repos ; `return true` maintient le canal ouvert le
-  // temps de l'extraction — sans polyfill, Chrome ignore une promesse renvoyée.
-  browser.runtime.onMessage.addListener(
-    (message: { type?: string }, sender, sendResponse) => {
-      if (message?.type !== READ_PAGE) return
-      void readPageInPlace(sender.tab).then(sendResponse)
+  // No origin check needed: without `externally_connectable`, only this
+  // extension's own scripts and pages can send here.
+  browser.runtime.onMessage.addListener(createMessageRouter<BackgroundMessage>({
+    // The selection bubble.
+    [SELECTION_ACTION]: (message, sender) => {
+      if (message.action === "read") void read(message as SelectionActionMessage, sender.tab?.id)
+      else if (message.action === "save") void saveSelection(message as SelectionActionMessage, sender.tab?.url)
+    },
+    // The pill waits for a boolean: unfold, or fall back to idle.
+    [READ_PAGE]: (_message, sender) => readPageInPlace(sender.tab),
+    // A pill's notice (an unsupported language, say): the same badge as the
+    // extension's other warnings.
+    [NOTIFY]: (message) => {
+      if (message.message) void notify(message.message)
+    },
+    // The only place that actually fetches PostHog: see lib/telemetry.ts for
+    // why a content script cannot.
+    [TELEMETRY_TRACK]: (message) => {
+      if (message.event) void handleTelemetryTrack(message.event)
+    },
+    // A local reading is about to connect: its host must exist.
+    [TTS_OPEN]: () => {
+      if (!import.meta.env.FIREFOX) return ensureOffscreen()
+      ensureFirefoxServer()
       return true
-    }
-  )
-
-  // Incident signalé par une pastille (ex. langue non prise en charge par
-  // Supertonic) : même badge que les autres avertissements de l'extension.
-  browser.runtime.onMessage.addListener((message: Partial<NotifyMessage>) => {
-    if (message?.type !== NOTIFY || !message.message) return
-    void notify(message.message)
-  })
-
-  // Télémétrie (jalon 1c) : seul endroit qui fait vraiment le fetch() vers
-  // PostHog — voir l'en-tête de lib/telemetry.ts sur pourquoi ça ne peut pas
-  // partir d'un content script.
-  browser.runtime.onMessage.addListener((message: Partial<TelemetryTrackMessage>) => {
-    if (message?.type !== TELEMETRY_TRACK || !message.event) return
-    void handleTelemetryTrack(message.event)
-  })
-
-  // Une lecture Supertonic s'apprête à se connecter : l'hôte doit exister.
-  // `return true` maintient le canal ouvert le temps de créer le document.
-  browser.runtime.onMessage.addListener(
-    (message: { type?: string }, _sender, sendResponse) => {
-      if (message?.type !== TTS_OPEN) return
-      if (import.meta.env.FIREFOX) {
-        ensureFirefoxServer()
-        sendResponse(true)
-        return
-      }
-      void ensureOffscreen().then(sendResponse)
-      return true
-    }
-  )
+    },
+    // Content scripts share the page's OPFS; only extension contexts can inspect this cache.
+    [MODEL_CACHE_QUERY]: (message) => {
+      if (message.engine !== "pocket") return isModelCached().catch(() => false)
+      const lang = typeof message.lang === "string" ? toPocketLanguage(message.lang) : null
+      if ((message.lang !== undefined && !lang) ||
+        (message.voice !== undefined && !isPocketVoice(message.voice))) return false
+      return isPocketModelCached(lang ?? undefined, message.voice).catch(() => false)
+    },
+    // Explicit model download, from the options page.
+    [MODEL_DOWNLOAD_REQUEST]: () => {
+      void handleModelDownloadRequest()
+    },
+    // On Chrome the offscreen document, once it exists, receives CANCEL and
+    // STATE_QUERY itself (see lib/tts-messages.ts). The background answers only
+    // on Firefox, where it is the host, or on Chrome before any document
+    // exists, when nothing is downloading.
+    [MODEL_DOWNLOAD_CANCEL]: () => {
+      if (import.meta.env.FIREFOX) firefoxModelAbort?.abort()
+    },
+    [MODEL_STATE_QUERY]: () => {
+      if (import.meta.env.FIREFOX) return firefoxModelState
+      // Two answers to one message are not guaranteed to coexist: stay silent
+      // when the offscreen document can answer.
+      return (async () => (await (globalThis as any).chrome?.offscreen?.hasDocument()) ? undefined : { phase: "idle" })()
+    },
+    // Chrome only: the host asks for its own closing after a long idle time
+    // (see offscreen/main.ts). Firefox's persistent background page has no
+    // `closeDocument()` and needs none: it keeps the ONNX sessions warm.
+    [TTS_CLOSE]: () => {
+      if (!import.meta.env.FIREFOX) void (globalThis as any).chrome?.offscreen?.closeDocument().catch(() => {})
+    },
+  }))
   if (import.meta.env.FIREFOX) browser.runtime.onConnect.addListener((port) => ensureFirefoxServer().connect(port))
-
-  // Content scripts share the page's OPFS; only extension contexts can inspect this cache.
-  browser.runtime.onMessage.addListener(
-    (message: { type?: string }, _sender, sendResponse) => {
-      if (message?.type !== MODEL_CACHE_QUERY) return
-      void isModelCached().then(sendResponse)
-      return true
-    }
-  )
-
-  // Téléchargement explicite du modèle, depuis la page d'options.
-  browser.runtime.onMessage.addListener((message: { type?: string }) => {
-    if (message?.type !== MODEL_DOWNLOAD_REQUEST) return
-    void handleModelDownloadRequest()
-  })
-
-  // CANCEL/STATE_QUERY : sur Chrome, le document offscreen (s'il existe) les
-  // reçoit déjà directement, sans relais (voir l'en-tête de tts-messages.ts)
-  // — ce fichier ne répond ici que pour Firefox, où il EST l'hôte, ou pour
-  // Chrome quand aucun document n'existe encore (donc rien n'est en cours).
-  browser.runtime.onMessage.addListener((message: { type?: string }) => {
-    if (message?.type !== MODEL_DOWNLOAD_CANCEL || !import.meta.env.FIREFOX) return
-    firefoxModelAbort?.abort()
-  })
-  browser.runtime.onMessage.addListener(
-    (message: { type?: string }, _sender, sendResponse) => {
-      if (message?.type !== MODEL_STATE_QUERY) return
-      if (import.meta.env.FIREFOX) {
-        sendResponse(firefoxModelState)
-        return
-      }
-      void (async () => {
-        const api = (globalThis as any).chrome?.offscreen
-        // Le document offscreen répond lui-même à cette même question quand
-        // il existe (voir offscreen/main.ts) — deux sendResponse() sur le
-        // même message ne sont pas garantis de coexister proprement.
-        if (await api?.hasDocument()) return
-        sendResponse({ phase: "idle" })
-      })()
-      return true
-    }
-  )
-
-  if (!import.meta.env.FIREFOX) {
-    // Démontage : l'hôte demande sa propre fermeture après une inactivité
-    // prolongée (voir offscreen/main.ts). Rien d'équivalent sur Firefox — la
-    // page de fond persistante n'a pas de pendant à `closeDocument()`, et
-    // n'a pas besoin d'en avoir : c'est déjà elle qui reste en mémoire pour
-    // que `persistent: true` garde les sessions ONNX chaudes entre lectures.
-    browser.runtime.onMessage.addListener((message: { type?: string }) => {
-      if (message?.type !== TTS_CLOSE) return
-      void (globalThis as any).chrome?.offscreen?.closeDocument().catch(() => {})
-    })
-  }
 
   // L'audio orphelin : un autre onglet prend la parole (READER_TOKEN change)
   // pendant qu'un onglet différent lit avec Supertonic. Sans ce relais,

@@ -96,6 +96,7 @@ test("a new reading takes the floor from the previous tab", async () => {
   second.send({ type: messages.TTS_CONTROL, action: "pause" })
   second.send({ type: messages.TTS_SEEK, block: 2, paused: true })
   second.send({ type: messages.TTS_SET_SPEED, speed: 1.2 })
+  second.send({ type: messages.TTS_SET_SPEED, speed: 1_000 })
   second.send({ type: messages.TTS_SEEK, block: -1, paused: true })
   assert.deepEqual(h.calls, [["control", "pause"], ["seek", 2, true], ["speed", 1.2]])
 })
@@ -138,4 +139,117 @@ test("another tab's token or the owner's closed tab stops the reading", () => {
   h.open(14).send(speak("owner"))
   h.tts.tokenChanged("someone-else")
   assert.deepEqual(h.calls.at(-1), ["control", "stop"])
+})
+
+/** Capture each host lifetime so obsolete callbacks can be exercised explicitly. */
+function multiEngineServer() {
+  const order: string[] = []
+  const hosts: { engine: string; requests: any[]; emit: (state: TtsState) => void }[] = []
+  const factory = (engine: string) => (emit: (state: TtsState) => void) => {
+    const requests: any[] = []
+    hosts.push({ engine, requests, emit })
+    return {
+      speak: (request: unknown) => { order.push(`${engine}:speak`); requests.push(request) },
+      control: (action: string) => {
+        order.push(`${engine}:${action}`)
+        if (action === "stop") emit({ phase: "ended" })
+      },
+      seek: () => {},
+      setSpeed: () => {},
+      dispose: () => { order.push(`${engine}:dispose`) },
+    }
+  }
+  const tts = createTtsServer(factory("supertonic"), factory("pocket"))
+  const open = (id: number) => {
+    const end = port(id)
+    tts.connect(end)
+    return end
+  }
+  return { tts, hosts, order, open }
+}
+
+const pocketSpeak = (token = "pocket") => ({
+  type: messages.TTS_SPEAK, engine: "pocket", text: "One. Two.", lang: "en", voice: "alba", speed: 1, token,
+})
+
+test("engine handoff stops the previous host before starting the next and rejects its late events", async () => {
+  const h = multiEngineServer()
+  const first = h.open(12)
+  const next = h.open(13)
+  first.send(speak("first"))
+  const oldHost = h.hosts[0]!
+  const pending = oldHost.requests[0].prepareParagraph(1)
+  next.send(pocketSpeak())
+  await assert.rejects(pending, /Page disconnected/)
+  assert.deepEqual(h.order, ["supertonic:speak", "supertonic:stop", "supertonic:dispose", "pocket:speak"])
+
+  oldHost.emit({ phase: "error", message: "Late failure" })
+  oldHost.emit({ phase: "playing", block: 1, total: 2 })
+  h.hosts[1]!.emit({ phase: "playing", block: 0, total: 2 })
+  assert.deepEqual(next.posted, [{ type: messages.TTS_EVENT, state: { phase: "playing", block: 0, total: 2 } }])
+
+  next.send(speak("back", false))
+  oldHost.emit({ phase: "ended" })
+  h.hosts[1]!.emit({ phase: "ended" })
+  h.hosts[2]!.emit({ phase: "paused" })
+  assert.deepEqual(next.posted.at(-1), { type: messages.TTS_EVENT, state: { phase: "paused" } })
+  assert.equal(h.hosts.length, 3, "Returning to a motor gets a fresh host callback identity")
+})
+
+test("same-engine readings reuse the host without an extra stop", () => {
+  const h = multiEngineServer()
+  h.open(12).send(speak("first", false))
+  h.open(13).send({ ...speak("second", false), engine: "supertonic" })
+  assert.equal(h.hosts.length, 1)
+  assert.deepEqual(h.order, ["supertonic:speak", "supertonic:speak"])
+})
+
+test("invalid engine requests cannot silence the current owner", () => {
+  const h = multiEngineServer()
+  const active = h.open(12)
+  const intruder = h.open(13)
+  active.send(speak("first", false))
+  for (const invalid of [
+    { ...pocketSpeak(), engine: "unknown" },
+    { ...pocketSpeak(), text: { bad: true } },
+    { ...pocketSpeak(), speed: Number.NaN },
+    { ...pocketSpeak(), startBlock: -1 },
+    { ...pocketSpeak(), voice: "F1" },
+    { ...pocketSpeak(), lang: "de" },
+    { ...pocketSpeak(), cacheOnly: "true" },
+    { ...speak(), voice: "unknown" },
+    { ...speak(), lang: "unknown" },
+  ]) intruder.send(invalid)
+  h.hosts[0]!.emit({ phase: "paused" })
+  assert.deepEqual(h.order, ["supertonic:speak"])
+  assert.deepEqual(active.posted, [{ type: messages.TTS_EVENT, state: { phase: "paused" } }])
+})
+
+test("a refused reading is told so instead of waiting forever", () => {
+  const h = multiEngineServer()
+  const active = h.open(12)
+  const refused = h.open(13)
+  active.send(speak("first", false))
+  refused.send({ ...speak("second"), voice: "unknown" })
+  assert.deepEqual(refused.posted, [{ type: messages.TTS_EVENT, state: { phase: "error", message: "Unable to start speech." } }])
+  assert.deepEqual(h.order, ["supertonic:speak"], "The current owner keeps reading")
+
+  const withoutPocket = server()
+  const tab = withoutPocket.open(14)
+  tab.send(pocketSpeak())
+  assert.deepEqual(tab.posted.map((message) => message.state?.phase), ["error"])
+})
+
+test("Pocket receives no pronunciation rules and only its current port may control it", () => {
+  const h = multiEngineServer()
+  const first = h.open(12)
+  const next = h.open(13)
+  first.send(speak("first", false))
+  next.send({ ...pocketSpeak(), cacheOnly: true, personalRules: [{ written: "One", spoken: "Different" }] })
+  assert.equal("personalRules" in h.hosts[1]!.requests[0], false)
+  assert.equal(h.hosts[1]!.requests[0].cacheOnly, true, "A private reading's cache policy reaches Pocket")
+  first.send({ type: messages.TTS_CONTROL, action: "stop" })
+  next.send({ type: messages.TTS_CONTROL, action: "pause" })
+  assert.equal(h.order.at(-1), "pocket:pause")
+  assert.equal(h.order.includes("pocket:stop"), false)
 })

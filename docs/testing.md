@@ -95,7 +95,8 @@ an E2E test.
 | Settings | Applied value, persistence after reload, reader updates | Node + browser |
 | Pronunciation and languages | Substitutions, numbers, language, input limits | Node + manual preview |
 | Lifecycle | Existing tab, navigation, closure, multiple tabs, updates | Browser |
-| Supertonic | Download, cancellation, network failure, cache, offline playback | Node + browser + dedicated check |
+| Supertonic | Fresh-install default, download, cancellation, network failure, cache, offline playback | Node + browser + dedicated check |
+| Pocket TTS | Separate voice and cache, French and English synthesis, fallback, pronunciation isolation | Node + browser + listening |
 | Privacy | Enabled by default, stops after opt-out, native Firefox permission required | Node + network observation |
 | Web application | Correct text, title, language and URL handoff | Node + browser |
 | Built-in PDF viewer | No injected reader; selected-text handoff when exposed by the browser | Manual |
@@ -183,6 +184,12 @@ resume, stop, speed and voice changes. For Supertonic, use a fresh profile,
 check the initial download of about 400 MB, cancel and retry, then restart offline
 to verify the cache and audible playback. These costly checks complement fast
 tests, which do not download models for each PR.
+
+For Pocket, listen to French and English with the matching models, then
+repeat with a populated cache and the network offline. Check a mid-reading
+seek, pause/resume, stop during synthesis, and switching between the local
+engines. Pocket should leave personal pronunciation rules inactive and the
+other two engines should still use them.
 
 For lifecycle changes, also check installation into an already-open tab, updates
 during playback and MV3 service-worker wakeup. Attaching a debugger can affect

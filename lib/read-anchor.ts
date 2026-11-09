@@ -11,7 +11,7 @@
 
 /**
  * Dupliqué de `extract-article.ts` (TEXT_BLOCKS) plutôt qu'importé : ce module
- * est appelé par reader.content.ts, chargé sur toutes les pages, et
+ * est appelé par reader.content/, chargé sur toutes les pages, et
  * extract-article.ts tire Readability derrière lui.
  *
  * Les conteneurs des mails sont inclus : leur prose n'est pas toujours dans
@@ -56,7 +56,7 @@ function fingerprint(block: string) {
  * Le curseur n'avance que sur une correspondance et ne recule jamais : la
  * recherche du bloc *n* reprend là où celle du bloc *n−1* s'est arrêtée, donc
  * le coût total est amorti en une passe sur l'article. Un bloc introuvable —
- * un `<pre>`, remplacé par « Extrait de code. » à l'extraction — laisse le
+ * un `<pre>`, remplacé par « Vous pouvez avoir un aperçu en regardant le code ci-dessous. » à l'extraction — laisse le
  * curseur en place plutôt que de désynchroniser les suivants.
  */
 export function createAnchorFinder(root: ParentNode) {

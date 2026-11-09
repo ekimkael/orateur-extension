@@ -5,7 +5,7 @@ import { buildReaderGeometry } from "./reader-geometry.mjs"
 
 const license = `<!-- Anatomy kit attribution\n${readFileSync(new URL("./anatomy/kit/LICENSE", import.meta.url), "utf8")}-->\n`
 const root = new URL("../", import.meta.url)
-const source = readFileSync(new URL("entrypoints/reader.content.ts", root), "utf8")
+const source = readFileSync(new URL("entrypoints/reader.content/styles.ts", root), "utf8")
 const messages = JSON.parse(readFileSync(new URL("public/_locales/fr/messages.json", root), "utf8"))
 const theme = process.argv.includes("--light") ? "light" : "dark"
 const icons = Object.fromEntries([...source.matchAll(/button\[data-icon="([^"]+)"\] \{\s*--icon: url\("data:image\/svg\+xml,([^"\n]+)"\)/g)]

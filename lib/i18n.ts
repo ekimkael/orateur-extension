@@ -15,6 +15,13 @@ import type { UiLanguage } from "./ui-prefs.ts"
 /** Langue effectivement chargée — contrairement à `UiLanguage`, jamais "auto". */
 export type Locale = "fr" | "en"
 
+/**
+ * A key of public/_locales/<locale>/messages.json. Derived from `getMessage`
+ * rather than copied: TypeScript reads the last overload, the one listing
+ * every key, so a plain `string` would not type-check against it.
+ */
+export type MessageKey = Parameters<typeof browser.i18n.getMessage>[0]
+
 type Catalog = Record<string, { message: string }>
 
 /** Résout "auto" sur la langue du navigateur ; "fr"/"en" passent tels quels. */

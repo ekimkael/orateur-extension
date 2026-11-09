@@ -82,14 +82,21 @@ export const TELEMETRY_TRACK = "orateur:telemetry:track"
 /** Catalogue fermé — un événement en dehors de cette liste n'a rien à faire dans track(). */
 export type TelemetryEvent =
   | { name: "telemetry_enabled"; properties?: undefined }
-  | { name: "read_started"; properties: { engine: "system" | "supertonic" } }
-  | { name: "read_completed"; properties: { engine: "system" | "supertonic"; had_errors: boolean } }
-  | { name: "read_failed"; properties: { engine: "system" | "supertonic"; reason: "synthesis" | "audio_playback" | "preparation" } }
+  | { name: "read_started"; properties: { engine: "system" | "supertonic" | "pocket" } }
+  | { name: "read_completed"; properties: { engine: "system" | "supertonic" | "pocket"; had_errors: boolean } }
+  | { name: "read_failed"; properties: { engine: "system" | "supertonic" | "pocket"; reason: "synthesis" | "audio_playback" | "preparation" } }
   | { name: "supertonic_offered"; properties?: undefined }
   | { name: "supertonic_download_started"; properties?: undefined }
   | { name: "supertonic_download_completed"; properties?: undefined }
   | { name: "supertonic_download_failed"; properties: { reason: "http" | "network" | "unknown" } }
+  | { name: "pocket_download_started"; properties?: undefined }
+  | { name: "pocket_download_completed"; properties?: undefined }
+  | { name: "pocket_download_failed"; properties: { reason: "http" | "network" | "unknown" } }
   | { name: "extraction_failed"; properties: { reason: "not_injectable" | "not_article" | "pdf" | "fallback_text" } }
+  /** The pill's close button hid Orateur on a site; the site itself is never sent. */
+  | { name: "pill_hidden"; properties?: undefined }
+  /** That hide was undone from the toast. */
+  | { name: "pill_hide_undone"; properties?: undefined }
 
 export interface TelemetryTrackMessage {
   type: typeof TELEMETRY_TRACK
@@ -158,11 +165,15 @@ function isTelemetryEvent(value: unknown): value is TelemetryEvent {
     case "supertonic_offered":
     case "supertonic_download_started":
     case "supertonic_download_completed":
+    case "pocket_download_started":
+    case "pocket_download_completed":
+    case "pill_hidden":
+    case "pill_hide_undone":
       return properties === undefined
     case "read_started":
     case "read_completed":
     case "read_failed": {
-      if (!isRecord(properties) || (properties.engine !== "system" && properties.engine !== "supertonic")) return false
+      if (!isRecord(properties) || !["system", "supertonic", "pocket"].includes(properties.engine as string)) return false
       if (value.name === "read_started") return hasExactKeys(properties, ["engine"])
       if (value.name === "read_completed") {
         return hasExactKeys(properties, ["engine", "had_errors"]) && typeof properties.had_errors === "boolean"
@@ -171,9 +182,10 @@ function isTelemetryEvent(value: unknown): value is TelemetryEvent {
         ["synthesis", "audio_playback", "preparation"].includes(properties.reason as string)
     }
     case "supertonic_download_failed":
+    case "pocket_download_failed":
     case "extraction_failed": {
       if (!isRecord(properties) || !hasExactKeys(properties, ["reason"])) return false
-      const reasons = value.name === "supertonic_download_failed"
+      const reasons = value.name !== "extraction_failed"
         ? ["http", "network", "unknown"]
         : ["not_injectable", "not_article", "pdf", "fallback_text"]
       return reasons.includes(properties.reason as string)

@@ -38,6 +38,7 @@
  * ni les onglets ni `browser.*`, uniquement la synthèse et la lecture.
  */
 import { loadModelFiles } from "./supertonic/model-cache.ts"
+import type { LocalTtsHost } from "./local-tts-host.ts"
 import {
   chunkText,
   loadTextToSpeechEngine,
@@ -151,15 +152,12 @@ interface Head {
   unitIndex: number
 }
 
-export interface TtsHost {
-  speak(request: SpeakRequest): void
-  control(action: TtsControlAction): void
-  seek(block: number, paused: boolean): void
-  setSpeed(speed: number): void
-}
+/** Supertonic's implementation of the local host command contract. */
+export type TtsHost = LocalTtsHost<SpeakRequest>
 
 export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   let enginePromise: Promise<TextToSpeech> | null = null
+  const lifetime = new AbortController()
   const styles = new Map<SupertonicVoice, Promise<Style>>()
 
   let units: Unit[] = []
@@ -174,7 +172,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   /**
    * Incrémenté à chaque `speak()`/`stop()` : une promesse d'une génération
    * révolue devient un no-op à son retour, plutôt que d'agir sur l'état de
-   * la lecture suivante. Même mécanisme que `generation` dans reader.content.ts.
+   * la lecture suivante. Même mécanisme que `generation` dans reader.content/.
    */
   let generation = 0
   let abort: AbortController | null = null
@@ -192,6 +190,9 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   const cache = new Map<number, string>()
   /** Synthèses en vol, pour dédoublonner `pump()` et l'attente de `advance()`. */
   const pending = new Map<number, Promise<void>>()
+  // Cache entries are cleared on stop and seek. Inference may still be
+  // finishing, and session release must wait for it.
+  const runningSyntheses = new Set<Promise<void>>()
   let pumping: number | null = null
 
   let heads: [Head, Head]
@@ -237,19 +238,27 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       enginePromise = (async () => {
         try {
           const getFile = await loadModelFiles((p) => {
+            if (lifetime.signal.aborted) return
             if (p.phase !== "downloading" && p.phase !== "checking") return
             const percent = Math.round(
               ((p.fileIndex + (p.bytesTotal ? p.bytesLoaded / p.bytesTotal : 0)) / p.totalFiles) * 100
             )
             onState({ phase: "loading", reason: "downloading-model", progress: percent })
           })
+          lifetime.signal.throwIfAborted()
           onState({ phase: "loading", reason: "loading-engine" })
           const engine = await loadTextToSpeechEngine(getFile)
           // Échauffement une fois pour toutes les lectures à venir — voir la
           // découverte de la phase 0a : le premier run() de chaque session
           // coûte des secondes, payés ici plutôt que sur le premier ▶.
-          const warmupStyle = await ensureStyle("F1")
-          await engine.synthesize("Bonjour.", "fr", warmupStyle, TOTAL_STEP, 1.0)
+          try {
+            lifetime.signal.throwIfAborted()
+            const warmupStyle = await ensureStyle("F1")
+            await engine.synthesize("Bonjour.", "fr", warmupStyle, TOTAL_STEP, 1.0, lifetime.signal)
+          } catch (error) {
+            await engine.dispose()
+            throw error
+          }
           return engine
         } catch (e) {
           // Permet un nouvel essai au prochain speak() plutôt que de rejeter
@@ -387,11 +396,13 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     })()
 
     pending.set(i, p)
+    runningSyntheses.add(p)
     // `.catch` sur la chaîne dérivée, pas sur `p` : `finally` propage le rejet,
     // et cette branche-ci n'a pas d'attendant. Celui qui a demandé la synthèse
     // garde `p` tel quel et voit l'erreur.
     void p
       .finally(() => {
+        runningSyntheses.delete(p)
         if (pending.get(i) === p) pending.delete(i)
       })
       .catch(() => {})
@@ -667,5 +678,14 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     for (const h of heads) h.audio.playbackRate = newSpeed
   }
 
-  return { speak, control, seek, setSpeed }
+  function dispose() {
+    const loaded = enginePromise
+    lifetime.abort()
+    control("stop")
+    void Promise.allSettled(runningSyntheses).then(async () => {
+      await (await loaded)?.dispose()
+    }).catch(() => {})
+  }
+
+  return { speak, control, seek, setSpeed, dispose }
 }

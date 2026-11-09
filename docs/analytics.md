@@ -94,14 +94,19 @@ for browser scenarios, network isolation and audio-test limitations.
 | Event | Meaning and allowed properties |
 | --- | --- |
 | `telemetry_enabled` | A user re-enables statistics in Settings. Default activation does not emit this event; it is not an installation count. |
-| `read_started` | First confirmed audio start in a session; `engine`: `system` or `supertonic`. Requests that fail before audio do not count. |
+| `read_started` | First confirmed audio start in a session; `engine`: `system`, `supertonic` or `pocket`. Requests that fail before audio do not count. |
 | `read_completed` | The reader reaches the end after audio starts; `engine` and `had_errors`. Users can skip passages, and some passages may fail, so this does not prove the whole article was heard. |
 | `read_failed` | Reading failure, at most once per session; `engine` and `reason`: `synthesis`, `audio_playback` or `preparation`. |
 | `supertonic_offered` | The user chooses Supertonic in the reading pill's settings. |
-| `supertonic_download_started` | Model download begins during a reading. |
+| `supertonic_download_started` | Supertonic model download begins during a reading. |
 | `supertonic_download_completed` | That model download completes. |
 | `supertonic_download_failed` | That model download fails; `reason`: `http`, `network` or `unknown`. |
+| `pocket_download_started` | Pocket model download begins during a reading. A reading that finds the model cached emits nothing. |
+| `pocket_download_completed` | That Pocket download completes, at the reading's first sound. |
+| `pocket_download_failed` | That Pocket download fails; `reason`: `http`, `network` or `unknown`. |
 | `extraction_failed` | Extraction fails or falls back; `reason`: `not_injectable`, `not_article`, `pdf` or `fallback_text`. |
+| `pill_hidden` | The pill's close button hides Orateur on a site. No property: the site is never sent. |
+| `pill_hide_undone` | That hide is undone from the toast. Its rate against `pill_hidden` tells accidental clicks apart. |
 
 These are the events emitted by the main extension. Downloads started
 directly from the options page do not emit the reading pill's download

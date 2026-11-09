@@ -117,6 +117,10 @@ export class UnicodeProcessor {
   }
 
   preprocessText(text: string, lang: string): string {
+    // A spaced slash between words separates two ideas (« corruption /
+    // Coopération »): a pause, or the space it becomes below runs them
+    // together. Between numbers it stays a ratio.
+    text = text.replace(/(?<=\p{L})\s+\/\s+(?=\p{L})/gu, ", ")
     text = normalizeSpokenNumbers(text, lang)
     // Before `/` becomes a space below, which would hide that « 01/02 » is a date.
     text = this.expandLeadingZeroNumbers(text, lang)
@@ -225,6 +229,12 @@ export class TextToSpeech {
     this.vectorEstOrt = vectorEstOrt
     this.vocoderOrt = vocoderOrt
     this.sampleRate = cfgs.ae.sample_rate
+  }
+
+  /** Releases ONNX sessions after the host has drained active inference. */
+  async dispose(): Promise<void> {
+    await Promise.allSettled([this.dpOrt, this.textEncOrt, this.vectorEstOrt, this.vocoderOrt]
+      .map((session) => session.release()))
   }
 
   private async _infer(
