@@ -208,10 +208,6 @@ entrée du menu contextuel.
   avec ce moteur ou sur demande explicite dans les réglages, et stockés dans
   l'OPFS de l'extension. Ce sont des poids de modèle, pas du code exécutable.
 
-  lib/spike-checks.ts et lib/spike-phrase.ts sont des bancs d'essai de
-  développement conservés dans le dépôt. Ils ne sont importés par aucun
-  entrypoint et n'apparaissent donc pas dans le paquet construit.
-
   Télémétrie désactivable (lib/telemetry.ts) : activée par défaut en l'absence
   de préférence enregistrée ; une désactivation antérieure reste respectée.
   L'utilisateur peut la désactiver depuis Réglages → Confidentialité. La configuration

@@ -210,10 +210,6 @@ entry.
   with that engine or an explicit settings download request, and stored in
   the extension's OPFS. These are model weights, not executable code.
 
-  lib/spike-checks.ts and lib/spike-phrase.ts are development test benches
-  kept in the repo. They aren't imported by any entrypoint, so they don't
-  appear in the built package.
-
   Telemetry can be turned off (lib/telemetry.ts): on by default when no
   preference is saved; existing opt-outs remain respected. Users can turn
   it off in Settings → Privacy.
