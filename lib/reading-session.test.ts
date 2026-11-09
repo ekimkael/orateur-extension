@@ -164,6 +164,17 @@ test("a reading in another language shows the support link without a spoken outr
   assert.equal(stored[COMPLETED], 1)
 })
 
+test("a reading that never made a sound gets no outro", async () => {
+  const s = session()
+  await s.reader.start(ARTICLE)
+  for (const utterance of [0, 1, 2]) spoken[utterance].dispatchEvent(new Event("error"))
+  await flush()
+  assert.equal(spoken.some((utterance) => utterance.text.startsWith(EN_THANKS)), false)
+  assert.equal(s.support.shown, 0)
+  assert.equal(COMPLETED in stored, false)
+  assert.deepEqual(s.states.at(-1), ["idle", undefined])
+})
+
 test("during the outro, pause works and navigation is ignored", async () => {
   const s = session()
   await s.reader.start(ARTICLE)

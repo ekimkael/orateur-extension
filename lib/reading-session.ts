@@ -132,7 +132,8 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     } else if (event.phase === "ended") {
       trackReadingCompleted(engine)
       void clearReadingProgress(readingUrl)
-      if (readingOutro) void speakOutro()
+      // Thanking for a reading nobody heard would be absurd.
+      if (readingOutro && readingTelemetryStarted) void speakOutro()
       else fold()
     } else if (event.phase === "error") {
       trackReadingFailed(engine, event.reason)

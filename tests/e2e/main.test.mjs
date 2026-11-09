@@ -37,6 +37,50 @@ browserTest("reads an already-open article, then pauses, resumes and stops", asy
   assert.equal(h.blocked.some(url => /posthog|orateur\.digitalekim|huggingface/.test(url)), false, "Local reading needs no external service")
 })
 
+browserTest("a finished article thanks the listener and offers support", async h => {
+  await h.install()
+  await h.options.evaluate(() => {
+    globalThis.__supportEvents = []
+    ;(globalThis.browser ?? chrome).runtime.onMessage.addListener(message => {
+      if (message?.type === "orateur:telemetry:track") globalThis.__supportEvents.push(message.event.name)
+    })
+  })
+  // A hidden tab holds the toast's countdown and its announcement frame.
+  await h.page.bringToFront()
+  await h.fakeSpeech(h.page, { finish: true })
+  assert.equal(await h.script(() => (globalThis.browser ?? chrome).runtime.sendMessage({ type: "orateur:read-page" })), true)
+  await waitFor(() => h.speech().then(state => /^Fin de l'article, merci d'avoir écouté\. Orateur est développé/.test(state.spoken.at(-1)?.text ?? "")), "The outro thanks and asks for support")
+  const shown = await waitFor(() => h.shadow(reader, ".pill-toast").then(value => value && !value.hidden && value.text.includes("Thanks for listening") && value), "The support toast replaces the pill")
+  assert.match(shown.text, /Support/)
+  const link = await h.script(() => {
+    const host = document.querySelector("orateur-reader-pill")
+    const root = globalThis.chrome?.dom?.openOrClosedShadowRoot(host) ?? host.openOrClosedShadowRoot
+    const a = root.querySelector('.pill-toast a[data-icon="heart"]')
+    return a && { href: a.href, target: a.target, rel: a.rel }
+  })
+  assert.deepEqual(link, { href: "https://bikiekrb.mychariow.online/prd_bs2lca7z/checkout", target: "_blank", rel: "noopener noreferrer" })
+  await waitFor(() => h.options.evaluate(() => globalThis.__supportEvents.includes("support_prompt_shown")), "The toast is counted")
+
+  // A new reading during the toast takes the controls back. The burst of
+  // instant paragraphs can leave saved progress behind: skip the resume prompt.
+  await h.script(() => { globalThis.confirm = () => false })
+  await h.fakeSpeech()
+  assert.equal(await h.script(() => (globalThis.browser ?? chrome).runtime.sendMessage({ type: "orateur:read-page" })), true)
+  await waitFor(() => h.shadow(reader, 'button[aria-label="Pause"]').then(value => value?.width > 0), "The new reading shows its controls")
+  assert.equal((await h.shadow(reader, ".pill-toast"))?.hidden ?? true, true, "The toast is gone")
+  await h.click("Stop reading")
+})
+
+browserTest("the support toast gives the pill back once the voice is done", async h => {
+  await h.install()
+  // A hidden tab holds the toast's countdown and its announcement frame.
+  await h.page.bringToFront()
+  await h.fakeSpeech(h.page, { finish: true })
+  assert.equal(await h.script(() => (globalThis.browser ?? chrome).runtime.sendMessage({ type: "orateur:read-page" })), true)
+  await waitFor(() => h.shadow(reader, ".pill-toast").then(value => value && !value.hidden), "The support toast is shown")
+  await waitFor(() => h.shadow(reader, `button[aria-label="${read}"]`).then(value => value?.width > 0), "The pill returns to idle", 14_000)
+})
+
 browserTest("a fresh install defaults to Supertonic", async h => {
   await h.install({ engine: null })
   const prefs = await waitFor(() => h.options.evaluate(async () => {
