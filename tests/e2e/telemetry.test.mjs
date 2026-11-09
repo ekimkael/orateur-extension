@@ -12,6 +12,9 @@ async function prepare(h) {
       if (message?.type === "orateur:telemetry:track") globalThis.__readingEvents.push(message.event)
     })
   })
+  // Not the 1st completed article: the outro only thanks, no support toast
+  // holds the pill after a completion.
+  await h.options.evaluate(() => (globalThis.browser ?? chrome).storage.local.set({ "orateur:completed-articles": 1 }))
   await h.page.reload()
   await h.page.waitForSelector(reader)
   await h.script(() => {
@@ -113,15 +116,19 @@ browserTest("marks completion after skipped errors and ignores callbacks from a 
     { name: "read_failed", properties: { engine: "system", reason: "synthesis" } },
     { name: "read_completed", properties: { engine: "system", had_errors: true } },
   ])
-  await h.click("Read this page with Orateur")
+  // The outro (utterance 3) thanks the listener, then the pill folds.
   await countUtterances(h, 4)
-  await h.click("Stop reading")
   await emit(h, 3, "start")
   await emit(h, 3, "end")
   await h.click("Read this page with Orateur")
   await countUtterances(h, 5)
-  await emit(h, 3, "error")
+  await h.click("Stop reading")
   await emit(h, 4, "start")
+  await emit(h, 4, "end")
+  await h.click("Read this page with Orateur")
+  await countUtterances(h, 6)
+  await emit(h, 4, "error")
+  await emit(h, 5, "start")
   await waitFor(() => events(h).then(events => events.length === 4), "New reading counted separately")
   assert.deepEqual((await events(h)).at(-1), { name: "read_started", properties: { engine: "system" } })
   await h.click("Stop reading")

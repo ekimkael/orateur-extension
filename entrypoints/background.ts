@@ -489,7 +489,7 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined, f
     // sélection (voir `read()` ci-dessous).
     if (result.text) {
       track({ name: "extraction_failed", properties: { reason: "fallback_text" } })
-      return startReading(tab.id, { text: result.text, lang: result.lang, livePage: true }, fromHere)
+      return startReading(tab.id, { text: result.text, lang: result.lang, livePage: true, outro: true }, fromHere)
     }
     track({ name: "extraction_failed", properties: { reason: "not_article" } })
     await notify(result.error)
@@ -512,6 +512,8 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined, f
     lang: result.article.lang ?? undefined,
     livePage: true,
     announceTitle: result.article.announceTitle,
+    // A post is shorter than the thanks: no outro after it.
+    outro: result.article.announceTitle !== false,
   }, fromHere)
 }
 

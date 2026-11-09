@@ -71,6 +71,12 @@
   "readerHiddenUndo": {
     "message": "Undo"
   },
+  "readerSupportToast": {
+    "message": "Thanks for listening"
+  },
+  "readerSupportCta": {
+    "message": "Support"
+  },
   "ariaExtracting": {
     "message": "Extracting the article…"
   },
@@ -397,6 +403,18 @@
   },
   "optionsTelemetryNever": {
     "message": "No page text, titles or addresses are sent. A random identifier recognizes your browser while tracking stays enabled."
+  },
+  "optionsSectionSupport": {
+    "message": "Support"
+  },
+  "optionsSupportTitle": {
+    "message": "Support Orateur"
+  },
+  "optionsSupportDescription": {
+    "message": "Orateur is free and built by one person. If the extension is useful to you, a donation helps me keep going."
+  },
+  "optionsSupportCta": {
+    "message": "Donate"
   },
   "optionsOpenApp": {
     "message": "Open Orateur"
