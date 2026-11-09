@@ -59,6 +59,7 @@ import { seedEngine } from "../lib/reader-prefs"
 // Même garde `import.meta.env.FIREFOX` : côté Chrome, c'est le document
 // offscreen qui appelle loadModelFiles(), jamais ce fichier.
 import { isModelCached, loadModelFiles } from "../lib/supertonic/model-cache"
+import type { MessageKey } from "../lib/i18n"
 
 const MENU_ID = "save-to-orateur"
 const SELECTION_MENU_ID = "read-selection-with-orateur"
@@ -85,11 +86,6 @@ type BackgroundMessage =
 // à l'import planterait cette étape. `browser.i18n.getMessage` n'est donc
 // appelé que depuis l'intérieur d'une fonction, au premier vrai déclenchement
 // du service worker.
-//
-// Dérivé du type de `getMessage` plutôt qu'une union recopiée à la main :
-// TypeScript prend la dernière surcharge d'une fonction surchargée, qui est
-// justement celle listant toutes les clés de public/_locales/*/messages.json.
-type MessageKey = Parameters<typeof browser.i18n.getMessage>[0]
 const SELECTION_ERROR_KEYS: Record<SelectionError, MessageKey> = {
   empty: "errorSelectionEmpty",
   "too-short": "errorSelectionTooShort",

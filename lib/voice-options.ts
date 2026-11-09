@@ -1,7 +1,6 @@
 import { POCKET_VOICES } from "./pocket/catalog.ts"
 import { SUPERTONIC_VOICES, SUPERTONIC_VOICE_LABEL_KEYS } from "./supertonic/types.ts"
-
-type MessageKey = Parameters<typeof browser.i18n.getMessage>[0]
+import type { MessageKey } from "./i18n.ts"
 
 /** One entry of a voice menu: an i18n key to translate, or a name shown as is. */
 export type VoiceOption = { id: string; key: MessageKey } | { id: string; text: string }

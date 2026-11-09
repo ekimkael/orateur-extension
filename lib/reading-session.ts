@@ -15,6 +15,7 @@ import type { Player, PlayerEvent, ReadFailure } from "./player.ts"
 import { cancelSpeech } from "./system-player.ts"
 import { createPlayer, selectPlayer } from "./player-factory.ts"
 import type { TtsLoadingReason } from "./tts-messages.ts"
+import type { MessageKey } from "./i18n.ts"
 import { splitBlocks } from "./reading-language.ts"
 import { NOTIFY, READ_PAGE, READER_TOKEN, type NotifyMessage, type ReadPagePayload } from "./reader-messages.ts"
 import { track } from "./telemetry.ts"
@@ -356,15 +357,7 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
   }
 }
 
-/**
- * Traduit la cause émise par tts-host.ts en clé i18n — voir tts-messages.ts.
- *
- * `MessageKey`, pas `string` : TypeScript prend la dernière surcharge de
- * `getMessage`, celle qui liste toutes les clés de
- * public/_locales/<locale>/messages.json — un `Record<..., string>` trop large
- * romprait l'appel plus haut.
- */
-type MessageKey = Parameters<typeof browser.i18n.getMessage>[0]
+/** Maps the cause emitted by the TTS hosts to its i18n key (see tts-messages.ts). */
 const LOADING_REASON_KEY: Record<TtsLoadingReason, MessageKey> = {
   "downloading-model": "ttsDownloadingModel",
   "loading-engine": "ttsLoadingEngine",
