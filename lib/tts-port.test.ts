@@ -225,6 +225,21 @@ test("invalid engine requests cannot silence the current owner", () => {
   assert.deepEqual(active.posted, [{ type: messages.TTS_EVENT, state: { phase: "paused" } }])
 })
 
+test("a refused reading is told so instead of waiting forever", () => {
+  const h = multiEngineServer()
+  const active = h.open(12)
+  const refused = h.open(13)
+  active.send(speak("first", false))
+  refused.send({ ...speak("second"), voice: "unknown" })
+  assert.deepEqual(refused.posted, [{ type: messages.TTS_EVENT, state: { phase: "error", message: "Unable to start speech." } }])
+  assert.deepEqual(h.order, ["supertonic:speak"], "The current owner keeps reading")
+
+  const withoutPocket = server()
+  const tab = withoutPocket.open(14)
+  tab.send(pocketSpeak())
+  assert.deepEqual(tab.posted.map((message) => message.state?.phase), ["error"])
+})
+
 test("Pocket receives no pronunciation rules and only its current port may control it", () => {
   const h = multiEngineServer()
   const first = h.open(12)

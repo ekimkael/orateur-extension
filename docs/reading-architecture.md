@@ -38,7 +38,9 @@ Extraction (`toSpeakableText` in `lib/extract-article.ts`) never reads source co
 1. The local player sends `TTS_OPEN` to the background, which creates the
    offscreen document on Chrome (Firefox already hosts it in its background page).
 2. The player opens `runtime.connect({ name: TTS_PORT })` and sends `TTS_SPEAK`
-   with its engine, language and voice. The server validates those fields.
+   with its engine, language and voice. The server validates those fields and
+   answers a refused request with an error event on that port only, so the pill
+   folds instead of waiting and the current owner keeps reading.
    Commands given before the port opens wait for it, in order.
 3. The host answers on the same port: `TTS_EVENT` states, and `TTS_PREPARE_BLOCK`
    requests for live pages, which the tab answers with `TTS_PREPARED` and the same `id`.

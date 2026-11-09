@@ -142,3 +142,9 @@ test("unknown stored engine and Pocket voice resolve to safe choices", async () 
   assert.equal(prefs.engine, "system")
   assert.equal(prefs.pocketVoice, "auto")
 })
+
+test("an unknown stored Supertonic voice resolves to the default one", async () => {
+  // The TTS host refuses an unknown voice: passing it on would fail every reading.
+  fakeStorage({ [KEY]: { engine: "supertonic", supertonicVoice: "Z9" } })
+  assert.equal((await loadPrefs()).supertonicVoice, "F1")
+})

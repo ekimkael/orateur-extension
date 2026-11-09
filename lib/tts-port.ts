@@ -69,6 +69,9 @@ const supertonicLanguages = new Set<string>(AVAILABLE_LANGS)
 const supertonicVoices = new Set<string>(SUPERTONIC_VOICES)
 const pocketLanguages = new Set<string>(POCKET_LANGUAGES)
 
+/** A reading that cannot start must say so: its pill would otherwise stay on "loading". */
+const START_FAILED = { type: TTS_EVENT, state: { phase: "error", message: "Unable to start speech." } } satisfies TtsEventMessage
+
 function validSpeed(value: unknown): value is number {
   return typeof value === "number" && value >= SPEED.min && value <= SPEED.max
 }
@@ -148,7 +151,11 @@ export function createTtsServer(
 
   function receive(port: TtsPort, tabId: number, message: Incoming) {
     if (message?.type === TTS_SPEAK) {
-      if (!validSpeak(message) || (message.engine === "pocket" && !createPocketHost)) return
+      if (!validSpeak(message) || (message.engine === "pocket" && !createPocketHost)) {
+        // Answer the refused port only: the current owner keeps reading.
+        port.postMessage(START_FAILED)
+        return
+      }
       release()
       const engine = message.engine ?? "supertonic"
       const reading: Reading = { port, tabId, token: message.token, engine }
@@ -173,7 +180,7 @@ export function createTtsServer(
         }
       } catch {
         stop()
-        port.postMessage({ type: TTS_EVENT, state: { phase: "error", message: "Unable to start speech." } } satisfies TtsEventMessage)
+        port.postMessage(START_FAILED)
       }
       return
     }

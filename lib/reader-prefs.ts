@@ -1,4 +1,4 @@
-import type { SupertonicVoice } from "./supertonic/types.ts"
+import { SUPERTONIC_VOICES, type SupertonicVoice } from "./supertonic/types.ts"
 import { DEFAULT_POCKET_VOICE, isPocketVoice, type PocketVoice } from "./pocket/catalog.ts"
 import { ENGINE_CAPABILITIES } from "./engine-capabilities.ts"
 
@@ -71,6 +71,7 @@ function normalizePrefs(value: unknown): ReaderPreferences {
     ...prefs,
     engine: typeof prefs.engine === "string" && Object.hasOwn(ENGINE_CAPABILITIES, prefs.engine) ? prefs.engine : "system",
     speed: clampSpeed(prefs.speed),
+    supertonicVoice: SUPERTONIC_VOICES.includes(prefs.supertonicVoice) ? prefs.supertonicVoice : DEFAULT_PREFS.supertonicVoice,
     pocketVoice: isPocketVoice(prefs.pocketVoice) ? prefs.pocketVoice : DEFAULT_POCKET_VOICE,
   }
 }
