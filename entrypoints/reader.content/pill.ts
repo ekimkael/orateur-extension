@@ -45,6 +45,9 @@ function applyPosition(position: PillPosition, host: HTMLElement) {
 /** How long the hide toast offers to undo, not counting hover, focus or a hidden tab. */
 const HIDE_TOAST_DELAY = 5000
 
+/** Pointer clicks on Undo sooner than this after the toast shows are ignored (OS double-click window). */
+const UNDO_GUARD = 500
+
 /** Libellé et intitulé accessible de chaque bouton, état par état. */
 const LABELS: Record<PillState, { primary: string; secondary: string }> = {
   idle: { primary: "play", secondary: "x" },
@@ -195,7 +198,12 @@ export function createPill(
   const toastText = document.createElement("span")
   toastText.className = "pill-toast-text"
   toastText.id = "orateur-hidden-toast"
-  const undo = button(() => undoHide?.())
+  // Undo appears where ✕ was: a pointer click this soon is the second half of
+  // a double-click on ✕, not a decision. The keyboard (`detail === 0`) is exempt.
+  const undo = button((event) => {
+    if (event.detail > 0 && performance.now() - hideShownAt < UNDO_GUARD) return
+    undoHide?.()
+  })
   undo.className = "pill-toast-undo"
   undo.textContent = browser.i18n.getMessage("readerHiddenUndo")
   undo.setAttribute("aria-label", undo.textContent)
@@ -208,6 +216,7 @@ export function createPill(
   let hideTimer: ReturnType<typeof setTimeout> | undefined
   let hideRemaining = 0
   let hideStarted = 0
+  let hideShownAt = 0
   /** Hover, focus and a hidden tab each hold the countdown until they all end. */
   const hidePauses = new Set<"hover" | "focus" | "tab">()
   const onHideVisibility = () => document.hidden ? pauseHide("tab") : resumeHide("tab")
@@ -635,12 +644,17 @@ export function createPill(
     if (endHide) return
     const keyboard = secondaryByKeyboard
     if (isPopoverOpen) closePopover(true)
+    // The error card folds too: the toast replaces the whole pill.
     animateLayout(() => {
       row.toggleAttribute("data-toast", true)
+      host.removeAttribute("data-expanded")
+      row.removeAttribute("data-active")
+      content.hidden = true
       controls.hidden = true
       toast.hidden = false
       toastText.textContent = ""
     })
+    hideShownAt = performance.now()
     // Filled after the region shows, so screen readers announce the change.
     requestAnimationFrame(() => {
       if (endHide) toastText.textContent = browser.i18n.getMessage("readerHiddenToast")
@@ -658,19 +672,25 @@ export function createPill(
         toast.hidden = true
         toastText.textContent = ""
         controls.hidden = false
+        row.toggleAttribute("data-active", currentState !== "idle")
+        updateLayout()
       }
       if (!detach) return animateLayout(restore)
+      let exit: Animation | undefined
       const done = () => {
         settleMotion()
         host.remove()
-        // Ready for a later `attach()` (the site restored from Settings).
+        // `fill: forwards` held the faded frame until the removal; drop it so a
+        // later `attach()` (site restored from Settings) shows the pill.
+        exit?.cancel()
         restore()
       }
       if (!host.isConnected || typeof row.animate !== "function") return done()
       const frames = reducedMotion.matches
         ? [{ opacity: 1 }, { opacity: 0 }]
         : [{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(0.95)" }]
-      void row.animate(frames, { duration: 150, easing: "cubic-bezier(0.23, 1, 0.32, 1)" }).finished.then(done, done)
+      exit = row.animate(frames, { duration: 150, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "forwards" })
+      void exit.finished.then(done, done)
     }
     undoHide = () => {
       const hadFocus = toast.contains(root.activeElement)
@@ -678,9 +698,10 @@ export function createPill(
       onUndo()
       if (hadFocus) secondary.focus()
     }
-    if (keyboard) undo.focus()
-    if (document.hidden) pauseHide("tab")
+    // Start the countdown first: a pause measures the time already elapsed.
     scheduleHide()
+    if (document.hidden) pauseHide("tab")
+    if (keyboard) undo.focus()
   }
 
   function scheduleHide() {
