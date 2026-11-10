@@ -183,17 +183,19 @@ after both integrations. Create urgent `hotfix/*` branches from `main`
 and merge them into both long-lived branches through pull requests before
 deleting them.
 
-CI checks types and Node tests, packages the extension, then tests those
-runtime packages in Chrome and Firefox. The final `build` check
-requires both package validation and browser jobs to pass.
+CI runs on every pull request and on every merge into `develop`. It checks
+types and Node tests, packages the extension, then tests those runtime
+packages in Chrome and Firefox. The final `build` check requires both package
+validation and browser jobs to pass.
 
-Pushing a `v*` tag starts [the release workflow](.github/workflows/release.yml).
-It checks that the tag's commit is reachable from `main` and that the tag
-matches `package.json`, then builds and tests the main Chrome/Firefox packages
-and generates the Firefox source archive. Submission and GitHub release upload
-verify the runtime package hashes before using those same ZIPs; the source
-archive is excluded from package validation and hash checks. Only stores with
-a configured extension/product ID are selected; no configured store makes the job fail.
+Merging a `release/*` or `hotfix/*` pull request into `main` starts
+[the release workflow](.github/workflows/release.yml), which replaces CI there.
+It checks the version and its changelog section, builds and tests the
+Chrome/Firefox packages and the Firefox source archive, then submits those exact
+ZIPs (hash-checked) to every store with a configured extension/product ID; no
+configured store makes the job fail. A repository admin then pushes the `v*`
+tag on the merge commit, which publishes the GitHub Release with the ZIPs that
+run submitted. Full steps: [docs/release.md](docs/release.md).
 
 Release builds require the Actions variables `WXT_POSTHOG_KEY` and
 `WXT_POSTHOG_REGION` (`eu` or `us`); local builds can omit them. Store
