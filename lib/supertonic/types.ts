@@ -1,3 +1,4 @@
+import { MODEL_REVISION } from "./model-integrity.ts"
 // lib/supertonic/types.ts
 //
 // Copié de web/app/lib/supertonic/types.ts, à un delta près — trois dépôts
@@ -18,8 +19,8 @@ export type SupertonicVoice = (typeof SUPERTONIC_VOICES)[number]
 /**
  * i18n keys (public/_locales/<locale>/messages.json), not text: lib/tts-host.ts
  * imports this module and has no `browser.i18n`. The pill and the options page
- * resolve them through `lib/voice-options.ts`. This module imports nothing, so
- * its values are safe in the content-script bundle.
+ * resolve them through `lib/voice-options.ts`. The revision import contains only static metadata and a helper with no
+ * module-level effects, so these values remain safe in content scripts.
  */
 export const SUPERTONIC_VOICE_LABEL_KEYS: Record<SupertonicVoice, string> = {
   M1: "voiceMale1",
@@ -44,7 +45,7 @@ export interface DownloadProgress {
   bytesTotal: number
 }
 
-const HF_BASE ="https://huggingface.co/Supertone/supertonic-3/resolve/main"
+const HF_BASE = `https://huggingface.co/Supertone/supertonic-3/resolve/${MODEL_REVISION}`
 
 export const ONNX_FILES = [
   { name: "tts.json", path: `${HF_BASE}/onnx/tts.json` },
