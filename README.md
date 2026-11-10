@@ -191,9 +191,10 @@ validation and browser jobs to pass.
 Merging a `release/*` or `hotfix/*` pull request into `main` starts
 [the release workflow](.github/workflows/release.yml), which replaces CI there.
 It checks the version and its changelog section, builds and tests the
-Chrome/Firefox packages and the Firefox source archive, then submits those exact
-ZIPs (hash-checked) to every store with a configured extension/product ID; no
-configured store makes the job fail. A repository admin then pushes the `v*`
+Chrome/Firefox packages, generates the Firefox source archive (built, not
+tested), then submits those exact ZIPs (runtime packages hash-checked) to every
+store with a configured extension/product ID; no configured store makes the job
+fail. A repository admin then pushes the `v*`
 tag on the merge commit, which publishes the GitHub Release with the ZIPs that
 run submitted. Full steps: [docs/release.md](docs/release.md).
 

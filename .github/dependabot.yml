@@ -2,8 +2,8 @@ version: 2
 updates:
   # Monthly, grouped, majors ignored: majors are upgraded by hand after reading
   # their migration notes. Ignore rules also suppress security PRs for a fix
-  # that needs a major; `npm audit` in security.yml (every PR and Mondays)
-  # still catches those.
+  # that needs a major; `npm audit --audit-level=high` in security.yml (every
+  # PR and Mondays) still fails on high and critical ones, not on lower ones.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -30,4 +30,4 @@ updates:
         update-types: ["version-update:semver-major"]
     groups:
       npm-minor-and-patch:
-        update-types: [minor, patch]
+        patterns: ["*"]
