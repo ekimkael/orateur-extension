@@ -2,8 +2,10 @@ name: CI
 
 on:
   pull_request:
+  # Not main: the merge into main runs release.yml, which repeats these checks
+  # on the same commit before submitting to the stores.
   push:
-    branches: [main, develop]
+    branches: [develop]
 
 # No job writes to the repository: keep the token read-only whatever the
 # repository default is.
@@ -12,7 +14,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Only PRs cancel their older runs; a run on main or develop always finishes.
+  # Only PRs cancel their older runs; a run on develop always finishes.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
