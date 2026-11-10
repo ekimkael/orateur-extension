@@ -115,10 +115,12 @@ The main extension stores:
 - Reading preferences: engine, voices, speed, follow mode and pill position.
 - Interface theme and language, hidden domains and personal pronunciation
   rules.
-- Reading progress: page URL, title when available, current block, block
-  count and last update time. These records support resuming a reading.
-  Records older than 30 days are discarded when progress is next loaded;
-  finishing an article clears its saved progress.
+- Reading progress: a SHA-256 hash of the page URL, current block, block
+  count and last update time. Raw URLs and page titles are not stored.
+  Private windows neither read nor write progress. Legacy records are
+  discarded. Records older than 30 days are removed on startup, during
+  progress access, and by an hourly alarm while the browser runs.
+  Finishing an article clears its saved progress.
 - A coordination token so only one tab reads at a time.
 - Pocket TTS and Supertonic model and voice files, if downloaded.
 - The statistics preference and its random UUID while enabled.
@@ -135,6 +137,7 @@ from Settings. Uninstalling an extension removes its local storage.
 | `activeTab` | Act on the current tab after a toolbar or context-menu action. |
 | `contextMenus` | Add reading and read-later actions. |
 | `scripting` (Chrome MV3) | Inject the extractor or reader when needed. |
+| `alarms` | Remove expired reading progress while the browser runs. |
 | `storage` | Save preferences, pronunciation rules, reading progress and statistics settings; coordinate reading tabs. |
 | `unlimitedStorage` | Allow local speech model caches to exceed ordinary storage limits. |
 | `offscreen` (Chrome MV3) | Run Pocket TTS and Supertonic audio playback outside the service worker. Firefox uses its persistent background page. |

@@ -274,8 +274,13 @@ test("navigation stays within the article and saves the target", async () => {
   s.reader.navigate(1)
   assert.deepEqual(s.positions.at(-1), [1, 3])
   assert.equal(spoken.at(-1)!.text, EN)
-  await new Promise((resolve) => setImmediate(resolve))
-  assert.equal((stored[READING_PROGRESS_KEY] as any)["https://example.test/article"].block, 1)
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (Object.values(stored[READING_PROGRESS_KEY] ?? {}).some((item: any) => item.block === 1)) break
+    await new Promise((resolve) => setTimeout(resolve, 1))
+  }
+  const progress = Object.values(stored[READING_PROGRESS_KEY] ?? {}) as { block: number }[]
+  assert.equal(progress[0]?.block, 1)
+  assert.ok(!JSON.stringify(stored[READING_PROGRESS_KEY]).includes("https://example.test/article"))
 })
 
 test("saved progress resumes where the reading stopped, or is cleared", async () => {

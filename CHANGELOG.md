@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Discard existing reading progress when migrating to URL hashes without saved page titles. Private windows no longer read or save progress.
+
 ## [0.11.0] - 2026-11-10
 
 ### Added
