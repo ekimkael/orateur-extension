@@ -73,6 +73,13 @@ export const PILL_CSS = charteTokens(".pill-row") + `
 .pill-toast-text { min-width: 0; overflow-wrap: anywhere }
 /* Foreground, not --primary: #f54e00 on the light theme's white card is 3.5:1. */
 .pill-toast-undo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 36px;
+  border-radius: 999px;
+  color: inherit;
   width: auto;
   padding: 0 12px;
   font-size: 13px;
@@ -127,8 +134,8 @@ button {
   font-size: 15px;
   cursor: pointer;
 }
-button:hover:not(:disabled), .pill-settings[aria-expanded="true"] { background: color-mix(in srgb, var(--foreground) 8%, transparent) }
-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
+button:hover:not(:disabled), a.pill-toast-undo:hover, .pill-settings[aria-expanded="true"] { background: color-mix(in srgb, var(--foreground) 8%, transparent) }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 button:disabled { opacity: 0.55; cursor: default }
 @media (prefers-reduced-motion: no-preference) {
   button { transition: transform 160ms var(--ease-out) }
@@ -148,7 +155,7 @@ button:disabled { opacity: 0.55; cursor: default }
  * focus restent cohérents avec les autres boutons, et rien n'entre dans le
  * DOM — pas de SVG à injecter sur une page en Trusted Types.
  */
-button[data-icon]::before {
+[data-icon]::before {
   content: "";
   width: 16px;
   height: 16px;
@@ -170,6 +177,9 @@ button[data-icon="pause"] {
 }
 button[data-icon="square"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3C/svg%3E");
+}
+[data-icon="heart"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5'/%3E%3C/svg%3E");
 }
 button[data-icon="x"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E");

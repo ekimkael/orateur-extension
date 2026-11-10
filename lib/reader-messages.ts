@@ -11,6 +11,8 @@ export interface ReadPagePayload {
   livePage?: boolean
   /** `false`: label the pill with `title` but speak no intro (an X post, whose title is its first line). */
   announceTitle?: boolean
+  /** Speak the end-of-article outro after a natural end. */
+  outro?: boolean
 }
 
 export interface StartReadingMessage extends ReadPagePayload {

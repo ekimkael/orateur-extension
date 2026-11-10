@@ -33,6 +33,16 @@ Extraction (`toSpeakableText` in `lib/extract-article.ts`) never reads source co
 
 "Below" is accurate because these sentences are not in the page. The follower cannot find them, so the paragraph just above stays highlighted. Notices exist in fr (the default), en, es, de, it and pt.
 
+## End-of-article outro
+
+A reading marked `outro: true` (an article or a page's fallback text, never a selection or an X post) that made a sound ends with a thanks. Every third completed article (the 1st, 4th, 7th…), it also asks for support and the pill shows a toast with a link to the donation page (`lib/reading-outro.ts`). The completed-articles counter lives in `browser.storage.local`.
+
+- The session speaks the outro through a second `Player` of one paragraph. That player has the same `PlayerSelection`, so the engine and voice are the same, and no engine knows about the outro.
+- While `outro` is set, player events never reach the follower, the position or the saved progress. Previous and next are ignored. Only `ended` and `error` matter: they fold the pill, unless a newer start is already under way.
+- `outro` is set as soon as the article ends, before the counter's storage round trip. A pause or a seek in that window cannot reach the finished article. A stop or a new start during the round trip cancels the outro (`startGeneration`).
+- The phrases follow the reading's language. Only fr and en have them. Any other language gets no spoken outro, but its toast still shows.
+- The support toast hides the controls, so it carries its own ⏹ while the voice speaks. Its countdown starts only once the pill is idle.
+
 ## Local engines and the port
 
 1. The local player sends `TTS_OPEN` to the background, which creates the

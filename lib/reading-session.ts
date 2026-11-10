@@ -13,10 +13,12 @@ import type { createLivePage } from "./live-page.ts"
 import { markTab } from "./tab-title.ts"
 import type { Player, PlayerEvent, ReadFailure } from "./player.ts"
 import { cancelSpeech } from "./system-player.ts"
-import { createPlayer, selectPlayer } from "./player-factory.ts"
+import { createPlayer, selectPlayer, type PlayerSelection } from "./player-factory.ts"
 import type { TtsLoadingReason } from "./tts-messages.ts"
 import type { MessageKey } from "./i18n.ts"
 import { splitBlocks } from "./reading-language.ts"
+import { resolveDocLang } from "./detect-lang.ts"
+import { buildReadingOutro, nextCompletedCount } from "./reading-outro.ts"
 import { NOTIFY, READ_PAGE, READER_TOKEN, type NotifyMessage, type ReadPagePayload } from "./reader-messages.ts"
 import { track } from "./telemetry.ts"
 import { moveReadingBlock } from "./reading-navigation.ts"
@@ -39,6 +41,8 @@ export interface ReaderView {
   attach(): void
   /** Resolves once the running transition ends, or is cancelled by the next one. */
   settled(): Promise<void>
+  /** Shows the support toast, which leaves once the pill is idle again; false if it could not show. */
+  showSupport(): boolean
 }
 
 /** Highlights the paragraph being read in the page. */
@@ -88,11 +92,27 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
    *  progression du téléchargement par-dessus, il faut de quoi le restaurer. */
   let readingTitle = ""
   let readingTotal = 0
+  /** What the outro needs once the article ends: same engine, the reading's language. */
+  let readingSelection: PlayerSelection | null = null
+  let readingOutro = false
+  /** The page's declared language and text, for the outro's language once the article ends. */
+  let readingPayload: ReadPagePayload | null = null
+  /** The current player speaks the outro, not a paragraph of the page. */
+  let outro = false
+  /** `startGeneration` when the outro began; a later start supersedes it. */
+  let outroGeneration = 0
   let readingTelemetryStarted = false
   let readingTelemetryFailed = false
 
   /** What the engine reports drives the pill, whichever engine it is. */
   function onPlayerEvent(engine: ReaderEngine, event: PlayerEvent) {
+    // `toggle` already shows pause and resume; a `playing` here would close
+    // the support toast, and the outro has no paragraph to follow.
+    if (outro) {
+      // A start awaiting its engine owns the pill now: folding would cancel it.
+      if ((event.phase === "ended" || event.phase === "error") && startGeneration === outroGeneration) fold()
+      return
+    }
     if (event.phase === "loading") {
       // Keep preparation and download feedback inside the compact pill.
       const label = event.reason ? browser.i18n.getMessage(LOADING_REASON_KEY[event.reason]) : undefined
@@ -116,7 +136,13 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     } else if (event.phase === "ended") {
       trackReadingCompleted(engine)
       void clearReadingProgress(readingUrl)
-      fold()
+      // Thanking for a reading nobody heard would be absurd.
+      if (readingOutro && readingTelemetryStarted) {
+        // Set now, not after the counter round trip: ⏸ or ◀ in between must
+        // not seek the finished article or carry a pause into the outro.
+        outro = true
+        void speakOutro()
+      } else fold()
     } else if (event.phase === "error") {
       trackReadingFailed(engine, event.reason)
       if (event.recoverable) return
@@ -153,7 +179,7 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
 
   /** Précédent vise toujours le paragraphe précédent ; suivant, le suivant. */
   function navigate(delta: -1 | 1) {
-    if (!reading) return
+    if (!reading || outro) return
     const target = moveReadingBlock(blockIndex, readingTotal, delta)
     if (target != null) seekTo(target)
   }
@@ -200,6 +226,10 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     if (mine !== startGeneration) return
     readingUrl = url
     readingTitle = title
+    readingSelection = selection
+    readingOutro = payload.outro === true
+    readingPayload = payload
+    outro = false
     readingTotal = total
     pageSource?.stop()
     const source = payload.livePage ? page.liveSource(paragraphs) : null
@@ -268,8 +298,45 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     fold()
   }
 
+  /**
+   * Thanks the listener once the article ends, with the article's own engine
+   * and voice, through a second one-paragraph player. Every
+   * `SUPPORT_CADENCE` articles the pill also shows its support link. A stop
+   * or a new reading during the counter round trip cancels it all.
+   */
+  async function speakOutro() {
+    const mine = startGeneration
+    const count = await nextCompletedCount()
+    // A stop, a new start or leaving the page came first: no outro mode left behind.
+    if (mine !== startGeneration || !readingSelection || !readingPayload) {
+      if (mine !== startGeneration) outro = false
+      return
+    }
+    outroGeneration = mine
+    if (paused) {
+      paused = false
+      view.setState("playing", readingTitle)
+    }
+    const { speech, support } = buildReadingOutro(resolveDocLang(readingPayload.lang, readingPayload.text), count)
+    if (support && view.showSupport()) track({ name: "support_prompt_shown" })
+    if (!speech) return fold()
+    follower.end()
+    pageSource?.stop()
+    pageSource = null
+    const next: Player = createPlayer(readingSelection, {
+      paragraphs: [speech], text: speech, title: "", startBlock: 0, personalRules: [], source: null, prefs,
+      emit: (event: PlayerEvent) => {
+        if (player === next) onPlayerEvent(next.engine, event)
+      },
+    }, token)
+    player?.dispose()
+    player = next
+    next.start()
+  }
+
   /** Revenir au repos sans toucher au moteur de synthèse. */
   function fold() {
+    outro = false
     startGeneration++
     pageSource?.stop()
     pageSource = null

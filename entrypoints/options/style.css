@@ -765,7 +765,8 @@ input[type="range"] {
 }
 
 /* ── Boutons ─────────────────────────────────────────────────────────── */
-button {
+button,
+.support-cta {
   font: inherit;
   cursor: pointer;
   border-radius: var(--radius-lg);
@@ -776,7 +777,8 @@ button {
     color 160ms var(--ease-out);
 }
 
-button:active {
+button:active,
+.support-cta:active {
   transform: scale(0.96);
 }
 
@@ -993,6 +995,36 @@ progress::-moz-progress-bar {
     color: var(--link);
     border-color: var(--primary);
   }
+}
+
+.foot-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.foot-support,
+.support-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.foot-support svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+/* A link styled as the primary button (it opens a page, so it is an <a>);
+   radius and press feedback come from the `button` rules above. */
+.support-cta {
+  margin-top: 1rem;
+  text-decoration: none;
+}
+
+.support-cta svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 .foot .version {

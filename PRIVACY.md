@@ -37,6 +37,10 @@ parameters reach the web server so Orateur can fetch the page itself.
 
 Reading a page or selection in place does not send its content to Orateur.
 
+After an article, the extension counts completed articles in local browser
+storage to show its support link every third time. The count never leaves the
+browser.
+
 ### 2. Speech engines and model downloads
 
 New installations default to Supertonic. Updates preserve saved engine choices;
@@ -82,6 +86,7 @@ extension sends a limited set of events to [PostHog](https://posthog.com):
   completions or failures with a fixed failure category.
 - Extraction failures or fallbacks with a fixed category.
 - Hiding Orateur on a site from the reading pill, and undoing it; the site is never sent.
+- Showing the support link after an article, and clicking a support link (in the reading pill or Settings).
 
 Each event includes the extension version and, when available, the browser
 name and its major version. The raw User-Agent is not included in event

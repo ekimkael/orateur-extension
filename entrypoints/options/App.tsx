@@ -17,13 +17,15 @@ import { VoicePicker } from "../../components/VoicePicker"
 import { ThemeSegmented } from "../../components/ThemeSegmented"
 import { PositionSegmented } from "../../components/PositionSegmented"
 import { PronunciationSettings } from "../../components/PronunciationSettings"
-import { getSettingsSection, SettingsNav } from "./SettingsNav"
+import { getSettingsSection, HeartIcon, SettingsNav } from "./SettingsNav"
 import { clearModelCache, getModelCacheSize } from "../../lib/supertonic/model-cache.ts"
 import { clearPocketModelCache, getPocketModelCacheSize } from "../../lib/pocket/model-cache.ts"
 import { toMegabytes } from "../../lib/storage-size.ts"
 import { resolveLocale } from "../../lib/i18n"
 import { applyTheme } from "../../lib/theme"
 import { ORATEUR_ORIGIN } from "../../lib/handoff"
+import { SUPPORT_URL } from "../../lib/reading-outro"
+import { track } from "../../lib/telemetry"
 import { normalizeSite } from "../../lib/site-rules"
 import type { UiLanguage } from "../../lib/ui-prefs"
 
@@ -350,15 +352,43 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
             <p className="privacy-desc">{t("optionsTelemetryDescription")}</p>
             <p className="privacy-never">{t("optionsTelemetryNever")}</p>
           </section>
+
+          <section className="section" id="soutien" hidden={activeSection !== "soutien"} aria-labelledby="soutien-heading">
+            <h2 className="eyebrow" id="soutien-heading" tabIndex={-1}>{t("optionsSupportTitle")}</h2>
+            <p className="privacy-desc">{t("optionsSupportDescription")}</p>
+            <a
+              className="btn-primary support-cta"
+              href={SUPPORT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => track({ name: "support_cta_clicked", properties: { source: "options_section" } })}
+            >
+              <HeartIcon />
+              {t("optionsSupportCta")}
+            </a>
+          </section>
         </div>
       </div>
 
       <div className="foot">
-        <a href={ORATEUR_ORIGIN} target="_blank" rel="noopener">
-          {t("optionsOpenApp")}
-        </a>
+        <span className="foot-links">
+          <a href={ORATEUR_ORIGIN} target="_blank" rel="noopener">
+            {t("optionsOpenApp")}
+          </a>
+          <a
+            className="foot-support"
+            href={SUPPORT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => track({ name: "support_cta_clicked", properties: { source: "options_footer" } })}
+          >
+            <HeartIcon />
+            {t("readerSupportCta")}
+          </a>
+        </span>
         <span className="version">v{browser.runtime.getManifest().version}</span>
       </div>
     </main>
   )
 }
+
