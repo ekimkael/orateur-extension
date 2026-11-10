@@ -2,7 +2,7 @@
   "name": "orateur-extension",
   "description": "Extension navigateur pour écouter des articles et sélections de texte avec Orateur.",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.11.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -11,9 +11,13 @@
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
-    "compile": "tsc --noEmit",
-    "test": "node --test --experimental-test-module-mocks \"lib/**/*.test.ts\"",
-    "postinstall": "wxt prepare"
+    "compile": "wxt prepare && tsc --noEmit",
+    "test": "node --test --experimental-test-module-mocks \"lib/**/*.test.ts\" \"tests/*.test.mjs\"",
+    "test:packages": "node scripts/check-packages.mjs",
+    "test:e2e": "node scripts/test-browser.mjs",
+    "test:e2e:firefox": "node scripts/test-browser.mjs firefox",
+    "postinstall": "wxt prepare",
+    "validate:changelog": "node scripts/validate-changelog.mjs"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
@@ -26,8 +30,9 @@
     "@wxt-dev/module-react": "^1.2.2",
     "jsdom": "^29.1.1",
     "onnxruntime-web": "^1.26.0",
+    "puppeteer": "25.14.0",
     "typescript": "^5.9.3",
-    "web-ext": "^10.6.0",
+    "web-ext": "^10.8.0",
     "wxt": "^0.21.4"
   }
 }

@@ -29,6 +29,9 @@
   "noticeSelectionTruncated": {
     "message": "Selection very long: only the beginning will be read."
   },
+  "noticeMessageTruncated": {
+    "message": "Message clipped by Gmail: only its beginning is included."
+  },
   "errorPageNotInjectable": {
     "message": "This page can't be read directly."
   },
@@ -61,6 +64,18 @@
   },
   "ariaHidePill": {
     "message": "Stop showing Orateur on this site"
+  },
+  "readerHiddenToast": {
+    "message": "Orateur hidden on this site"
+  },
+  "readerHiddenUndo": {
+    "message": "Undo"
+  },
+  "readerSupportToast": {
+    "message": "Thanks for listening"
+  },
+  "readerSupportCta": {
+    "message": "Support"
   },
   "ariaExtracting": {
     "message": "Extracting the article…"
@@ -101,38 +116,44 @@
   "voiceDefault": {
     "message": "Default"
   },
+  "voicePocketAuto": {
+    "message": "Automatic by language"
+  },
   "voiceFemale1": {
-    "message": "Female 1"
+    "message": "Clara"
   },
   "voiceFemale2": {
-    "message": "Female 2"
+    "message": "Emma"
   },
   "voiceFemale3": {
-    "message": "Female 3"
+    "message": "Jade"
   },
   "voiceFemale4": {
-    "message": "Female 4"
+    "message": "Lina"
   },
   "voiceFemale5": {
-    "message": "Female 5"
+    "message": "Nora"
   },
   "voiceMale1": {
-    "message": "Male 1"
+    "message": "Adam"
   },
   "voiceMale2": {
-    "message": "Male 2"
+    "message": "Gabriel"
   },
   "voiceMale3": {
-    "message": "Male 3"
+    "message": "Hugo"
   },
   "voiceMale4": {
-    "message": "Male 4"
+    "message": "Louis"
   },
   "voiceMale5": {
-    "message": "Male 5"
+    "message": "Noah"
   },
   "selectionRead": {
     "message": "Listen"
+  },
+  "noticeSupertonicPrivateWindow": {
+    "message": "Private window: reading with the system voice. Download the natural voices from a normal window to use them here."
   },
   "noticeSupertonicLangUnsupported": {
     "message": "Language not supported by Supertonic: reading with the system voice."
@@ -161,6 +182,9 @@
   "optionsCacheSize": {
     "message": "$1 MB on your device. The natural voices work offline."
   },
+  "optionsPocketCacheSize": {
+    "message": "$1 MB on your device."
+  },
   "optionsClearCache": {
     "message": "Delete the $1 MB"
   },
@@ -168,10 +192,10 @@
     "message": "Clearing…"
   },
   "optionsTelemetryDescription": {
-    "message": "Off by default. If you turn it on, Orateur reports when a reading starts, whether the model download succeeded, and when an extraction fails."
+    "message": "On by default. Orateur reports readings, errors and model downloads. You can turn this tracking off at any time."
   },
   "optionsTelemetryEnable": {
-    "message": "Share anonymous usage statistics"
+    "message": "Share usage statistics"
   },
   "optionsHeading": {
     "message": "Settings"
@@ -240,7 +264,7 @@
     "message": "“System” follows your browser’s language."
   },
   "optionsSectionSites": {
-    "message": "Sites"
+    "message": "Hidden sites"
   },
   "optionsSitesHelp": {
     "message": "Orateur stays hidden on the sites listed here — no pill, no selection bubble."
@@ -270,7 +294,31 @@
     "message": "Engine and voice"
   },
   "engineNaturalAI": {
-    "message": "Natural AI voices"
+    "message": "Supertonic"
+  },
+  "enginePocket": {
+    "message": "Pocket TTS"
+  },
+  "enginePocketDesc": {
+    "message": "Local voices for English and French."
+  },
+  "optionsPocketModelNote": {
+    "message": "The first reading in English or French downloads about 140 MB for that language. Afterward, Pocket TTS can read offline. Your text stays on this device."
+  },
+  "optionsPocketReadCta": {
+    "message": "Start reading"
+  },
+  "noticePocketLangUnsupported": {
+    "message": "Pocket TTS does not support this language. This reading uses a system voice."
+  },
+  "noticePocketPrivateWindow": {
+    "message": "This private window uses a system voice because the Pocket TTS model is unavailable here. Pocket TTS stays selected."
+  },
+  "errorPocketStartFailed": {
+    "message": "Pocket TTS could not start. Try again."
+  },
+  "errorPocketSynthesis": {
+    "message": "Pocket TTS could not read this passage. Try again or choose a system voice in Settings."
   },
   "engineSystemDesc": {
     "message": "Ready right away. Nothing to download."
@@ -330,7 +378,7 @@
     "message": "This is what this voice sounds like, at this speed."
   },
   "optionsSectionModel": {
-    "message": "AI model"
+    "message": "AI storage"
   },
   "optionsModelReady": {
     "message": "Ready offline"
@@ -339,10 +387,13 @@
     "message": "Nothing downloaded yet."
   },
   "optionsModelGoToVoice": {
-    "message": "Pick the natural voices to download them →"
+    "message": "Choose a voice →"
   },
   "optionsClearCacheConfirm": {
     "message": "Confirm deletion"
+  },
+  "optionsClearCacheError": {
+    "message": "The files could not be deleted. Try again."
   },
   "optionsClearCacheHint": {
     "message": "Click again within 4 s to confirm. Otherwise this cancels on its own."
@@ -351,11 +402,72 @@
     "message": "Privacy"
   },
   "optionsTelemetryNever": {
-    "message": "Never the text you listen to, never the pages you visit, never anything that identifies you."
+    "message": "No page text, titles or addresses are sent. A random identifier recognizes your browser while tracking stays enabled."
+  },
+  "optionsSectionSupport": {
+    "message": "Support"
+  },
+  "optionsSupportTitle": {
+    "message": "Support Orateur"
+  },
+  "optionsSupportDescription": {
+    "message": "Orateur is free and built by one person. If the extension is useful to you, a donation helps me keep going."
+  },
+  "optionsSupportCta": {
+    "message": "Donate"
   },
   "optionsOpenApp": {
     "message": "Open Orateur"
   },
+  "optionsSectionPronunciation": { "message": "Pronunciation" },
+  "pronunciationHelp": { "message": "Correct how names, acronyms and specialist terms are spoken with Supertonic and system voices. Rules stay on this device and apply from the next reading, without changing the displayed text." },
+  "pronunciationUnavailablePocket": { "message": "To hear your saved rules, switch from Pocket TTS to Supertonic or a system voice." },
+  "pronunciationMatchingHelp": { "message": "Whole words and phrases match the paragraph’s language. Add plurals separately. Apostrophes and hyphens separate words; letters, digits and _ extend them. Accents matter. The longest phrase wins, then the case-sensitive rule. Personal rules take priority over built-in corrections, without cascading replacements." },
+  "pronunciationMatchingDetails": { "message": "How rules are applied" },
+  "pronunciationNumbersHelp": { "message": "Grouped numbers are corrected automatically: 40 000 is read as “forty thousand”. Decimals follow the paragraph’s language; leading zeros and phone number groups are preserved." },
+  "pronunciationAddHeading": { "message": "Add a rule" },
+  "pronunciationEditHeading": { "message": "Edit the rule" },
+  "pronunciationLanguage": { "message": "Text language" },
+  "pronunciationSource": { "message": "Written text" },
+  "pronunciationSourceExample": { "message": "E.g. API" },
+  "pronunciationReplacement": { "message": "Text to pronounce" },
+  "pronunciationReplacementExample": { "message": "E.g. A P I" },
+  "pronunciationLengthHint": { "message": "$1 characters maximum." },
+  "pronunciationCaseSensitive": { "message": "Match case" },
+  "pronunciationSave": { "message": "Save" },
+  "pronunciationSaving": { "message": "Saving…" },
+  "pronunciationCancel": { "message": "Cancel editing" },
+  "pronunciationListen": { "message": "Listen" },
+  "pronunciationStop": { "message": "Stop" },
+  "pronunciationListenRule": { "message": "Listen to the rule for $1" },
+  "pronunciationStopRule": { "message": "Stop the preview for $1" },
+  "pronunciationPreviewHelp": { "message": "The preview uses the selected engine, voice and reading speed. It stops the current reading, without resuming it automatically." },
+  "pronunciationPreviewLoading": { "message": "Preparing the preview… You can stop it." },
+  "pronunciationPreviewError": { "message": "Unable to play this preview. Try Listen again or select another voice." },
+  "pronunciationPreviewError_model_unavailable": { "message": "The AI model is unavailable. Download it to listen to the preview." },
+  "pronunciationPreviewError_invalid_rule": { "message": "Check the written text and its pronunciation, then try Listen again." },
+  "pronunciationPreviewError_no_voice": { "message": "No voice is available. Select another voice, then try again." },
+  "pronunciationModelMissing": { "message": "Download the AI model to listen with natural voices." },
+  "pronunciationModelLink": { "message": "Manage the AI model" },
+  "pronunciationEdit": { "message": "Edit" },
+  "pronunciationDelete": { "message": "Delete" },
+  "pronunciationEditRule": { "message": "Edit the rule for $1" },
+  "pronunciationDeleteRule": { "message": "Delete the rule for $1" },
+  "pronunciationRulesHeading": { "message": "Saved rules — $1 of $2" },
+  "pronunciationReplacementValue": { "message": "Pronounce as: $1" },
+  "pronunciationEmpty": { "message": "No saved rules. Add written text and its pronunciation in the form above." },
+  "pronunciationLoading": { "message": "Loading rules…" },
+  "pronunciationLoadError": { "message": "Unable to load rules. Try again to retrieve the saved dictionary." },
+  "pronunciationRetry": { "message": "Try again" },
+  "pronunciationStorageError": { "message": "Unable to save this change. Your input is preserved; try again." },
+  "pronunciationSaved": { "message": "Rule for “$1” saved. It will apply from the next reading." },
+  "pronunciationDeleted": { "message": "Rule for “$1” deleted." },
+  "pronunciationError_required": { "message": "Enter text with at least one non-space character." },
+  "pronunciationError_too_long": { "message": "Shorten this text to $1 characters or fewer." },
+  "pronunciationError_control": { "message": "Remove control characters, such as tabs and line breaks." },
+  "pronunciationError_duplicate": { "message": "A rule already exists for this text, language and case setting. Edit the saved rule." },
+  "pronunciationError_limit": { "message": "The limit of $1 rules has been reached. Delete a rule before adding another." },
+  "pronunciationError_invalid": { "message": "Select Français or English and fill in both texts, then try again." },
   "readerResumePrompt": {
     "message": "Resume where you stopped? Choose Cancel to restart from the beginning."
   }

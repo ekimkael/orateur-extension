@@ -4,7 +4,7 @@
 // sélection. Liste d'exclusion seule : visible partout par défaut, la liste
 // dit seulement où se taire.
 //
-// Importé par reader.content.ts et selection.content.ts, qui tournent sur
+// Importé par reader.content/ et selection.content.ts, qui tournent sur
 // `<all_urls>` : zéro dépendance, zéro React, comme reader-prefs.ts.
 
 const SITES_KEY = "orateur:hidden-sites"

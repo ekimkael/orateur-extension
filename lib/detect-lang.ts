@@ -24,7 +24,7 @@
  * content script, chargé sur toutes les pages (voir l'en-tête de
  * `tts-messages.ts` pour la même règle).
  */
-import type { SupportedLang } from "./supertonic-lang.ts"
+import { toSupertonicLang, type SupportedLang } from "./supertonic-lang.ts"
 
 const MIN_CHARS = 8
 const MIN_TOKENS = 12
@@ -32,6 +32,16 @@ const MIN_SCORE = 0.12
 const MIN_MARGIN = 0.04
 /** Sous ce nombre de mots distincts, la table de mots ne prouve plus rien : seule une signature peut trancher. */
 const HARD_MIN_TOKENS = 4
+/**
+ * Denominator cap for the score. The tables hold ~30–45 function words while
+ * an article's distinct vocabulary keeps growing: divided by every distinct
+ * word, a long or content-heavy English text fell under `MIN_SCORE` and kept
+ * Gmail's French declaration.
+ *
+ * ponytail: fixed cap, not a statistical model; recalibrate on real texts if
+ * long texts in a language without a table start to switch.
+ */
+const MAX_SCORED_TOKENS = 30
 
 /**
  * Score et marge exigés pour un texte de `distinct` mots distincts. Ce qu'un
@@ -81,6 +91,7 @@ const WORD_TABLES: Partial<Record<SupportedLang, Set<string>>> = {
     "the", "of", "and", "to", "in", "is", "was", "that", "for", "on", "with",
     "as", "it", "at", "by", "an", "be", "this", "from", "or", "are", "but",
     "not", "have", "has", "had", "which", "you", "they", "we", "were", "will",
+    "a", "i", "its", "their", "your", "can", "into", "through", "when", "how", "up",
   ]),
   fr: new Set([
     "le", "la", "les", "de", "des", "et", "un", "une", "est", "dans", "que",
@@ -220,7 +231,7 @@ function bestByWordTable(
       const table = WORD_TABLES[lang]
       if (!table) return null
       const weight = distinct.reduce((sum, t) => sum + (table.has(t) ? (weights.get(t) ?? 1) : 0), 0)
-      return { lang, score: weight / distinct.length }
+      return { lang, score: weight / Math.min(distinct.length, MAX_SCORED_TOKENS) }
     })
     .filter((s): s is { lang: SupportedLang; score: number } => s !== null)
     .sort((a, b) => b.score - a.score)
@@ -274,6 +285,17 @@ export function detectLang(text: string, fallback: SupportedLang | null): Suppor
     default:
       return fallback
   }
+}
+
+/**
+ * Document language for the reader: the page's declaration, unless the text
+ * clearly says otherwise; `null` when neither gives a supported language.
+ *
+ * An indecisive text (a job list, a short mail) keeps the declaration instead
+ * of dropping to the system voice.
+ */
+export function resolveDocLang(declared: string | undefined, text: string): SupportedLang | null {
+  return detectLang(text, toSupertonicLang(declared ?? ""))
 }
 
 // Réexporté pour les tests uniquement, pour vérifier la couverture des tables

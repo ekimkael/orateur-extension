@@ -1,0 +1,13 @@
+DEV Digest
+
+Hey reader, let’s get you caught up!
+
+PROMOTED
+
+Three of the people defining agentic development — toolkit creator Avery Stone, harness-engineering pioneer Morgan Reed (Cloud Systems) and workflow creator Jordan Taylor — take the stage in Berlin. Use code DEV20 for 20% off your ticket.
+
+Build your next project
+
+Teams can publish their development tools through a single release workflow. Your dashboard tracks build artifacts, deployment targets, runtime configuration, infrastructure changes, reliability metrics, and package checks.
+
+How to make your Digest better

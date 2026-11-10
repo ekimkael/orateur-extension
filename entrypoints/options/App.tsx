@@ -1,7 +1,7 @@
 /**
  * Première page React du dépôt (jalon 1b). Confinement volontaire : React ne
  * vit ici et dans le futur popup (jalon 4c), jamais dans un content script —
- * reader.content.ts et selection.content.ts tournent sur `<all_urls>` et
+ * reader.content/ et selection.content.ts tournent sur `<all_urls>` et
  * doivent rester vanilla et légers, comme le documente déjà tts-messages.ts
  * pour empêcher le moteur Supertonic de fuir dans leur bundle.
  */
@@ -16,11 +16,16 @@ import { SpeedSlider } from "../../components/SpeedSlider"
 import { VoicePicker } from "../../components/VoicePicker"
 import { ThemeSegmented } from "../../components/ThemeSegmented"
 import { PositionSegmented } from "../../components/PositionSegmented"
-import { SettingsNav } from "./SettingsNav"
+import { PronunciationSettings } from "../../components/PronunciationSettings"
+import { getSettingsSection, HeartIcon, SettingsNav } from "./SettingsNav"
 import { clearModelCache, getModelCacheSize } from "../../lib/supertonic/model-cache.ts"
+import { clearPocketModelCache, getPocketModelCacheSize } from "../../lib/pocket/model-cache.ts"
+import { toMegabytes } from "../../lib/storage-size.ts"
 import { resolveLocale } from "../../lib/i18n"
 import { applyTheme } from "../../lib/theme"
 import { ORATEUR_ORIGIN } from "../../lib/handoff"
+import { SUPPORT_URL } from "../../lib/reading-outro"
+import { track } from "../../lib/telemetry"
 import { normalizeSite } from "../../lib/site-rules"
 import type { UiLanguage } from "../../lib/ui-prefs"
 
@@ -46,8 +51,11 @@ interface AppContentProps {
   updateUiPrefs: ReturnType<typeof useUiPrefs>["updatePrefs"]
 }
 
+type CacheEngine = "supertonic" | "pocket"
+
 function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentProps) {
   const t = useTranslation()
+  const [activeSection, setActiveSection] = useState(getSettingsSection)
   const { consent, setEnabled: setTelemetryEnabled } = useTelemetryConsent()
   const locale = resolveLocale(uiPrefs.language)
 
@@ -56,14 +64,30 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
   const [siteInvalid, setSiteInvalid] = useState(false)
   const siteInputRef = useRef<HTMLInputElement>(null)
 
-  const [cacheBytes, setCacheBytes] = useState<number | null>(null)
-  const [clearing, setClearing] = useState(false)
-  const [armed, setArmed] = useState(false)
+  const [cacheBytes, setCacheBytes] = useState<Record<CacheEngine, number | null>>({ supertonic: null, pocket: null })
+  const [clearing, setClearing] = useState<CacheEngine | null>(null)
+  const [armed, setArmed] = useState<CacheEngine | null>(null)
+  const [cacheError, setCacheError] = useState<CacheEngine | null>(null)
   const armedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    void refreshCacheSize()
+    function navigate() {
+      setActiveSection(getSettingsSection())
+    }
+    window.addEventListener("hashchange", navigate)
+    return () => window.removeEventListener("hashchange", navigate)
   }, [])
+
+  useEffect(() => {
+    document.querySelector<HTMLElement>(`#${activeSection} h2`)?.focus({ preventScroll: true })
+    window.scrollTo({ top: 0, behavior: "instant" })
+    setArmed(null)
+    if (armedTimerRef.current) clearTimeout(armedTimerRef.current)
+  }, [activeSection])
+
+  useEffect(() => {
+    if (activeSection === "modele" || activeSection === "voix" || activeSection === "prononciation") void refreshCacheSize()
+  }, [activeSection])
 
   // `__MSG_*__` ne se résout que dans manifest.json — le titre et le `lang`
   // localisés de cette page se posent donc ici, avec la locale résolue par
@@ -87,32 +111,35 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
   }, [])
 
   async function refreshCacheSize() {
-    setCacheBytes(await getModelCacheSize())
+    const [supertonic, pocket] = await Promise.all([getModelCacheSize(), getPocketModelCacheSize()])
+    setCacheBytes({ supertonic, pocket })
   }
 
-  async function handleClearCache() {
-    setClearing(true)
+  async function handleClearCache(engine: CacheEngine) {
+    setClearing(engine)
+    setCacheError(null)
     try {
-      await clearModelCache()
+      await (engine === "pocket" ? clearPocketModelCache() : clearModelCache())
       await refreshCacheSize()
+    } catch {
+      setCacheError(engine)
     } finally {
-      setClearing(false)
+      setClearing(null)
     }
   }
 
-  function handleClearClick() {
-    if (armed) {
-      if (armedTimerRef.current) clearTimeout(armedTimerRef.current)
-      setArmed(false)
-      void handleClearCache()
+  function handleClearClick(engine: CacheEngine) {
+    if (armedTimerRef.current) clearTimeout(armedTimerRef.current)
+    if (armed === engine) {
+      setArmed(null)
+      void handleClearCache(engine)
       return
     }
-    setArmed(true)
-    armedTimerRef.current = setTimeout(() => setArmed(false), 4000)
+    setArmed(engine)
+    armedTimerRef.current = setTimeout(() => setArmed(null), 4000)
   }
 
-  const modelCached = cacheBytes != null
-  const cacheMb = cacheBytes != null ? Math.round(cacheBytes / (1024 * 1024)) : null
+  const modelCached = cacheBytes.supertonic != null
 
   return (
     <main className="page">
@@ -125,11 +152,11 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
       <p className="tagline">{t("optionsTagline")}</p>
 
       <div className="shell">
-        <SettingsNav />
+        <SettingsNav activeSection={activeSection} />
 
-        <div className="card">
-          <section className="section" id="general">
-            <h2 className="eyebrow">{t("optionsSectionGeneral")}</h2>
+        <div className="card options-card">
+          <section className="section" id="general" hidden={activeSection !== "general"} aria-labelledby="general-heading">
+            <h2 className="eyebrow" id="general-heading" tabIndex={-1}>{t("optionsSectionGeneral")}</h2>
 
             <div className="row">
               <span className="row-head">
@@ -178,8 +205,8 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
             </div>
           </section>
 
-          <section className="section" id="sites">
-            <h2 className="eyebrow">{t("optionsSectionSites")}</h2>
+          <section className="section" id="sites" hidden={activeSection !== "sites"} aria-labelledby="sites-heading">
+            <h2 className="eyebrow" id="sites-heading" tabIndex={-1}>{t("optionsSectionSites")}</h2>
             <p className="help">{t("optionsSitesHelp")}</p>
 
             <label className="row-label site-add-label" htmlFor="site-input">
@@ -242,8 +269,8 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
             )}
           </section>
 
-          <section className="section" id="voix">
-            <h2 className="eyebrow">{t("optionsSectionVoice")}</h2>
+          <section className="section" id="voix" hidden={activeSection !== "voix"} aria-labelledby="voix-heading">
+            <h2 className="eyebrow" id="voix-heading" tabIndex={-1}>{t("optionsSectionVoice")}</h2>
 
             <EngineSelect
               value={prefs.engine}
@@ -253,58 +280,65 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
               locale={locale}
             />
 
-            <VoicePicker
-              engine={prefs.engine}
-              voiceURI={prefs.voiceURI}
-              supertonicVoice={prefs.supertonicVoice}
-              speed={prefs.speed}
-              onChangeSystemVoice={(voiceURI) => updatePrefs({ voiceURI })}
-              onChangeSupertonicVoice={(supertonicVoice) => updatePrefs({ supertonicVoice })}
-            />
+            {activeSection === "voix" && (
+              <VoicePicker
+                engine={prefs.engine}
+                voiceURI={prefs.voiceURI}
+                supertonicVoice={prefs.supertonicVoice}
+                pocketVoice={prefs.pocketVoice}
+                speed={prefs.speed}
+                onChangeSystemVoice={(voiceURI) => updatePrefs({ voiceURI })}
+                onChangeSupertonicVoice={(supertonicVoice) => updatePrefs({ supertonicVoice })}
+                onChangePocketVoice={(pocketVoice) => updatePrefs({ pocketVoice })}
+              />
+            )}
 
             <SpeedSlider value={prefs.speed} onChange={(speed) => updatePrefs({ speed })} locale={locale} />
           </section>
 
-          <section className="section" id="modele">
-            <h2 className="eyebrow">{t("optionsSectionModel")}</h2>
+          <PronunciationSettings prefs={prefs} modelCached={modelCached} active={activeSection === "prononciation"} />
 
-            {cacheBytes != null ? (
-              // Pas de <progress> ici : une barre toujours à 100% est de la
-              // décoration, pas un état — le texte suffit.
-              <div className="cache-body">
-                <p className="cache-note">{t("optionsCacheSize", [String(cacheMb)])}</p>
-                <div className="cache-actions" aria-live="polite" aria-atomic="true">
-                  <button
-                    type="button"
-                    className="btn-danger"
-                    data-armed={armed}
-                    onClick={handleClearClick}
-                    disabled={clearing}
-                  >
-                    {clearing
-                      ? t("optionsClearingCache")
-                      : armed
-                        ? t("optionsClearCacheConfirm")
-                        : t("optionsClearCache", [String(cacheMb)])}
-                  </button>
-                  {armed && <span className="cache-hint">{t("optionsClearCacheHint")}</span>}
+          <section className="section" id="modele" hidden={activeSection !== "modele"} aria-labelledby="modele-heading">
+            <h2 className="eyebrow" id="modele-heading" tabIndex={-1}>{t("optionsSectionModel")}</h2>
+
+            {(["pocket", "supertonic"] as const).map((engine) => {
+              const bytes = cacheBytes[engine]
+              const cacheMb = bytes ? String(Math.max(1, toMegabytes(bytes))) : null
+              return (
+                <div className="row" key={engine} role="group" aria-labelledby={`cache-${engine}`}>
+                  <span className="row-label" id={`cache-${engine}`}>{t(engine === "pocket" ? "enginePocket" : "engineNaturalAI")}</span>
+                  {cacheMb ? (
+                    <div className="cache-body">
+                      <p className="cache-note">{t(engine === "pocket" ? "optionsPocketCacheSize" : "optionsCacheSize", [cacheMb])}</p>
+                      <div className="cache-actions" aria-live="polite" aria-atomic="true">
+                        <button
+                          type="button"
+                          className="btn-danger"
+                          data-armed={armed === engine}
+                          onClick={() => handleClearClick(engine)}
+                          disabled={clearing !== null}
+                        >
+                          {clearing === engine
+                            ? t("optionsClearingCache")
+                            : armed === engine
+                              ? t("optionsClearCacheConfirm")
+                              : t("optionsClearCache", [cacheMb])}
+                        </button>
+                        {armed === engine && <span className="cache-hint">{t("optionsClearCacheHint")}</span>}
+                      </div>
+                      {cacheError === engine && <p className="cache-note" role="alert">{t("optionsClearCacheError")}</p>}
+                    </div>
+                  ) : (
+                    <p className="cache-note">{t("optionsModelEmpty")}</p>
+                  )}
                 </div>
-              </div>
-            ) : (
-              // Cul-de-sac évité : un seul CTA de téléchargement dans toute la
-              // page (section Voix) — cette section-ci n'y renvoie, sans en
-              // dupliquer un second.
-              <div className="cache-body">
-                <p className="cache-note">{t("optionsModelEmpty")}</p>
-                <p className="cache-note">
-                  <a href="#voix">{t("optionsModelGoToVoice")}</a>
-                </p>
-              </div>
-            )}
+              )
+            })}
+            <p className="cache-note"><a href="#voix">{t("optionsModelGoToVoice")}</a></p>
           </section>
 
-          <section className="section" id="confidentialite">
-            <h2 className="eyebrow">{t("optionsSectionPrivacy")}</h2>
+          <section className="section" id="confidentialite" hidden={activeSection !== "confidentialite"} aria-labelledby="confidentialite-heading">
+            <h2 className="eyebrow" id="confidentialite-heading" tabIndex={-1}>{t("optionsSectionPrivacy")}</h2>
 
             <label className="toggle">
               <input
@@ -318,15 +352,43 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
             <p className="privacy-desc">{t("optionsTelemetryDescription")}</p>
             <p className="privacy-never">{t("optionsTelemetryNever")}</p>
           </section>
+
+          <section className="section" id="soutien" hidden={activeSection !== "soutien"} aria-labelledby="soutien-heading">
+            <h2 className="eyebrow" id="soutien-heading" tabIndex={-1}>{t("optionsSupportTitle")}</h2>
+            <p className="privacy-desc">{t("optionsSupportDescription")}</p>
+            <a
+              className="btn-primary support-cta"
+              href={SUPPORT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => track({ name: "support_cta_clicked", properties: { source: "options_section" } })}
+            >
+              <HeartIcon />
+              {t("optionsSupportCta")}
+            </a>
+          </section>
         </div>
       </div>
 
       <div className="foot">
-        <a href={ORATEUR_ORIGIN} target="_blank" rel="noopener">
-          {t("optionsOpenApp")}
-        </a>
+        <span className="foot-links">
+          <a href={ORATEUR_ORIGIN} target="_blank" rel="noopener">
+            {t("optionsOpenApp")}
+          </a>
+          <a
+            className="foot-support"
+            href={SUPPORT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => track({ name: "support_cta_clicked", properties: { source: "options_footer" } })}
+          >
+            <HeartIcon />
+            {t("readerSupportCta")}
+          </a>
+        </span>
         <span className="version">v{browser.runtime.getManifest().version}</span>
       </div>
     </main>
   )
 }
+

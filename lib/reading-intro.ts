@@ -29,9 +29,12 @@ const INTRO_BY_LANGUAGE: Record<string, string> = {
  *
  * Le guillemet et la parenthèse fermants comptent comme une ponctuation : la
  * phrase qu'ils referment porte déjà la sienne.
+ *
+ * A trailing comma or semicolon becomes the period ("Cher client," in a mail
+ * greeting) instead of being spoken as ",.".
  */
 export const withStop = (text: string) =>
-  /[.!?…:»"')\]]$/.test(text) ? text : `${text}.`
+  /[.!?…:»"')\]]$/.test(text) ? text : `${text.replace(/\s*[,;]$/, "")}.`
 
 /** Chaîne vide si l'article n'a pas de titre : pas d'annonce en suspens. */
 export function buildReadingIntro(language: string, title: string): string {

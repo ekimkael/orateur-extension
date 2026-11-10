@@ -1,7 +1,11 @@
+/** Storage key for local reading progress. */
 export const READING_PROGRESS_KEY = "orateur:reading-progress"
+/** Maximum retained age of a saved position. */
 export const READING_PROGRESS_MAX_AGE = 30 * 24 * 60 * 60 * 1000
+/** Hourly cleanup alarm name. */
 export const READING_PROGRESS_ALARM = "orateur:expire-reading-progress"
 
+/** Position and metadata supplied by the reading session. */
 export interface ReadingProgress {
   url: string
   title: string
@@ -50,11 +54,13 @@ async function validStore(now: number): Promise<ProgressStore> {
   return store
 }
 
+/** Remove expired and legacy records outside private windows. */
 export async function pruneReadingProgress(now = Date.now()) {
   if (isPrivate()) return
   await browser.storage.local.set({ [READING_PROGRESS_KEY]: await validStore(now) })
 }
 
+/** Load a compatible saved position outside private windows. */
 export async function loadReadingProgress(url: string, total: number, now = Date.now()) {
   if (isPrivate()) return null
   const key = await progressKey(url)
@@ -65,6 +71,7 @@ export async function loadReadingProgress(url: string, total: number, now = Date
   return progress && progress.total === total ? { ...progress, url } : null
 }
 
+/** Save a position without raw URLs or titles outside private windows. */
 export async function saveReadingProgress(progress: ReadingProgress) {
   if (isPrivate() || !isProgress(progress)) return
   const key = await progressKey(progress.url)
@@ -73,6 +80,7 @@ export async function saveReadingProgress(progress: ReadingProgress) {
   await browser.storage.local.set({ [READING_PROGRESS_KEY]: store })
 }
 
+/** Remove a completed reading outside private windows. */
 export async function clearReadingProgress(url: string) {
   if (isPrivate()) return
   const key = await progressKey(url)

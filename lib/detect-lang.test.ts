@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
 import test from "node:test"
-import { detectLang } from "./detect-lang.ts"
+import { detectLang, resolveDocLang } from "./detect-lang.ts"
 
 const FR =
   "Le chat est assis sur le tapis et regarde la fenêtre avec attention, " +
@@ -127,4 +128,46 @@ test("signatures contradictoires dans un même texte renvoient le repli", () => 
 test("trop peu de mots distincts renvoie le repli, dans les deux sens", () => {
   assert.equal(detectLang("Voir plus", "fr"), "fr")
   assert.equal(detectLang("Voir plus", "en"), "en")
+})
+
+const ENGLISH =
+  "It is impossible to build a failure-proof software system. Sure, a system can go through its lifecycle without any failures. But you can’t provide a guarantee that it will never fail."
+// Job list from a French newsletter: too few words for a verdict.
+const TERSE = "Freelance.\n\nExpert cyber/SOC.\n\n500 - 550 €⁄j.\n\nLille.\n\nFreelance.\n\nDevOps - DBA Expert.\n\n500 - 600 €⁄j.\n\nÎle-de-France."
+
+test("English digest text overrides Gmail's French interface language", () => {
+  const text = readFileSync(new URL("../tests/fixtures/english-digest.txt", import.meta.url), "utf8")
+  assert.equal(resolveDocLang("fr-FR", text), "en")
+  const blocks = text.trim().split(/\n{2,}/)
+  for (const i of [1, 3, 5, 6]) {
+    const block = blocks[i]!
+    assert.equal(detectLang(block, null), "en", block)
+  }
+  assert.equal(detectLang("Doors I Walked Through to Reach DEV", null), "en")
+})
+
+test("resolveDocLang: the text overrides a declaration it clearly contradicts", () => {
+  assert.equal(resolveDocLang("fr", ENGLISH), "en")
+})
+
+test("resolveDocLang: an indecisive text keeps the declaration", () => {
+  assert.equal(resolveDocLang("fr-FR", TERSE), "fr")
+})
+
+test("resolveDocLang: no declaration and no verdict gives null", () => {
+  assert.equal(resolveDocLang(undefined, TERSE), null)
+  assert.equal(resolveDocLang("zh", TERSE), null)
+})
+
+// Content-heavy prose: function words are a small share of its distinct words,
+// and that share keeps falling as the article grows.
+const DENSE_EN =
+  "The engineering team at the company shipped a new caching layer this week, and the results were impressive across every service. " +
+  "Latency dropped sharply while throughput climbed beyond expectations, partly because requests now skip redundant database lookups entirely. " +
+  "Engineers credited careful benchmarking, gradual rollouts, feature flags plus extensive observability dashboards."
+
+test("dense English prose overrides a French declaration, whatever its length", () => {
+  assert.equal(detectLang(DENSE_EN, "fr"), "en")
+  const article = readFileSync(new URL("../tests/fixtures/english-digest.txt", import.meta.url), "utf8")
+  assert.equal(detectLang(`${article}\n\n${DENSE_EN}`, "fr"), "en")
 })
