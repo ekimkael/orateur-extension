@@ -85,6 +85,7 @@ Layers, the TTS port and the reading invariants: [docs/reading-architecture.md](
 - **Supertonic lookahead across short headings and translated pages** regressed repeatedly (0.8.3, 0.8.7). Test both with and without text preparation.
 - **Firefox driver limits:** WebDriver BiDi cannot click the toolbar action (that scenario is skipped), and some extension-page load events are filtered, so the harness navigates with `wait: "none"` and waits for DOM state.
 - **The reader and bubble use a closed Shadow DOM.** Tests read it through `openOrClosedShadowRoot`; do not change the shadow mode to make tests easier.
+- **The pill toast shows before its message.** `openToast()` fills the text on the next animation frame so screen readers announce it. Browser tests wait for the message itself, not for the visible toast: asserting right after visibility flaked once on Firefox CI (0.10.0).
 - **Attaching a debugger changes MV3 service-worker sleep**, so lifecycle bugs can vanish under DevTools.
 - **Built-in PDF viewers reject the injected reader.** Do not "fix" it: PDF is out of scope unless asked.
 - **Lockfile:** regenerate `package-lock.json` with npm 11. Another npm can drop Linux optional-dependency entries and break `npm ci` in CI (fixed in 0.8.4).
