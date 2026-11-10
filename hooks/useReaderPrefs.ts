@@ -12,7 +12,7 @@ import {
  * loadPrefs()/onPrefsChanged(), qui restent la seule source de vérité.
  *
  * `updatePrefs` fusionne en local avant que l'aller-retour storage ne
- * confirme : même choix que la pastille (reader.content.ts, `currentPrefs`
+ * confirme : même choix que la pastille (reader.content/, `currentPrefs`
  * sur changement de moteur) pour qu'un curseur ne traîne pas derrière le doigt.
  */
 export function useReaderPrefs() {

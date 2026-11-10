@@ -38,6 +38,7 @@
  * ni les onglets ni `browser.*`, uniquement la synthèse et la lecture.
  */
 import { loadModelFiles } from "./supertonic/model-cache.ts"
+import type { LocalTtsHost } from "./local-tts-host.ts"
 import {
   chunkText,
   loadTextToSpeechEngine,
@@ -47,9 +48,14 @@ import {
   type TextToSpeech,
 } from "./supertonic/engine.ts"
 import type { SupertonicVoice } from "./supertonic/types.ts"
-import type { SupportedLang } from "./supertonic-lang.ts"
+import { AVAILABLE_LANGS, type SupportedLang } from "./supertonic-lang.ts"
 import { detectLang } from "./detect-lang.ts"
-import type { TtsControlAction, TtsState } from "./tts-messages.ts"
+import { resolveBlockLangs, splitBlocks } from "./reading-language.ts"
+import { expandText } from "./pronunciation/index.ts"
+import { sanitizePronunciationRules, type PronunciationRule } from "./pronunciation/personal.ts"
+import type { TtsControlAction, TtsPreparedBlock, TtsState } from "./tts-messages.ts"
+
+export { resolveBlockLangs, splitBlocks } from "./reading-language.ts"
 
 export interface SpeakRequest {
   text: string
@@ -57,14 +63,11 @@ export interface SpeakRequest {
   voice: SupertonicVoice
   speed: number
   startBlock?: number
-}
-
-/** Un bloc par paragraphe — même découpe que le chemin système (reader.content.ts). */
-export function splitBlocks(text: string): string[] {
-  return text
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean)
+  personalRules?: readonly PronunciationRule[]
+  /** Rule previews use their explicit language even for a single ambiguous word. */
+  detectLanguage?: boolean
+  /** Refresh DOM text before synthesis; passive prefetch must not reveal it. */
+  prepareParagraph?: (paragraph: number, prefetch?: boolean) => Promise<TtsPreparedBlock>
 }
 
 /** Une unité de synthèse : un chunk, et s'il termine son paragraphe. */
@@ -88,47 +91,6 @@ export interface Unit {
 }
 
 /**
- * Distance en blocs au-delà de laquelle un bloc indécis n'hérite plus de rien
- * et retombe sur `docLang` — un titre court hérite de l'article qui le suit,
- * mais pas d'un paragraphe à l'autre bout du document.
- */
-const NEIGHBOR_RANGE = 2
-
-/**
- * Langue par bloc. Passe 1 : `detectLang` isolément sur chaque bloc, repli
- * `null` (pas `docLang`) pour distinguer « indécis » de « décidé comme
- * `docLang` ». Passe 2 : un bloc indécis prend la langue du voisin décidé le
- * plus proche — le paragraphe qui suit un titre, les frères d'un même item de
- * liste — et `docLang` seulement faute de voisin décidé à moins de
- * `NEIGHBOR_RANGE` blocs. À égale distance, le voisin suivant l'emporte : un
- * titre appartient à ce qu'il introduit, pas à ce qui précède.
- */
-export function resolveBlockLangs(blocks: string[], docLang: SupportedLang): SupportedLang[] {
-  const decided = blocks.map((block) => detectLang(block, null))
-  // Un bloc indécis qui n'a AUCUN voisin indécis (isolé entre deux blocs déjà
-  // tranchés, ou en bord de document) n'est pas un fragment de titre ou de
-  // liste : c'est une phrase de flux ordinaire, juste trop courte pour se
-  // prouver elle-même. Ex. un article français cite un paragraphe anglais
-  // puis reprend par une phrase courte : cette phrase ne doit pas hériter de
-  // la citation qui la précède. Un titre suivi de son contenu (les deux à
-  // distance 1) n'a pas ce problème : l'inheritance vers l'AVANT reste donc
-  // sans condition, seule celle vers l'ARRIÈRE l'exige.
-  const isIndecisive = (i: number) => i >= 0 && i < decided.length && decided[i] === null
-  return decided.map((lang, i) => {
-    if (lang) return lang
-    for (let d = 1; d <= NEIGHBOR_RANGE; d++) {
-      if (decided[i + d]) return decided[i + d]!
-    }
-    if (isIndecisive(i - 1) || isIndecisive(i + 1)) {
-      for (let d = 1; d <= NEIGHBOR_RANGE; d++) {
-        if (decided[i - d]) return decided[i - d]!
-      }
-    }
-    return docLang
-  })
-}
-
-/**
  * Découpe en unités de synthèse. `engine.synthesize()` appliquait déjà
  * `chunkText` en interne et enchaînait les chunks d'un même paragraphe en un
  * seul WAV : le premier son attendait donc la synthèse du paragraphe entier.
@@ -142,14 +104,14 @@ export function resolveBlockLangs(blocks: string[], docLang: SupportedLang): Sup
  * `resolveBlockLangs`, qui hérite du voisinage plutôt que de retomber tout de
  * suite sur `docLang`.
  */
-export function splitUnits(text: string, lang: SupportedLang): Unit[] {
-  const docLang = detectLang(text, lang) ?? lang
+export function splitUnits(text: string, lang: SupportedLang, personalRules: readonly PronunciationRule[] = [], detectLanguage = true): Unit[] {
+  const docLang = detectLanguage ? detectLang(text, lang) ?? lang : lang
   const units: Unit[] = []
   const paragraphs = splitBlocks(text)
-  const paragraphLangs = resolveBlockLangs(paragraphs, docLang)
+  const paragraphLangs = detectLanguage ? resolveBlockLangs(paragraphs, docLang) : paragraphs.map(() => lang)
   for (let p = 0; p < paragraphs.length; p++) {
-    const paragraph = paragraphs[p]!
     const paragraphLang = paragraphLangs[p]!
+    const paragraph = expandText(paragraphs[p]!, { language: paragraphLang, skipPhonetic: true, personalRules })
     const maxLen = paragraphLang === "ko" || paragraphLang === "ja" ? 120 : 300
     const chunks = chunkText(paragraph, maxLen)
     for (let i = 0; i < chunks.length; i++) {
@@ -190,15 +152,12 @@ interface Head {
   unitIndex: number
 }
 
-export interface TtsHost {
-  speak(request: SpeakRequest): void
-  control(action: TtsControlAction): void
-  seek(block: number, paused: boolean): void
-  setSpeed(speed: number): void
-}
+/** Supertonic's implementation of the local host command contract. */
+export type TtsHost = LocalTtsHost<SpeakRequest>
 
 export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   let enginePromise: Promise<TextToSpeech> | null = null
+  const lifetime = new AbortController()
   const styles = new Map<SupertonicVoice, Promise<Style>>()
 
   let units: Unit[] = []
@@ -206,10 +165,14 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   let speed = 1
   let currentStyle: Style | null = null
   let currentVoice: SupertonicVoice = "F1"
+  let prepareParagraph: SpeakRequest["prepareParagraph"]
+  let personalRules: readonly PronunciationRule[] = []
+  const preparedParagraphs = new Set<number>()
+  const preparingParagraphs = new Map<number, { promise: Promise<void>; prefetch: boolean }>()
   /**
    * Incrémenté à chaque `speak()`/`stop()` : une promesse d'une génération
    * révolue devient un no-op à son retour, plutôt que d'agir sur l'état de
-   * la lecture suivante. Même mécanisme que `generation` dans reader.content.ts.
+   * la lecture suivante. Même mécanisme que `generation` dans reader.content/.
    */
   let generation = 0
   let abort: AbortController | null = null
@@ -221,12 +184,16 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
    * tout seul.
    */
   let paused = false
+  let playAttempt = 0
 
   /** index d'unité → URL de blob prête à jouer. Ordre d'insertion = ordre de lecture. */
   const cache = new Map<number, string>()
   /** Synthèses en vol, pour dédoublonner `pump()` et l'attente de `advance()`. */
   const pending = new Map<number, Promise<void>>()
-  let pumping = false
+  // Cache entries are cleared on stop and seek. Inference may still be
+  // finishing, and session release must wait for it.
+  const runningSyntheses = new Set<Promise<void>>()
+  let pumping: number | null = null
 
   let heads: [Head, Head]
 
@@ -271,19 +238,27 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       enginePromise = (async () => {
         try {
           const getFile = await loadModelFiles((p) => {
+            if (lifetime.signal.aborted) return
             if (p.phase !== "downloading" && p.phase !== "checking") return
             const percent = Math.round(
               ((p.fileIndex + (p.bytesTotal ? p.bytesLoaded / p.bytesTotal : 0)) / p.totalFiles) * 100
             )
             onState({ phase: "loading", reason: "downloading-model", progress: percent })
           })
+          lifetime.signal.throwIfAborted()
           onState({ phase: "loading", reason: "loading-engine" })
           const engine = await loadTextToSpeechEngine(getFile)
           // Échauffement une fois pour toutes les lectures à venir — voir la
           // découverte de la phase 0a : le premier run() de chaque session
           // coûte des secondes, payés ici plutôt que sur le premier ▶.
-          const warmupStyle = await ensureStyle("F1")
-          await engine.synthesize("Bonjour.", "fr", warmupStyle, TOTAL_STEP, 1.0)
+          try {
+            lifetime.signal.throwIfAborted()
+            const warmupStyle = await ensureStyle("F1")
+            await engine.synthesize("Bonjour.", "fr", warmupStyle, TOTAL_STEP, 1.0, lifetime.signal)
+          } catch (error) {
+            await engine.dispose()
+            throw error
+          }
           return engine
         } catch (e) {
           // Permet un nouvel essai au prochain speak() plutôt que de rejeter
@@ -339,6 +314,46 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     for (const url of cache.values()) URL.revokeObjectURL(url)
     cache.clear()
     pending.clear()
+    preparedParagraphs.clear()
+    preparingParagraphs.clear()
+  }
+
+  function prepareUnit(gen: number, i: number, prefetch = false): Promise<void> {
+    if (gen !== generation) return Promise.resolve()
+    const provider = prepareParagraph
+    const paragraph = units[i]?.paragraph
+    if (!provider || paragraph === undefined || preparedParagraphs.has(paragraph)) return Promise.resolve()
+    const inflight = preparingParagraphs.get(paragraph)
+    if (inflight) {
+      if (inflight.prefetch && !prefetch) {
+        inflight.prefetch = false
+        // The source upgrades its shared wait; the first response alone owns
+        // the replacement, regardless of which transport reply arrives first.
+        void Promise.resolve().then(() => gen === generation ? provider(paragraph, false) : undefined).catch(() => {})
+      }
+      return inflight.promise
+    }
+    const p = (async () => {
+      const prepared = await provider(paragraph, prefetch)
+      if (gen !== generation) return
+      if (!prepared || typeof prepared !== "object" || typeof prepared.text !== "string" ||
+          !prepared.text.trim() || !AVAILABLE_LANGS.includes(prepared.lang)) {
+        throw new Error("Impossible de préparer le paragraphe à lire.")
+      }
+      const replacement = splitUnits(prepared.text, prepared.lang, personalRules, false)
+        .map((unit) => ({ ...unit, paragraph }))
+      if (!replacement.length) throw new Error("Impossible de préparer le paragraphe à lire.")
+      const first = units.findIndex((unit) => unit.paragraph === paragraph)
+      const after = units.findIndex((unit) => unit.paragraph > paragraph)
+      units.splice(first, (after < 0 ? units.length : after) - first, ...replacement)
+      preparedParagraphs.add(paragraph)
+    })()
+    const preparation = { promise: p, prefetch }
+    preparingParagraphs.set(paragraph, preparation)
+    void p.finally(() => {
+      if (preparingParagraphs.get(paragraph) === preparation) preparingParagraphs.delete(paragraph)
+    }).catch(() => {})
+    return p
   }
 
   /** Synthétise l'unité `i` dans le cache, sans la jouer. Dédoublonne les appels concurrents. */
@@ -365,7 +380,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       if (seconds >= 0.5) {
         const ms = performance.now() - t0
         console.debug(
-          `[orateur] unité ${i} : ${Math.round(ms)} ms pour ${seconds.toFixed(1)} s d'audio — RTF ${(ms / 1000 / seconds).toFixed(2)}`
+          `[orateur] unité ${i} (paragraphe ${unit.paragraph}, ${unit.lang}) : ${Math.round(ms)} ms pour ${seconds.toFixed(1)} s d'audio — RTF ${(ms / 1000 / seconds).toFixed(2)}`
         )
       }
       const wav = writeWavFile(unit.endsParagraph ? padSilence(pcm, engine.sampleRate) : pcm, engine.sampleRate)
@@ -381,11 +396,13 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     })()
 
     pending.set(i, p)
+    runningSyntheses.add(p)
     // `.catch` sur la chaîne dérivée, pas sur `p` : `finally` propage le rejet,
     // et cette branche-ci n'a pas d'attendant. Celui qui a demandé la synthèse
     // garde `p` tel quel et voit l'erreur.
     void p
       .finally(() => {
+        runningSyntheses.delete(p)
         if (pending.get(i) === p) pending.delete(i)
       })
       .catch(() => {})
@@ -399,8 +416,8 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
    * protège autrement, en faisant attendre la lecture sur son store).
    */
   async function pump(gen: number) {
-    if (pumping) return
-    pumping = true
+    if (pumping === gen) return
+    pumping = gen
     try {
       for (;;) {
         if (gen !== generation) return
@@ -413,6 +430,10 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
           }
         }
         if (target < 0) return
+        if (prepareParagraph) {
+          await prepareUnit(gen, target, units[target]!.paragraph > units[index]!.paragraph)
+          if (gen !== generation) return
+        }
         await synth(gen, target)
         if (gen !== generation) return
         preloadNext()
@@ -425,7 +446,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       // Une synthèse en échec est déjà signalée par qui l'attendait
       // (`advance`/`speak`) ; l'avance, elle, retentera au prochain tour.
     } finally {
-      pumping = false
+      if (pumping === gen) pumping = null
     }
   }
 
@@ -450,6 +471,36 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     load((1 - active) as 0 | 1, next)
   }
 
+  async function prepareAhead(gen: number, i: number) {
+    if (!prepareParagraph || !units[i]?.endsParagraph) return
+    // Two following units overlap a short heading without revealing past a long paragraph.
+    for (let next = i + 1; next < Math.min(i + 3, units.length); next++) {
+      if (gen !== generation) return
+      if (preparedParagraphs.has(units[next]!.paragraph)) continue
+      // Ready headings must not postpone revealing the body beyond them.
+      await prepareUnit(gen, next)
+    }
+  }
+
+  /**
+   * Report playback only after the browser confirms `play()`. Pausing or
+   * retrying invalidates older attempts within the same generation.
+   */
+  function playCurrent(gen: number) {
+    const head = heads[active]
+    const i = index
+    const attempt = ++playAttempt
+    const isCurrent = () => gen === generation && attempt === playAttempt && !paused
+      && heads[active] === head && head.unitIndex === i
+    void head.audio.play().then(() => {
+      if (!isCurrent() || head.audio.paused || head.audio.ended) return
+      onState({ phase: "playing", block: units[i]?.paragraph ?? 0, total: paragraphCount() })
+    }).catch((e: unknown) => {
+      if (!isCurrent()) return
+      onState({ phase: "error", message: e instanceof Error ? e.message : String(e), reason: "audio-playback" })
+    })
+  }
+
   function playUnit(gen: number, i: number) {
     if (gen !== generation) return
     if (!cache.has(i)) return
@@ -465,11 +516,8 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       onState({ phase: "paused" })
       return
     }
-    onState({ phase: "playing", block: units[i]?.paragraph ?? 0, total: paragraphCount() })
-    heads[slot].audio.play().catch((e: unknown) => {
-      if (gen !== generation) return
-      onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
-    })
+    playCurrent(gen)
+    void prepareAhead(gen, i).catch(() => {})
     preloadNext()
   }
 
@@ -486,6 +534,10 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       // pas encore prête, il faut l'attendre en silence sinon.
       if (!cache.has(next)) {
         onState({ phase: "loading", reason: "preparing-next" })
+        if (prepareParagraph) {
+          await prepareUnit(gen, next)
+          if (gen !== generation) return
+        }
         await synth(gen, next)
         if (gen !== generation) return
       }
@@ -502,7 +554,9 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     const staleSyntheses = [...pending.values()]
     abort?.abort()
     abort = new AbortController()
-    units = splitUnits(request.text, request.lang)
+    personalRules = sanitizePronunciationRules(request.personalRules)
+    prepareParagraph = request.prepareParagraph
+    units = splitUnits(request.text, request.lang, personalRules, request.detectLanguage)
     const start = units.findIndex((unit) => unit.paragraph >= (request.startBlock ?? 0))
     index = start < 0 ? units.length : start
     speed = request.speed
@@ -530,6 +584,10 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
         const style = await ensureStyle(request.voice)
         if (gen !== generation) return
         currentStyle = style
+        if (prepareParagraph) {
+          await prepareUnit(gen, index)
+          if (gen !== generation) return
+        }
         void pump(gen)
         // Dédoublonné avec la première cible de `pump()` : c'est la même
         // promesse, pas une seconde synthèse.
@@ -561,6 +619,10 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
         if (gen !== generation) return
         if (!currentStyle) currentStyle = await ensureStyle(currentVoice)
         if (gen !== generation) return
+        if (prepareParagraph) {
+          await prepareUnit(gen, target)
+          if (gen !== generation) return
+        }
         await synth(gen, target)
         if (gen !== generation) return
         playUnit(gen, target)
@@ -575,6 +637,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
   function control(action: TtsControlAction) {
     if (action === "pause") {
       paused = true
+      playAttempt++
       heads[active].audio.pause()
       onState({ phase: "paused" })
       return
@@ -592,12 +655,9 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
       // ni en cours, `ended` y est faux, donc on tombe bien après ce retour
       // et `play()` plus bas la démarre.
       if (heads[active].audio.ended) return
-      const gen = generation
-      heads[active].audio.play().catch((e: unknown) => {
-        if (gen !== generation) return
-        onState({ phase: "error", message: e instanceof Error ? e.message : String(e) })
-      })
-      onState({ phase: "playing", block: units[index]?.paragraph ?? 0, total: paragraphCount() })
+      if (prepareParagraph && heads[active].unitIndex < 0) return
+      playCurrent(generation)
+      void prepareAhead(generation, index).catch(() => {})
       return
     }
     // "stop" : une nouvelle génération invalide toute promesse en vol, sans
@@ -610,6 +670,7 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     clearCache()
     units = []
     index = 0
+    prepareParagraph = undefined
   }
 
   function setSpeed(newSpeed: number) {
@@ -617,5 +678,14 @@ export function createTtsHost(onState: (state: TtsState) => void): TtsHost {
     for (const h of heads) h.audio.playbackRate = newSpeed
   }
 
-  return { speak, control, seek, setSpeed }
+  function dispose() {
+    const loaded = enginePromise
+    lifetime.abort()
+    control("stop")
+    void Promise.allSettled(runningSyntheses).then(async () => {
+      await (await loaded)?.dispose()
+    }).catch(() => {})
+  }
+
+  return { speak, control, seek, setSpeed, dispose }
 }

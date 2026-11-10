@@ -2,7 +2,13 @@
  * Protocole entre la pastille (content script), le service worker et l'hôte
  * Supertonic (document offscreen sur Chrome, page de fond sur Firefox).
  *
- * Seul module de ce lot que `reader.content.ts` a le droit d'importer avec
+ * A reading talks to the host over its own `runtime.connect` port
+ * (`TTS_PORT`): commands one way, events and paragraph requests the other,
+ * with no relay through the service worker. The background only opens the
+ * host (`TTS_OPEN`) and forwards what the host cannot see by itself
+ * (`TTS_TOKEN_CHANGED`, `TTS_TAB_REMOVED`).
+ *
+ * Seul module de ce lot que `reader.content/` a le droit d'importer avec
  * `supertonic-lang.ts` : aucune dépendance vers `lib/supertonic/*` ni
  * `lib/tts-host.ts`, pour que le moteur ne fuie jamais dans le bundle chargé
  * sur toutes les pages. `SupertonicVoice` est importé en type-only depuis
@@ -11,8 +17,16 @@
  */
 import type { SupertonicVoice } from "./supertonic/types"
 import type { SupportedLang } from "./supertonic-lang"
+import type { PronunciationRule } from "./pronunciation/personal.ts"
 
+/** Name of the port a reading opens to the host. */
+export const TTS_PORT = "orateur:tts"
+/** Asks the background to make sure the host exists; answers a boolean. */
+export const TTS_OPEN = "orateur:tts:open"
 export const TTS_SPEAK = "orateur:tts:speak"
+/** The tab's answer to a `TTS_PREPARE_BLOCK` request, matched by `id`. */
+export const TTS_PREPARED = "orateur:tts:prepared"
+export const TTS_PREPARE_BLOCK = "orateur:tts:prepare-block"
 export const TTS_CONTROL = "orateur:tts:control"
 export const TTS_EVENT = "orateur:tts:event"
 /** L'hôte demande sa propre fermeture après un délai d'inactivité — voir offscreen/main.ts. */
@@ -37,23 +51,55 @@ export const TTS_TAB_REMOVED = "orateur:tts:tab-removed"
 export const TTS_SET_SPEED = "orateur:tts:set-speed"
 export const TTS_SEEK = "orateur:tts:seek"
 
-export interface TtsSpeakMessage {
+/** Local engines served by the extension's shared TTS port. */
+export type LocalTtsEngine = "supertonic" | "pocket"
+
+interface TtsSpeakBase {
   type: typeof TTS_SPEAK
   text: string
   title?: string
-  lang: SupportedLang
-  voice: SupertonicVoice
   speed: number
   /** Premier paragraphe à synthétiser lors d'une reprise. */
   startBlock?: number
+  /** Refresh each page paragraph from the live DOM before synthesis. */
+  livePage?: boolean
   /** Le jeton de la pastille émettrice — même mécanisme que READER_TOKEN. */
   token: string
-  /**
-   * Absent quand la pastille envoie ce message : elle ne connaît pas son
-   * propre onglet. Le service worker le renseigne depuis `sender.tab.id`
-   * avant de relayer vers l'hôte, qui en a besoin pour savoir à qui répondre.
-   */
-  tabId?: number
+}
+
+/** Supertonic commands without an engine come from an older content script. */
+export interface SupertonicSpeakMessage extends TtsSpeakBase {
+  engine?: "supertonic"
+  lang: SupportedLang
+  voice: SupertonicVoice
+  personalRules?: PronunciationRule[]
+}
+
+/** Pocket receives extracted text without Orateur pronunciation rules. */
+export interface PocketSpeakMessage extends TtsSpeakBase {
+  engine: "pocket"
+  lang: string
+  voice: string
+  /** Private windows can use verified cached files without starting downloads. */
+  cacheOnly?: boolean
+  personalRules?: never
+}
+
+/** The engine discriminator keeps each model's voice and language independent. */
+export type TtsSpeakMessage = SupertonicSpeakMessage | PocketSpeakMessage
+
+/** Host to tab: re-read paragraph `block` from the live page. */
+export interface TtsPrepareBlockMessage {
+  type: typeof TTS_PREPARE_BLOCK
+  id: number
+  block: number
+  prefetch?: boolean
+}
+
+/** Live text prepared by the tab in the selected model's language. */
+export interface TtsPreparedBlock<Language extends string = SupportedLang> {
+  text: string
+  lang: Language
 }
 
 export type TtsControlAction = "pause" | "resume" | "stop"
@@ -68,7 +114,7 @@ export interface TtsControlMessage {
  *
  * tts-host.ts n'a pas accès à `browser.i18n` (voir son en-tête : il ne connaît
  * ni les onglets ni `browser.*`) — il émet la cause, pas le texte déjà traduit,
- * et c'est reader.content.ts qui la traduit au rendu, comme le reste de ses
+ * et c'est reader.content/ qui la traduit au rendu, comme le reste de ses
  * libellés.
  */
 export type TtsLoadingReason =
@@ -77,7 +123,7 @@ export type TtsLoadingReason =
   | "loading-voice"
   | "preparing-next"
 
-/** Reflète 1:1 les états de la pastille — voir PillState dans reader.content.ts. */
+/** Reflète 1:1 les états de la pastille — voir PillState dans reader.content/. */
 export type TtsState =
   | { phase: "loading"; reason?: TtsLoadingReason; progress?: number }
   // `block` est un index de PARAGRAPHE (celui de `splitBlocks`), pas d'unité
@@ -94,8 +140,14 @@ export type TtsState =
 
 export interface TtsEventMessage {
   type: typeof TTS_EVENT
-  tabId: number
   state: TtsState
+}
+
+export interface TtsPreparedMessage {
+  type: typeof TTS_PREPARED
+  id: number
+  /** `null`: nothing to read there anymore. */
+  prepared: TtsPreparedBlock<string> | null
 }
 
 export interface TtsTokenChangedMessage {
@@ -133,8 +185,8 @@ export interface TtsCloseMessage {
  * REQUEST et START sont volontairement deux constantes distinctes : sur
  * Chrome, `runtime.sendMessage` depuis la page d'options atteint TOUS les
  * contextes de l'extension, document offscreen compris (aucun `sender.tab`
- * pour les distinguer, contrairement à TTS_SPEAK depuis une pastille — voir
- * plus haut). Si le document offscreen écoutait REQUEST directement, un
+ * pour les distinguer ; les pastilles, elles, passent par leur propre port
+ * — voir plus haut). Si le document offscreen écoutait REQUEST directement, un
  * appel arrivant alors qu'aucun document n'existe encore serait perdu, ET
  * une fois le document créé, il verrait la même REQUEST une seconde fois.
  * Seul le service worker (qui peut créer le document) écoute REQUEST ; seul
@@ -186,6 +238,12 @@ export interface ModelStateQueryMessage {
 
 export interface ModelCacheQueryMessage {
   type: typeof MODEL_CACHE_QUERY
+  /** Missing on older callers, whose cache is Supertonic's. */
+  engine?: LocalTtsEngine
+  /** Query one Pocket language. Omitted when the options only need to know if any model is cached. */
+  lang?: string
+  /** The Pocket voice required for this reading. */
+  voice?: string
 }
 
 export interface ModelProgressMessage {

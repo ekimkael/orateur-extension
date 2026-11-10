@@ -49,14 +49,54 @@ test("épelle les sigles, laisse les mots criés", () => {
   assert.equal(expandText("NON, ce n'est PAS un bug", { language: "fr" }), "NON, ce n'est PAS un beug")
 })
 
+test("les mots criés accentués restent des mots, sans sigle épelé en leur milieu", () => {
+  // JavaScript's `\b` is ASCII-only: « BÉNIN » used to be read « BÉN I N ».
+  for (const skipPhonetic of [false, true]) {
+    assert.equal(
+      expandText("au BÉNIN, DÉFIE YAOUNDÉ et CŒUR", { language: "fr", skipPhonetic }),
+      "au Bénin, Défie Yaoundé et Cœur"
+    )
+  }
+  assert.equal(expandText("l’ÉTÉ de l’API", { language: "fr" }), "l’ÉTÉ de l’A P I")
+})
+
+test("un titre en capitales n'épelle pas les mots outils français", () => {
+  // A sentence shouted whole is read in lower case: Supertonic heard « ET » as
+  // « et il » and title case broke words apart (« Mfoulavert »).
+  assert.equal(expandText("LE BÉNIN DÉFIE YAOUNDÉ", { language: "fr" }), "Le bénin défie yaoundé")
+  assert.equal(
+    expandText("UN EX-GARDE DU BIR ET DES ÉLUS AU NORD", { language: "fr" }),
+    "Un ex-garde du B I R et des élus au nord"
+  )
+  assert.equal(
+    expandText("IL NE FAUT PAS SE TROMPER, OUI OU NON", { language: "fr" }),
+    "Il ne faut pas se tromper, oui ou non"
+  )
+  assert.equal(
+    expandText("JE TU MON TON MA TA MES TES NOS VOS LUI SI NI", { language: "fr" }),
+    "Je tu mon ton ma ta mes tes nos vos lui si ni"
+  )
+  // The list is French only: in English, « UN » is the United Nations.
+  assert.equal(expandText("the UN vote", { language: "en" }), "the U N vote")
+})
+
+test("un titre crié est mis en minuscules pour le moteur neuronal, sigles courts gardés", () => {
+  assert.equal(
+    expandText("ÉCROUÉ À COTONOU, LE BÉNIN DÉFIE YAOUNDÉ ET REFUSE D’EXTRADER LE CAPORAL-CHEF DU BIR.", { language: "fr", skipPhonetic: true }),
+    "Écroué à cotonou, le bénin défie yaoundé et refuse d’extrader le caporal-chef du BIR."
+  )
+  // A capital word inside an ordinary sentence is emphasis, not a headline.
+  assert.equal(expandText("Il a dit STOP au BIR.", { language: "fr", skipPhonetic: true }), "Il a dit Stop au BIR.")
+})
+
 test("le moteur neuronal reçoit le sigle brut, capitales comprises", () => {
   assert.equal(expandText("une API", { language: "fr", skipPhonetic: true }), "une API")
   assert.equal(expandText("du JSON en HTML", { language: "fr", skipPhonetic: true }), "du JSON en HTML")
 })
 
-test("deux-points : pause sur la prose, intact sur les heures et les URL", () => {
+test("deux-points : pause sur la prose, heures verbalisées, intact sur les rapports et les URL", () => {
   assert.equal(expandText("Titre : sous-titre", { language: "fr" }), "Titre, sous-titre")
-  assert.equal(expandText("14:30 et 3:1", { language: "fr" }), "14:30 et 3:1")
+  assert.equal(expandText("14:30 et 3:1", { language: "fr" }), "14 heures 30 et 3:1")
   assert.equal(expandText("https://exemple.fr", { language: "fr" }), "https://exemple.fr")
 })
 

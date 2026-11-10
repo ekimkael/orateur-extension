@@ -1,0 +1,433 @@
+/**
+ * One tab's reading: picks the engine, keeps the shown position, saves
+ * progress, counts telemetry and tells the view what to show. It never builds
+ * DOM: the pill, the follower and the page are handed in, so the whole state
+ * machine runs under `node --test`.
+ */
+
+import type { ReaderEngine, ReaderPreferences } from "./reader-prefs"
+import { ENGINE_CAPABILITIES } from "./engine-capabilities.ts"
+import { loadPronunciationRules } from "./pronunciation-rules.ts"
+import type { PronunciationRule } from "./pronunciation/personal.ts"
+import type { createLivePage } from "./live-page.ts"
+import { markTab } from "./tab-title.ts"
+import type { Player, PlayerEvent, ReadFailure } from "./player.ts"
+import { cancelSpeech } from "./system-player.ts"
+import { createPlayer, selectPlayer, type PlayerSelection } from "./player-factory.ts"
+import type { TtsLoadingReason } from "./tts-messages.ts"
+import type { MessageKey } from "./i18n.ts"
+import { splitBlocks } from "./reading-language.ts"
+import { resolveDocLang } from "./detect-lang.ts"
+import { buildReadingOutro, nextCompletedCount } from "./reading-outro.ts"
+import { NOTIFY, READ_PAGE, READER_TOKEN, type NotifyMessage, type ReadPagePayload } from "./reader-messages.ts"
+import { track } from "./telemetry.ts"
+import { moveReadingBlock } from "./reading-navigation.ts"
+import { clearReadingProgress, loadReadingProgress, saveReadingProgress } from "./reading-progress.ts"
+
+type LivePage = ReturnType<typeof createLivePage>
+
+export type ReaderViewState = "idle" | "loading" | "playing" | "paused" | "error"
+
+export interface LoadingInfo {
+  label: string
+  percent?: number
+  reason?: TtsLoadingReason
+}
+
+/** The pill, as the session sees it. */
+export interface ReaderView {
+  setState(state: ReaderViewState, title?: string, interruptible?: boolean, loading?: LoadingInfo): void
+  setPosition(block: number, total: number): void
+  attach(): void
+  /** Resolves once the running transition ends, or is cancelled by the next one. */
+  settled(): Promise<void>
+  /** Shows the support toast, which leaves once the pill is idle again; false if it could not show. */
+  showSupport(): boolean
+}
+
+/** Highlights the paragraph being read in the page. */
+export interface ReadingFollower {
+  begin(paragraphs: string[], anchors?: readonly (Element | null)[]): void
+  show(block: number): void
+  end(): void
+}
+
+/** What only the page itself can answer. */
+export interface ReadingPage {
+  /** Re-reads each paragraph from the live DOM, for pages the browser may translate. */
+  liveSource(paragraphs: string[]): LivePage
+  /** The address progress is saved under. */
+  url(): string
+  /** Paragraph under the last right-click, or -1. */
+  contextBlock(paragraphs: string[]): number
+  confirmResume(): boolean
+}
+
+export interface ReadingSessionOptions {
+  token: string
+  view: ReaderView
+  follower: ReadingFollower
+  page: ReadingPage
+  /** Read at each use: a reading follows settings changed meanwhile. */
+  prefs: () => ReaderPreferences
+}
+
+export type ReadingSession = ReturnType<typeof createReadingSession>
+
+/**
+ * Creates the reading session of one tab. The content script forwards user
+ * actions, extension messages and page lifecycle events to it.
+ */
+export function createReadingSession({ token, view, follower, page, prefs }: ReadingSessionOptions) {
+  let reading = false
+  let paused = false
+  /** The engine of the current reading; it alone knows where the voice is. */
+  let player: Player | null = null
+  /** Paragraph shown by the pill, the base for previous/next. */
+  let blockIndex = 0
+  let pageSource: LivePage | null = null
+  let startGeneration = 0
+  let readingUrl = ""
+  /** Réinjecté à chaque `playing` : un état de chargement y écrit la
+   *  progression du téléchargement par-dessus, il faut de quoi le restaurer. */
+  let readingTitle = ""
+  let readingTotal = 0
+  /** What the outro needs once the article ends: same engine, the reading's language. */
+  let readingSelection: PlayerSelection | null = null
+  let readingOutro = false
+  /** The page's declared language and text, for the outro's language once the article ends. */
+  let readingPayload: ReadPagePayload | null = null
+  /** The current player speaks the outro, not a paragraph of the page. */
+  let outro = false
+  /** `startGeneration` when the outro began; a later start supersedes it. */
+  let outroGeneration = 0
+  let readingTelemetryStarted = false
+  let readingTelemetryFailed = false
+
+  /** What the engine reports drives the pill, whichever engine it is. */
+  function onPlayerEvent(engine: ReaderEngine, event: PlayerEvent) {
+    // `toggle` already shows pause and resume; a `playing` here would close
+    // the support toast, and the outro has no paragraph to follow.
+    if (outro) {
+      // A start awaiting its engine owns the pill now: folding would cancel it.
+      if ((event.phase === "ended" || event.phase === "error") && startGeneration === outroGeneration) fold()
+      return
+    }
+    if (event.phase === "loading") {
+      // Keep preparation and download feedback inside the compact pill.
+      const label = event.reason ? browser.i18n.getMessage(LOADING_REASON_KEY[event.reason]) : undefined
+      view.setState(
+        "loading",
+        readingTitle,
+        true,
+        label ? { label, percent: event.progress, reason: event.reason } : undefined
+      )
+    } else if (event.phase === "playing") {
+      trackReadingStarted(engine)
+      paused = false
+      blockIndex = event.block
+      void persistProgress(event.block)
+      follower.show(event.block)
+      view.setPosition(event.block, event.total)
+      view.setState("playing", readingTitle)
+    } else if (event.phase === "paused") {
+      paused = true
+      view.setState("paused")
+    } else if (event.phase === "ended") {
+      trackReadingCompleted(engine)
+      void clearReadingProgress(readingUrl)
+      // Thanking for a reading nobody heard would be absurd.
+      if (readingOutro && readingTelemetryStarted) {
+        // Set now, not after the counter round trip: ⏸ or ◀ in between must
+        // not seek the finished article or carry a pause into the outro.
+        outro = true
+        void speakOutro()
+      } else fold()
+    } else if (event.phase === "error") {
+      trackReadingFailed(engine, event.reason)
+      if (event.recoverable) return
+      if (event.message) {
+        void browser.runtime.sendMessage({ type: NOTIFY, message: event.message } satisfies NotifyMessage)
+      }
+      fold()
+      view.setState("error", readingTitle)
+    }
+  }
+
+  /** ▶ lance la lecture, ⏸/▶ la met en pause et la reprend. */
+  async function toggle() {
+    if (reading) {
+      paused = !paused
+      if (paused) player?.pause()
+      else player?.resume()
+      // Retour immédiat : l'événement que Supertonic renvoie ensuite ne fait
+      // que confirmer le même état, sans le faire attendre.
+      view.setState(paused ? "paused" : "playing")
+      return
+    }
+
+    view.setState("loading")
+    // Un rejet (background endormi, onglet non injectable) vaut un échec :
+    // sans ça la pastille resterait bloquée sur son état d'attente.
+    const started = await browser.runtime
+      .sendMessage({ type: READ_PAGE })
+      .catch(() => false)
+    // La réponse peut arriver après START_READING : ne redescendre à l'état
+    // replié que si rien n'a démarré.
+    if (!started && !reading) view.setState("error", document.title)
+  }
+
+  /** Précédent vise toujours le paragraphe précédent ; suivant, le suivant. */
+  function navigate(delta: -1 | 1) {
+    if (!reading || outro) return
+    const target = moveReadingBlock(blockIndex, readingTotal, delta)
+    if (target != null) seekTo(target)
+  }
+
+  function seekTo(block: number) {
+    if (block < 0 || block >= readingTotal) return
+    blockIndex = block
+    follower.show(block)
+    view.setPosition(block, readingTotal)
+    void persistProgress(block)
+    player?.seek(block)
+  }
+
+  /** Choisit le moteur, puis démarre — le reste ne se recroise plus. */
+  async function start(payload: ReadPagePayload, fromHere = false) {
+    const mine = ++startGeneration
+    const paragraphs = splitBlocks(payload.text)
+    const total = paragraphs.length
+    if (!total) return fold()
+    const selection = await selectPlayer(prefs(), payload.lang, payload.text)
+    if (mine !== startGeneration) return
+    let personalRules: PronunciationRule[] = []
+    try {
+      if (ENGINE_CAPABILITIES[selection.engine].pronunciation) personalRules = await loadPronunciationRules()
+    } catch {
+      if (mine === startGeneration) view.setState("error", payload.title ?? "")
+      return
+    }
+    if (mine !== startGeneration) return
+    const url = page.url()
+    const title = payload.title ?? ""
+    const targetBlock = fromHere ? page.contextBlock(paragraphs) : -1
+    const saved = fromHere ? null : await loadReadingProgress(url, total)
+    if (mine !== startGeneration) return
+    if (saved) {
+      // `confirm` blocks the page: opened mid-transition, it freezes the
+      // pill half-resized (width animates on the main thread).
+      await view.settled()
+      if (mine !== startGeneration) return
+    }
+    const resume = !!saved && page.confirmResume()
+    const startBlock = targetBlock >= 0 ? targetBlock : resume ? saved.block : 0
+    if (saved && !resume) await clearReadingProgress(url)
+    if (mine !== startGeneration) return
+    readingUrl = url
+    readingTitle = title
+    readingSelection = selection
+    readingOutro = payload.outro === true
+    readingPayload = payload
+    outro = false
+    readingTotal = total
+    pageSource?.stop()
+    const source = payload.livePage ? page.liveSource(paragraphs) : null
+    pageSource = source
+
+    const next: Player = createPlayer(selection, {
+      // The players speak the title as an intro; an empty one is silent.
+      paragraphs, text: payload.text, title: payload.announceTitle === false ? "" : title,
+      startBlock, personalRules, source, prefs,
+      emit: (event: PlayerEvent) => {
+        if (player === next) onPlayerEvent(next.engine, event)
+      },
+    }, token)
+    // Same engine: the new reading replaces the old queue by itself. A
+    // stop sent to the TTS host could even overtake the new start.
+    if (player?.engine !== next.engine) player?.stop()
+    else player?.dispose()
+    player = next
+
+    follower.begin(paragraphs, source?.anchors)
+    blockIndex = startBlock
+    reading = true
+    paused = false
+    markTab(true)
+    readingTelemetryStarted = false
+    readingTelemetryFailed = false
+    // Prendre la parole : les pastilles des autres onglets s'en déduisent.
+    void browser.storage.local.set({ [READER_TOKEN]: token })
+    // La pastille a pu être masquée : une lecture lancée depuis le menu
+    // contextuel doit quand même offrir de quoi l'arrêter.
+    view.attach()
+    // Local engines report their own loading; system voices start at once.
+    if (next.engine === "system") view.setState("playing", title)
+    view.setPosition(startBlock, readingTotal)
+    void persistProgress(startBlock)
+    next.start()
+  }
+
+  /**
+   * Compte une écoute au premier son confirmé, une seule fois par demande.
+   * Les réglages, paragraphes et reprises réutilisent ces gardes ; les
+   * générations des moteurs écartent leurs callbacks devenus obsolètes.
+   */
+  function trackReadingStarted(engine: ReaderEngine) {
+    if (readingTelemetryStarted) return
+    readingTelemetryStarted = true
+    track({ name: "read_started", properties: { engine } })
+  }
+
+  /** Une catégorie fermée par lecture suffit à repérer les écoutes en échec. */
+  function trackReadingFailed(engine: ReaderEngine, reason: ReadFailure) {
+    if (readingTelemetryFailed) return
+    readingTelemetryFailed = true
+    track({ name: "read_failed", properties: { engine, reason } })
+  }
+
+  /** Arrivée en fin de file après un son, y compris après navigation ou erreurs. */
+  function trackReadingCompleted(engine: ReaderEngine) {
+    if (!readingTelemetryStarted) return
+    track({ name: "read_completed", properties: { engine, had_errors: readingTelemetryFailed } })
+  }
+
+  /** ⏹ : couper le moteur, puis se replier. */
+  function stop() {
+    player?.stop()
+    fold()
+  }
+
+  /**
+   * Thanks the listener once the article ends, with the article's own engine
+   * and voice, through a second one-paragraph player. Every
+   * `SUPPORT_CADENCE` articles the pill also shows its support link. A stop
+   * or a new reading during the counter round trip cancels it all.
+   */
+  async function speakOutro() {
+    const mine = startGeneration
+    const count = await nextCompletedCount()
+    // A stop, a new start or leaving the page came first: no outro mode left behind.
+    if (mine !== startGeneration || !readingSelection || !readingPayload) {
+      if (mine !== startGeneration) outro = false
+      return
+    }
+    outroGeneration = mine
+    if (paused) {
+      paused = false
+      view.setState("playing", readingTitle)
+    }
+    const { speech, support } = buildReadingOutro(resolveDocLang(readingPayload.lang, readingPayload.text), count)
+    if (support && view.showSupport()) track({ name: "support_prompt_shown" })
+    if (!speech) return fold()
+    follower.end()
+    pageSource?.stop()
+    pageSource = null
+    const next: Player = createPlayer(readingSelection, {
+      paragraphs: [speech], text: speech, title: "", startBlock: 0, personalRules: [], source: null, prefs,
+      emit: (event: PlayerEvent) => {
+        if (player === next) onPlayerEvent(next.engine, event)
+      },
+    }, token)
+    player?.dispose()
+    player = next
+    next.start()
+  }
+
+  /** Revenir au repos sans toucher au moteur de synthèse. */
+  function fold() {
+    outro = false
+    startGeneration++
+    pageSource?.stop()
+    pageSource = null
+    // La file coupée ne nous appartient plus : un `end` en retard ne doit pas
+    // replier une lecture relancée entre-temps.
+    player?.dispose()
+    player = null
+    reading = false
+    paused = false
+    markTab(false)
+    follower.end()
+    view.setState("idle")
+  }
+
+  function persistProgress(block: number) {
+    if (!readingUrl || readingTotal <= 0 || block < 0 || block >= readingTotal) return
+    return saveReadingProgress({
+      url: readingUrl,
+      title: readingTitle,
+      block,
+      total: readingTotal,
+      updatedAt: Date.now(),
+    })
+  }
+
+  return {
+    /** A reading is under way (playing, paused or loading its voice). */
+    get reading() {
+      return reading
+    },
+    /** Starts reading `payload`; `fromHere` begins at the right-clicked paragraph. */
+    start,
+    /** ▶/⏸: starts the page (asking the background to extract it), pauses or resumes. */
+    toggle,
+    /** ⏹: silences the engine and folds the pill. */
+    stop,
+    /** Previous/next paragraph. */
+    navigate,
+    /** Abandons a start still on its way (the pill was dismissed meanwhile). */
+    cancel() {
+      startGeneration++
+    },
+    /** Settings changed (any tab); `previous` holds the values before. */
+    prefsChanged(previous: ReaderPreferences) {
+      // Neither engine can take over the other's queue: without this, Play
+      // resumed the old engine and the new choice was silently ignored. The
+      // saved progress lets the next start offer to pick up where it stopped.
+      if (prefs().engine !== previous.engine) return stop()
+      if (reading) player?.update(previous)
+    },
+    /** Un autre onglet a pris la parole : se replier, sans toucher au moteur. */
+    storageChanged(changes: Record<string, { newValue?: unknown }>) {
+      if (!(READER_TOKEN in changes) || changes[READER_TOKEN]?.newValue === token) return
+      fold()
+    },
+    // La synthèse survit au déchargement de la page : sans ça la lecture
+    // continue après un rechargement, hors de portée de la nouvelle pastille.
+    // Pour Supertonic, `tabs.onRemoved` ne couvre que la fermeture de
+    // l'onglet — un rechargement le laisse ouvert, donc sans ce signal
+    // l'audio continuerait indéfiniment, sans plus aucune pastille pour
+    // l'arrêter : le même risque que l'onglet fermé, côté rechargement.
+    /** `pagehide`: stops the engine, which would otherwise outlive the page. */
+    pageHidden() {
+      startGeneration++
+      pageSource?.stop()
+      if (!reading) return
+      player?.stop()
+      // The page can come back from bfcache with this same document.title frozen:
+      // without this, navigating back would resurrect the mark on a page
+      // that isn't reading anymore.
+      markTab(false)
+    },
+    /** Extension reloaded or updated: nothing can reach the extension anymore. */
+    invalidate() {
+      startGeneration++
+      pageSource?.stop()
+      // No message can leave an invalidated context: only the page's own
+      // speech can still be silenced.
+      player?.dispose()
+      cancelSpeech()
+      follower.end()
+      // `fold()` isn't called, so the title would stay marked without this.
+      markTab(false)
+    },
+  }
+}
+
+/** Maps the cause emitted by the TTS hosts to its i18n key (see tts-messages.ts). */
+const LOADING_REASON_KEY: Record<TtsLoadingReason, MessageKey> = {
+  "downloading-model": "ttsDownloadingModel",
+  "loading-engine": "ttsLoadingEngine",
+  "loading-voice": "ttsLoadingVoice",
+  "preparing-next": "ttsPreparingNext",
+}

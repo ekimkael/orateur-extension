@@ -2,19 +2,41 @@ name: CI
 
 on:
   pull_request:
+  # Not main: the merge into main runs release.yml, which repeats these checks
+  # on the same commit before submitting to the stores.
   push:
-    branches: [main, develop]
+    branches: [develop]
+
+# No job writes to the repository: keep the token read-only whatever the
+# repository default is.
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Only PRs cancel their older runs; a run on develop always finishes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
+  guard:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: bash scripts/check-git-flow.sh
+
+  packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -23,22 +45,98 @@ jobs:
       - run: npm ci
       - run: npm run compile
       - run: npm test
+      - run: npm run validate:changelog
 
       # Les mêmes paquets que ceux d'une release, pour que ce qui est testé en
       # staging soit exactement ce qui partira aux stores.
       - run: npm run zip
       - run: npm run zip:firefox
+      - run: npm run test:packages
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: packages-${{ github.sha }}
+          path: .output/test-results/packages.*
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: orateur-${{ github.sha }}
-          path: .output/*.zip
+          path: |
+            .output/*.zip
+            .output/test-results/packages.*
           # `.output` est un dossier caché sous Linux, et le glob d'upload-artifact
           # les ignore par défaut : sans ça le job passe au vert en n'ayant rien
           # téléversé, ce qui est le seul échec que cette CI ne doit pas se
           # permettre — les artefacts *sont* le livrable de staging.
           include-hidden-files: true
           if-no-files-found: error
-          # 3 zips de ~6 Mo par run : la rétention de 90 jours par défaut
+          # Main extension archives: the default 90-day retention
           # remplirait le quota du dépôt pour rien.
           retention-days: 7
+
+  browser-tests:
+    needs: packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chrome, firefox]
+    env:
+      ORATEUR_TEST_BROWSER: ${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: orateur-${{ github.sha }}
+          path: .output
+      # Le runner crée le cache du projet ; root n'installe que les dépendances système.
+      - run: npx puppeteer browsers install "$ORATEUR_TEST_BROWSER"
+      - if: matrix.browser == 'chrome'
+        run: sudo env "PATH=$PATH" "PUPPETEER_CACHE_DIR=$PWD/.cache/puppeteer" npx puppeteer browsers install chrome --install-deps
+      - name: Configure Chrome Linux sandbox
+        if: matrix.browser == 'chrome'
+        run: |
+          orateur_chrome_bin="$(node --input-type=module -e "import puppeteer from 'puppeteer'; process.stdout.write(await puppeteer.executablePath())")"
+          test -x "$orateur_chrome_bin"
+          sudo tee /etc/apparmor.d/orateur-chrome-testing > /dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile orateur-chrome-testing "$orateur_chrome_bin" flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/orateur-chrome-testing
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: tests-${{ matrix.browser }}-${{ github.sha }}
+          path: .output/test-results/
+          include-hidden-files: true
+          retention-days: 7
+
+  build:
+    if: always()
+    needs: [packages, browser-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require the packages and both browser suites
+        env:
+          PACKAGES: ${{ needs.packages.result }}
+          BROWSER_TESTS: ${{ needs.browser-tests.result }}
+        run: |
+          test "$PACKAGES" = success
+          test "$BROWSER_TESTS" = success

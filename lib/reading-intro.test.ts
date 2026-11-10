@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { buildReadingIntro } from "./reading-intro.ts"
+import { buildReadingIntro, withStop } from "./reading-intro.ts"
 
 test("annonce le titre dans la langue de l'article", () => {
   assert.equal(buildReadingIntro("fr", "Le titre"), "Au programme : Le titre.")
@@ -21,4 +21,10 @@ test("retombe sur le français : code long, langue inconnue ou absente", () => {
 
 test("pas de titre, pas d'annonce", () => {
   assert.equal(buildReadingIntro("fr", "   "), "")
+})
+
+test("withStop remplace une virgule ou un point-virgule final par le point", () => {
+  assert.equal(withStop("Cher client,"), "Cher client.")
+  assert.equal(withStop("Bonjour à tous ;"), "Bonjour à tous.")
+  assert.equal(withStop("Déjà fini."), "Déjà fini.")
 })

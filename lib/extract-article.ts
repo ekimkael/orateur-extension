@@ -2,11 +2,15 @@ import { isProbablyReaderable, Readability } from "@mozilla/readability"
 // Extension explicite : `node --test` résout les modules sans elle, contrairement
 // à Vite. Même raison que l'import de `pronunciation/index.ts` dans le lecteur.
 import { withStop } from "./reading-intro.ts"
+import { speakTable } from "./speak-table.ts"
+import { countWords, hostnameOf, normalize, remove } from "./extract/dom.ts"
+import { siteCleanup } from "./extract/sites.ts"
 
 /** Aligné sur mobile/lib/article-import.ts pour que les durées concordent. */
-const WORDS_PER_MINUTE = 200
+export const WORDS_PER_MINUTE = 200
 
-const NOT_AN_ARTICLE = "Cette page ne contient pas d'article lisible."
+/** The error every extractor throws for a page with nothing to read. */
+export const NOT_AN_ARTICLE = "Cette page ne contient pas d'article lisible."
 
 /**
  * Éléments qui ne portent jamais de prose : médias interactifs, formulaires,
@@ -80,28 +84,28 @@ const TEXT_BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,pre,div,sectio
 const MIN_FALLBACK_LENGTH = 400
 
 /**
- * Ce qui est dit à la place d'un bloc de code.
+ * Said instead of a code block.
  *
- * Lire un extrait à voix haute, c'est énoncer sa ponctuation, son indentation
- * et ses identifiants : le web n'en dit rien (`sequence-builder.ts`,
- * `case "code": return []`) et mobile ne le collecte pas. Le silence complet
- * laisse un tutoriel amputé sans le dire, d'où l'annonce.
+ * Reading code aloud means speaking its punctuation, indentation and
+ * identifiers: the web app says nothing (`sequence-builder.ts`,
+ * `case "code": return []`) and mobile does not collect it. Full silence would
+ * cut a tutorial without saying so, hence the notice.
  *
- * Aucune position annoncée : le suivi de lecture retrouve les blocs dans la
- * page par leur texte (lib/read-anchor.ts), et celui-ci n'est pas celui du
- * `<pre>` — le surlignage reste donc sur le paragraphe précédent, et
- * « ci-dessous » ne désignerait rien de sûr.
+ * "Below" holds because the notice is only spoken over the page: the reading
+ * follower cannot find this text in the `<pre>` (lib/read-anchor.ts), so the
+ * previous paragraph stays highlighted, right above the code. The Orateur
+ * handoff sends Readability's HTML (`content`), never this spoken text.
  *
- * Même convention que `reading-intro` : code sur deux lettres, français par
- * défaut — le français est la valeur de repli, pas une entrée de la table.
+ * Same convention as `reading-intro`: two-letter language code, French by
+ * default (French is the fallback, not an entry of the table).
  */
-const CODE_NOTICE = "Extrait de code."
+const CODE_NOTICE = "Vous pouvez avoir un aperçu en regardant le code ci-dessous."
 const CODE_NOTICE_BY_LANGUAGE: Record<string, string> = {
-  en: "Code snippet.",
-  es: "Fragmento de código.",
-  de: "Codeausschnitt.",
-  it: "Frammento di codice.",
-  pt: "Excerto de código.",
+  en: "You can get an overview by looking at the code below.",
+  es: "Puede hacerse una idea mirando el código de abajo.",
+  de: "Einen Überblick gibt Ihnen der Code unten.",
+  it: "Può farsi un'idea guardando il codice qui sotto.",
+  pt: "Pode ter uma ideia olhando para o código abaixo.",
 }
 
 /**
@@ -131,6 +135,14 @@ export interface ExtractedArticle extends ReadabilityMetadata {
   textContent: string
   url: string
   readingTimeMinutes: number
+  /** Gmail clipped the message: only its beginning is in `textContent`. */
+  truncated?: boolean
+  /**
+   * `false` when the title must not be spoken before the text (an X post:
+   * its "title" is its own first line). It still labels the pill and the
+   * saved item.
+   */
+  announceTitle?: false
 }
 
 /**
@@ -147,6 +159,7 @@ export function extractArticle(
   url = doc.location?.href ?? ""
 ): ExtractedArticle {
   const clone = doc.cloneNode(true) as Document
+  const completeBody = prepareEditorialContent(clone, url, doc)?.cloneNode(true) as Element | undefined
   remove(clone, INERT_SELECTORS)
   removeNoise(clone)
   desarmHeadings(clone)
@@ -164,12 +177,25 @@ export function extractArticle(
     charThreshold: 120,
   }).parse()
 
-  const root = parsed?.content
-  if (!root) throw new Error(NOT_AN_ARTICLE)
+  const root = completeBody ?? parsed?.content
+  if (!root || !parsed) throw new Error(NOT_AN_ARTICLE)
 
   const lang = parsed.lang || doc.documentElement.lang || null
 
   clean(root)
+  if (completeBody) {
+    // Readability normally resolves these on its selected fragment. Curated
+    // bodies must keep source links valid when imported into another page too.
+    for (const link of root.querySelectorAll("a[href]")) {
+      try {
+        const target = new URL(link.getAttribute("href")!, doc.baseURI || url)
+        if (/^(https?|mailto|tel|sms):$/.test(target.protocol)) link.setAttribute("href", target.href)
+        else link.removeAttribute("href")
+      } catch {
+        link.removeAttribute("href")
+      }
+    }
+  }
   const textContent = toSpeakableText(root, lang ?? "")
   if (!textContent) throw new Error(NOT_AN_ARTICLE)
 
@@ -203,22 +229,40 @@ export function extractArticle(
  */
 export function visibleText(doc: Document): { text: string; lang: string | null } {
   const clone = doc.cloneNode(true) as Document
+  const completeBody = prepareEditorialContent(clone, doc.location?.href ?? "", doc)
   remove(clone, INERT_SELECTORS)
   removeNoise(clone)
   desarmHeadings(clone)
 
-  const root = clone.body
+  const root = completeBody ?? clone.body
   const lang = doc.documentElement.lang || null
   if (!root) return { text: "", lang }
+  if (completeBody) clean(root)
 
   const text = toSpeakableText(root, lang ?? "")
   return { text: text.length >= MIN_FALLBACK_LENGTH ? text : "", lang }
 }
 
-function remove(scope: Document | Element, selectors: string) {
-  // querySelectorAll renvoie une liste statique : supprimer pendant l'itération
-  // est sûr, et retirer un parent rend `.remove()` inopérant sur ses enfants.
-  for (const node of scope.querySelectorAll(selectors)) node.remove()
+/** CMS structures verified on live articles; only the copy is changed. */
+function prepareEditorialContent(doc: Document, url: string, original: Document): Element | null {
+  // Full-page access errors contain prose that Readability or the visible-text
+  // fallback would otherwise read as an article.
+  const cloudfrontError = doc.title === "ERROR: The request could not be satisfied" &&
+    doc.querySelector("body > pre")?.textContent?.startsWith("Generated by cloudfront")
+  const bloombergChallenge = doc.title === "Bloomberg - Are you a robot?" && doc.querySelector("#px-captcha")
+  if (doc.querySelector("#cf-error-details,#challenge-error-text") || cloudfrontError || bloombergChallenge) {
+    doc.body?.replaceChildren()
+    return null
+  }
+  const host = hostnameOf(url).replace(/^www\./, "")
+  const { lead = null, body = null, caption = null, completeBody = null } = siteCleanup(host)?.(doc, original, host) ?? {}
+
+  // These CMSs place the visible introduction outside the scored article.
+  if (caption && body && !body.contains(caption)) body.prepend(caption)
+  if (lead && body && !lead.contains(body) && !body.contains(lead)) body.prepend(lead)
+  // These educational pages are curated bodies of sections and references.
+  // Keep their complete corpus; Readability still supplies the metadata.
+  return completeBody
 }
 
 /**
@@ -234,7 +278,8 @@ function removeNoise(scope: Document | Element) {
   }
 }
 
-function clean(root: Element) {
+/** Drops inert and noisy elements, presentation attributes and empty blocks from an extracted root. */
+export function clean(root: Element) {
   remove(root, INERT_SELECTORS)
   removeNoise(root)
 
@@ -260,7 +305,7 @@ function clean(root: Element) {
  * `textContent` seul collerait la fin d'un titre au début du paragraphe suivant.
  * Les espaces internes sont normalisés pour éviter les coupures artificielles.
  */
-function toSpeakableText(root: Element, lang: string) {
+export function toSpeakableText(root: Element, lang: string, { pruneResidue = true } = {}) {
   const notice = CODE_NOTICE_BY_LANGUAGE[lang.slice(0, 2)] ?? CODE_NOTICE
   const collected: Array<{ el: Element; text: string }> = []
   let buffer = ""
@@ -293,6 +338,13 @@ function toSpeakableText(root: Element, lang: string) {
       if (el.textContent?.trim()) collected.push({ el, text: notice })
       return
     }
+    // Layout tables come back null and keep the cell-by-cell walk below.
+    const table = el.tagName === "TABLE" ? speakTable(el as HTMLTableElement, lang) : null
+    if (table) {
+      flush()
+      for (const text of table) collected.push({ el, text })
+      return
+    }
     for (const child of el.childNodes) collect(child, block ? el : parent)
     if (block) flush()
   }
@@ -305,16 +357,20 @@ function toSpeakableText(root: Element, lang: string) {
       ({ text }) =>
         text && !(text.length <= MAX_READING_TIME_LENGTH && READING_TIME.test(text))
     )
-    // Code, sortie, code : le motif est la norme dans un tutoriel, et sans cette
-    // fusion la voix répète l'annonce trois fois de suite. Deux blocs séparés
-    // par un paragraphe restent annoncés deux fois.
-    .filter(({ el }, index, all) => el.tagName !== "PRE" || all[index - 1]?.el.tagName !== "PRE")
+    // Code, output, code is the norm in a tutorial: without this merge the voice
+    // says the notice three times in a row. Same for back-to-back large tables.
+    // Rows of a table read aloud differ from each other and are all kept; two
+    // notices split by a paragraph are both said.
+    .filter(({ el, text }, index, all) => {
+      const previous = all[index - 1]
+      return !/^(PRE|TABLE)$/.test(el.tagName) || previous?.el.tagName !== el.tagName || previous.text !== text
+    })
 
   // Ponctuation en dernier : titres, items de liste et légendes ne finissent
   // jamais par un point dans le HTML, et la voix enchaîne alors sur le bloc
   // suivant comme si la phrase continuait. Après le rognage, lui, qui reconnaît
   // les étiquettes de fin d'article *à* leur absence de ponctuation.
-  const text = pruneTrailingResidue(blocks)
+  const text = (pruneResidue ? pruneTrailingResidue(blocks) : blocks)
     .map(({ text }) => withStop(text))
     .join("\n\n")
 
@@ -340,14 +396,6 @@ function pruneTrailingResidue(blocks: Array<{ el: Element; text: string }>) {
   return blocks.slice(0, blocks.map(isResidue).lastIndexOf(false) + 1)
 }
 
-function normalize(text: string) {
-  return text.replace(/\s+/g, " ").trim()
-}
-
-function countWords(text: string) {
-  return text.split(/\s+/).filter(Boolean).length
-}
-
 /**
  * Retire le nom du site accolé au titre : « Le titre | Mon Journal ».
  *
@@ -365,10 +413,3 @@ function stripSiteSuffix(title: string) {
   return (parts.length > 1 ? parts.slice(0, -1).join(" - ") : title).trim() || title
 }
 
-function hostnameOf(url: string) {
-  try {
-    return new URL(url).hostname
-  } catch {
-    return ""
-  }
-}

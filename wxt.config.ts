@@ -131,14 +131,11 @@ export default defineConfig({
           id: 'orateur@ekimkael',
           // Obligatoire pour toute nouvelle extension Firefox depuis nov. 2025.
           //
-          // `required: ['none']` : rien n'est collecté par défaut, l'extension
-          // fonctionne entièrement sans. `optional: ['technicalAndInteraction']`
-          // (jalon 1c) déclare la seule catégorie que la télémétrie opt-in peut
-          // toucher — enum vérifiée contre la doc AMO (Extension Workshop,
-          // « Data collection permissions »). Ce champ ne fait QUE déclarer ce
-          // qui PEUT arriver si l'utilisateur y consent : le vrai interrupteur
-          // est le drapeau `orateur:telemetry` dans lib/telemetry.ts, lu avant
-          // le moindre fetch(), sur les trois navigateurs.
+          // La collecte technique reste facultative pour Firefox, même si le
+          // réglage de l'extension est activé par défaut. lib/telemetry.ts
+          // vérifie l'autorisation native technicalAndInteraction ET le drapeau
+          // orateur:telemetry avant chaque envoi. Aucun envoi sans autorisation
+          // vérifiable ; une désactivation enregistrée reste respectée.
           data_collection_permissions: { required: ['none'], optional: ['technicalAndInteraction'] },
         },
       },

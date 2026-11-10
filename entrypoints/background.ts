@@ -7,7 +7,7 @@ import {
   type NotifyMessage,
   type ReadPagePayload,
   type StartReadingMessage,
-} from "./reader.content"
+} from "../lib/reader-messages.ts"
 import {
   GET_SELECTION,
   SELECTION_ACTION,
@@ -33,20 +33,17 @@ import {
   MODEL_PROGRESS,
   MODEL_STATE_QUERY,
   TTS_CLOSE,
-  TTS_CONTROL,
-  TTS_EVENT,
-  TTS_SEEK,
-  TTS_SET_SPEED,
-  TTS_SPEAK,
+  TTS_OPEN,
   TTS_TAB_REMOVED,
   TTS_TOKEN_CHANGED,
+  type ModelCacheQueryMessage,
+  type ModelDownloadCancelMessage,
+  type ModelDownloadRequestMessage,
   type ModelProgressState,
-  type TtsControlMessage,
-  type TtsEventMessage,
-  type TtsSeekMessage,
-  type TtsSetSpeedMessage,
-  type TtsSpeakMessage,
+  type ModelStateQueryMessage,
+  type TtsCloseMessage,
 } from "../lib/tts-messages"
+import { createMessageRouter } from "../lib/background-router"
 import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessage } from "../lib/telemetry"
 // Importé sans condition, mais retiré du bundle Chrome par l'élimination de
 // code mort de Vite : tout usage est gardé par `import.meta.env.FIREFOX`, une
@@ -54,9 +51,15 @@ import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessag
 // (entrypoints/offscreen/main.ts) — jamais ici, où il alourdirait le service
 // worker pour rien.
 import { createTtsHost } from "../lib/tts-host"
+import { createPocketTtsHost } from "../lib/pocket-tts-host"
+import { createTtsServer } from "../lib/tts-port"
+import { isPocketVoice, toPocketLanguage } from "../lib/pocket/catalog"
+import { isPocketModelCached } from "../lib/pocket/model-cache"
+import { seedEngine } from "../lib/reader-prefs"
 // Même garde `import.meta.env.FIREFOX` : côté Chrome, c'est le document
 // offscreen qui appelle loadModelFiles(), jamais ce fichier.
 import { isModelCached, loadModelFiles } from "../lib/supertonic/model-cache"
+import type { MessageKey } from "../lib/i18n"
 
 const MENU_ID = "save-to-orateur"
 const SELECTION_MENU_ID = "read-selection-with-orateur"
@@ -65,32 +68,41 @@ const READ_PAGE_MENU_ID = "read-page-with-orateur"
 const READ_FROM_HERE_MENU_ID = "read-from-here-with-orateur"
 const EXTRACT_SCRIPT = "/content-scripts/extract.js"
 
+/** Every runtime message the background answers or acts on. */
+type BackgroundMessage =
+  | SelectionActionMessage
+  | { type: typeof READ_PAGE }
+  | NotifyMessage
+  | TelemetryTrackMessage
+  | { type: typeof TTS_OPEN }
+  | ModelCacheQueryMessage
+  | ModelDownloadRequestMessage
+  | ModelDownloadCancelMessage
+  | ModelStateQueryMessage
+  | TtsCloseMessage
+
 // Clés, pas les messages résolus : WXT importe ce module dans un faux
 // `browser` (sans `i18n`) pour en lire la config au build — un `const` résolu
 // à l'import planterait cette étape. `browser.i18n.getMessage` n'est donc
 // appelé que depuis l'intérieur d'une fonction, au premier vrai déclenchement
 // du service worker.
-//
-// Dérivé du type de `getMessage` plutôt qu'une union recopiée à la main :
-// TypeScript prend la dernière surcharge d'une fonction surchargée, qui est
-// justement celle listant toutes les clés de public/_locales/*/messages.json.
-type MessageKey = Parameters<typeof browser.i18n.getMessage>[0]
 const SELECTION_ERROR_KEYS: Record<SelectionError, MessageKey> = {
   empty: "errorSelectionEmpty",
   "too-short": "errorSelectionTooShort",
 }
 
 /**
- * Relais Supertonic entre les pastilles et l'hôte.
+ * Ouverture de l'hôte Supertonic, auquel chaque lecture se connecte ensuite
+ * directement par port (voir lib/tts-port.ts).
  *
  * Chrome MV3 : l'hôte vit dans un document offscreen — seul contexte capable
  * de DOM et `<audio>` hors d'un onglet, mais sans `tabs` ni `storage`
- * (vérifié en phase 0). Le service worker fait le pont dans les deux sens,
- * et reste lui-même sans état : `chrome.offscreen.hasDocument()` est sa
- * seule mémoire, pour survivre à son propre redémarrage en pleine lecture.
+ * (vérifié en phase 0). Le service worker le crée, puis ne lui relaie que le
+ * jeton et la fermeture d'onglets, et reste lui-même sans état :
+ * `chrome.offscreen.hasDocument()` est sa seule mémoire.
  *
  * Firefox MV2 : pas de document offscreen. La page de fond persistante a
- * déjà tout ce qu'il faut — c'est elle l'hôte, directement, sans relais.
+ * déjà tout ce qu'il faut — c'est elle l'hôte, directement.
  */
 
 /** Faux si le document n'a pas pu être créé — l'appelant doit alors renoncer plutôt que relayer dans le vide. */
@@ -104,83 +116,24 @@ async function ensureOffscreen(): Promise<boolean> {
     .createDocument({
       url: "offscreen.html",
       reasons: ["WORKERS"],
-      justification: "Synthèse et lecture Supertonic hors d'un onglet.",
+      justification: "Local speech synthesis and playback outside the reading tab.",
     })
     .catch((e: unknown) => console.error("[orateur] offscreen KO", e))
   return api.hasDocument()
 }
 
 /** L'hôte Firefox — une seule instance, gardée en mémoire par la page de fond persistante. */
-let firefoxHost: ReturnType<typeof createTtsHost> | null = null
-let firefoxTabId: number | null = null
-let firefoxToken: string | null = null
-
-function ensureFirefoxHost() {
-  if (firefoxHost) return firefoxHost
-  firefoxHost = createTtsHost((state) => {
-    if (firefoxTabId == null) return
-    const event: TtsEventMessage = { type: TTS_EVENT, tabId: firefoxTabId, state }
-    void browser.tabs.sendMessage(firefoxTabId, event).catch(() => {})
-    if (state.phase === "ended" || state.phase === "error") {
-      firefoxTabId = null
-      firefoxToken = null
-    }
-  })
-  return firefoxHost
-}
-
-/** TTS_SPEAK / TTS_CONTROL / TTS_SET_SPEED envoyés par une pastille — toujours reçus ici avec `sender.tab`. */
-async function handleTtsFromPill(
-  message: Partial<TtsSpeakMessage> | Partial<TtsControlMessage> | Partial<TtsSetSpeedMessage> | Partial<TtsSeekMessage>,
-  tabId: number | undefined
-) {
-  if (import.meta.env.FIREFOX) {
-    const host = ensureFirefoxHost()
-    if (message.type === TTS_SPEAK) {
-      if (tabId == null || !message.text || !message.lang || !message.voice) return
-      firefoxTabId = tabId
-      firefoxToken = message.token ?? null
-      host.speak({
-        text: message.text,
-        lang: message.lang,
-        voice: message.voice,
-        speed: message.speed ?? 1,
-        startBlock: message.startBlock,
-      })
-    } else if (message.type === TTS_CONTROL && message.action) {
-      host.control(message.action)
-    } else if (message.type === TTS_SET_SPEED && message.speed != null) {
-      host.setSpeed(message.speed)
-    } else if (message.type === TTS_SEEK && Number.isInteger(message.block) && message.block! >= 0 && typeof message.paused === "boolean") {
-      host.seek(message.block!, message.paused)
-    }
-    return
-  }
-
-  if (!(await ensureOffscreen())) {
-    // Sans document offscreen, aucun TTS_EVENT ne viendra jamais — sans ce
-    // relais direct, la pastille resterait sur "…" indéfiniment.
-    if (message.type === TTS_SPEAK && tabId != null) {
-      const event: TtsEventMessage = {
-        type: TTS_EVENT,
-        tabId,
-        state: { phase: "error", message: browser.i18n.getMessage("errorSupertonicStartFailed") },
-      }
-      void browser.tabs.sendMessage(tabId, event).catch(() => {})
-    }
-    return
-  }
-  await browser.runtime.sendMessage({ ...message, tabId }).catch(() => {})
-}
+let firefoxServer: ReturnType<typeof createTtsServer> | null = null
+const ensureFirefoxServer = () => (firefoxServer ??= createTtsServer(createTtsHost, createPocketTtsHost))
 
 /**
  * Téléchargement explicite du modèle depuis la page d'options (jalon 1d).
  *
  * Chrome : ce fichier ne fait que créer le document offscreen puis lui
- * relayer START, exactement comme `handleTtsFromPill` — l'état du
+ * relayer START — l'état du
  * téléchargement (et la réponse à MODEL_STATE_QUERY) vit là-bas, pas ici,
  * un service worker MV3 pouvant être redémarré en plein téléchargement.
- * Firefox : ce fichier EST l'hôte, comme pour `ensureFirefoxHost` — l'état
+ * Firefox : ce fichier EST l'hôte, comme pour `ensureFirefoxServer` — l'état
  * vit dans les variables `firefoxModel*` ci-dessous, à la même durée de vie
  * que la page de fond persistante.
  */
@@ -279,8 +232,10 @@ export default defineBackground({
       contexts: ["page", "link"],
     })
 
+    if (details.reason === "install") void seedEngine("supertonic")
+    else if (details.reason === "update") void seedEngine("system")
+
     if (details.reason === "install") {
-      track({ name: "installed" })
       // Le seul endroit qui explique le consentement télémétrie avant de le
       // demander (voir entrypoints/options/App.tsx) — pas de mur nu.
       void browser.runtime.openOptionsPage()
@@ -311,116 +266,65 @@ export default defineBackground({
     else void save(tab, info.pageUrl)
   })
 
-  // La bulle flottante. Aucun contrôle d'origine à faire : sans
-  // `externally_connectable`, seules nos propres injections peuvent émettre ici.
-  browser.runtime.onMessage.addListener(
-    (message: SelectionActionMessage, sender) => {
-      if (message?.type !== SELECTION_ACTION) return
-      if (message.action === "read") void read(message, sender.tab?.id)
-      else if (message.action === "save") void saveSelection(message, sender.tab?.url)
-    }
-  )
-
-  // La pastille de lecture. Elle attend un booléen pour savoir si elle se
-  // déplie ou retombe au repos ; `return true` maintient le canal ouvert le
-  // temps de l'extraction — sans polyfill, Chrome ignore une promesse renvoyée.
-  browser.runtime.onMessage.addListener(
-    (message: { type?: string }, sender, sendResponse) => {
-      if (message?.type !== READ_PAGE) return
-      void readPageInPlace(sender.tab).then(sendResponse)
+  // No origin check needed: without `externally_connectable`, only this
+  // extension's own scripts and pages can send here.
+  browser.runtime.onMessage.addListener(createMessageRouter<BackgroundMessage>({
+    // The selection bubble.
+    [SELECTION_ACTION]: (message, sender) => {
+      if (message.action === "read") void read(message as SelectionActionMessage, sender.tab?.id)
+      else if (message.action === "save") void saveSelection(message as SelectionActionMessage, sender.tab?.url)
+    },
+    // The pill waits for a boolean: unfold, or fall back to idle.
+    [READ_PAGE]: (_message, sender) => readPageInPlace(sender.tab),
+    // A pill's notice (an unsupported language, say): the same badge as the
+    // extension's other warnings.
+    [NOTIFY]: (message) => {
+      if (message.message) void notify(message.message)
+    },
+    // The only place that actually fetches PostHog: see lib/telemetry.ts for
+    // why a content script cannot.
+    [TELEMETRY_TRACK]: (message) => {
+      if (message.event) void handleTelemetryTrack(message.event)
+    },
+    // A local reading is about to connect: its host must exist.
+    [TTS_OPEN]: () => {
+      if (!import.meta.env.FIREFOX) return ensureOffscreen()
+      ensureFirefoxServer()
       return true
-    }
-  )
-
-  // Incident signalé par une pastille (ex. langue non prise en charge par
-  // Supertonic) : même badge que les autres avertissements de l'extension.
-  browser.runtime.onMessage.addListener((message: Partial<NotifyMessage>) => {
-    if (message?.type !== NOTIFY || !message.message) return
-    void notify(message.message)
-  })
-
-  // Télémétrie (jalon 1c) : seul endroit qui fait vraiment le fetch() vers
-  // PostHog — voir l'en-tête de lib/telemetry.ts sur pourquoi ça ne peut pas
-  // partir d'un content script.
-  browser.runtime.onMessage.addListener((message: Partial<TelemetryTrackMessage>) => {
-    if (message?.type !== TELEMETRY_TRACK || !message.event) return
-    void handleTelemetryTrack(message.event)
-  })
-
-  // TTS_SPEAK / TTS_CONTROL depuis une pastille : toujours reçus ici en
-  // premier, `sender.tab` fiable (contrairement au document offscreen, qui
-  // reçoit la même diffusion en double — voir offscreen/main.ts).
-  browser.runtime.onMessage.addListener(
-    (
-      message: Partial<TtsSpeakMessage> | Partial<TtsControlMessage> | Partial<TtsSetSpeedMessage> | Partial<TtsSeekMessage>,
-      sender
-    ) => {
-      if (message?.type !== TTS_SPEAK && message?.type !== TTS_CONTROL && message?.type !== TTS_SET_SPEED && message?.type !== TTS_SEEK) return
-      void handleTtsFromPill(message, sender.tab?.id)
-    }
-  )
-
-  // Content scripts share the page's OPFS; only extension contexts can inspect this cache.
-  browser.runtime.onMessage.addListener(
-    (message: { type?: string }, _sender, sendResponse) => {
-      if (message?.type !== MODEL_CACHE_QUERY) return
-      void isModelCached().then(sendResponse)
-      return true
-    }
-  )
-
-  // Téléchargement explicite du modèle, depuis la page d'options.
-  browser.runtime.onMessage.addListener((message: { type?: string }) => {
-    if (message?.type !== MODEL_DOWNLOAD_REQUEST) return
-    void handleModelDownloadRequest()
-  })
-
-  // CANCEL/STATE_QUERY : sur Chrome, le document offscreen (s'il existe) les
-  // reçoit déjà directement, sans relais (voir l'en-tête de tts-messages.ts)
-  // — ce fichier ne répond ici que pour Firefox, où il EST l'hôte, ou pour
-  // Chrome quand aucun document n'existe encore (donc rien n'est en cours).
-  browser.runtime.onMessage.addListener((message: { type?: string }) => {
-    if (message?.type !== MODEL_DOWNLOAD_CANCEL || !import.meta.env.FIREFOX) return
-    firefoxModelAbort?.abort()
-  })
-  browser.runtime.onMessage.addListener(
-    (message: { type?: string }, _sender, sendResponse) => {
-      if (message?.type !== MODEL_STATE_QUERY) return
-      if (import.meta.env.FIREFOX) {
-        sendResponse(firefoxModelState)
-        return
-      }
-      void (async () => {
-        const api = (globalThis as any).chrome?.offscreen
-        // Le document offscreen répond lui-même à cette même question quand
-        // il existe (voir offscreen/main.ts) — deux sendResponse() sur le
-        // même message ne sont pas garantis de coexister proprement.
-        if (await api?.hasDocument()) return
-        sendResponse({ phase: "idle" })
-      })()
-      return true
-    }
-  )
-
-  // TTS_EVENT : dans l'autre sens, du document offscreen vers l'onglet
-  // propriétaire. N'existe que côté Chrome — la page de fond Firefox parle
-  // déjà directement à l'onglet dans `ensureFirefoxHost`.
-  if (!import.meta.env.FIREFOX) {
-    browser.runtime.onMessage.addListener((message: Partial<TtsEventMessage>) => {
-      if (message?.type !== TTS_EVENT || message.tabId == null) return
-      void browser.tabs.sendMessage(message.tabId, message).catch(() => {})
-    })
-
-    // Démontage : l'hôte demande sa propre fermeture après une inactivité
-    // prolongée (voir offscreen/main.ts). Rien d'équivalent sur Firefox — la
-    // page de fond persistante n'a pas de pendant à `closeDocument()`, et
-    // n'a pas besoin d'en avoir : c'est déjà elle qui reste en mémoire pour
-    // que `persistent: true` garde les sessions ONNX chaudes entre lectures.
-    browser.runtime.onMessage.addListener((message: { type?: string }) => {
-      if (message?.type !== TTS_CLOSE) return
-      void (globalThis as any).chrome?.offscreen?.closeDocument().catch(() => {})
-    })
-  }
+    },
+    // Content scripts share the page's OPFS; only extension contexts can inspect this cache.
+    [MODEL_CACHE_QUERY]: (message) => {
+      if (message.engine !== "pocket") return isModelCached().catch(() => false)
+      const lang = typeof message.lang === "string" ? toPocketLanguage(message.lang) : null
+      if ((message.lang !== undefined && !lang) ||
+        (message.voice !== undefined && !isPocketVoice(message.voice))) return false
+      return isPocketModelCached(lang ?? undefined, message.voice).catch(() => false)
+    },
+    // Explicit model download, from the options page.
+    [MODEL_DOWNLOAD_REQUEST]: () => {
+      void handleModelDownloadRequest()
+    },
+    // On Chrome the offscreen document, once it exists, receives CANCEL and
+    // STATE_QUERY itself (see lib/tts-messages.ts). The background answers only
+    // on Firefox, where it is the host, or on Chrome before any document
+    // exists, when nothing is downloading.
+    [MODEL_DOWNLOAD_CANCEL]: () => {
+      if (import.meta.env.FIREFOX) firefoxModelAbort?.abort()
+    },
+    [MODEL_STATE_QUERY]: () => {
+      if (import.meta.env.FIREFOX) return firefoxModelState
+      // Two answers to one message are not guaranteed to coexist: stay silent
+      // when the offscreen document can answer.
+      return (async () => (await (globalThis as any).chrome?.offscreen?.hasDocument()) ? undefined : { phase: "idle" })()
+    },
+    // Chrome only: the host asks for its own closing after a long idle time
+    // (see offscreen/main.ts). Firefox's persistent background page has no
+    // `closeDocument()` and needs none: it keeps the ONNX sessions warm.
+    [TTS_CLOSE]: () => {
+      if (!import.meta.env.FIREFOX) void (globalThis as any).chrome?.offscreen?.closeDocument().catch(() => {})
+    },
+  }))
+  if (import.meta.env.FIREFOX) browser.runtime.onConnect.addListener((port) => ensureFirefoxServer().connect(port))
 
   // L'audio orphelin : un autre onglet prend la parole (READER_TOKEN change)
   // pendant qu'un onglet différent lit avec Supertonic. Sans ce relais,
@@ -428,26 +332,14 @@ export default defineBackground({
   browser.storage.onChanged.addListener((changes) => {
     if (!(READER_TOKEN in changes)) return
     const token = changes[READER_TOKEN].newValue as string | undefined
-    if (import.meta.env.FIREFOX) {
-      if (token === firefoxToken) return
-      firefoxHost?.control("stop")
-      firefoxTabId = null
-      firefoxToken = null
-      return
-    }
+    if (import.meta.env.FIREFOX) return firefoxServer?.tokenChanged(token)
     void browser.runtime.sendMessage({ type: TTS_TOKEN_CHANGED, token }).catch(() => {})
   })
 
   // Filet complémentaire : l'onglet qui lisait a pu être fermé sans qu'aucun
   // autre n'ait pris la parole — READER_TOKEN ne bouge pas dans ce cas.
   browser.tabs.onRemoved.addListener((tabId) => {
-    if (import.meta.env.FIREFOX) {
-      if (tabId !== firefoxTabId) return
-      firefoxHost?.control("stop")
-      firefoxTabId = null
-      firefoxToken = null
-      return
-    }
+    if (import.meta.env.FIREFOX) return firefoxServer?.tabRemoved(tabId)
     void browser.runtime.sendMessage({ type: TTS_TAB_REMOVED, tabId }).catch(() => {})
   })
 
@@ -488,6 +380,7 @@ async function save(
   }
 
   if (result?.ok) {
+    if (result.article.truncated) await notify(browser.i18n.getMessage("noticeMessageTruncated"))
     const { content, title, lang } = result.article
     await open(buildImportUrl({ content, title, lang, url }))
     return
@@ -581,9 +474,9 @@ async function saveSelection(payload: SelectionPayload, url?: string) {
  * Extrait l'article de l'onglet et le lit sur place, via `speechSynthesis`
  * dans la page — rien n'est envoyé à Orateur.
  *
- * Plus rien à injecter : le lecteur est un content script déclaré, présent
- * partout où l'extracteur peut s'injecter. Le booléen renvoyé sert à la
- * pastille, qui attend de savoir si la lecture a démarré.
+ * Le lecteur déclaré peut manquer sur un onglet ouvert avant l'installation
+ * ou la mise à jour : startReading l'y injecte si nécessaire. Le booléen
+ * renvoyé indique à la pastille si la lecture a démarré.
  */
 async function readPageInPlace(tab: { id?: number; url?: string } | undefined, fromHere = false) {
   if (tab?.id == null) return false
@@ -596,7 +489,7 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined, f
     // sélection (voir `read()` ci-dessous).
     if (result.text) {
       track({ name: "extraction_failed", properties: { reason: "fallback_text" } })
-      return startReading(tab.id, { text: result.text, lang: result.lang }, fromHere)
+      return startReading(tab.id, { text: result.text, lang: result.lang, livePage: true, outro: true }, fromHere)
     }
     track({ name: "extraction_failed", properties: { reason: "not_article" } })
     await notify(result.error)
@@ -612,24 +505,37 @@ async function readPageInPlace(tab: { id?: number; url?: string } | undefined, f
     return false
   }
 
+  if (result.article.truncated) await notify(browser.i18n.getMessage("noticeMessageTruncated"))
   return startReading(tab.id, {
     text: result.article.textContent,
     title: result.article.title ?? undefined,
     lang: result.article.lang ?? undefined,
+    livePage: true,
+    announceTitle: result.article.announceTitle,
+    // A post is shorter than the thanks: no outro after it.
+    outro: result.article.announceTitle !== false,
   }, fromHere)
 }
 
-/** Faux si aucun content script ne répond dans l'onglet. */
+/** Réinjecte le lecteur sur les onglets ouverts avant l'installation ou la mise à jour. */
 async function startReading(tabId: number, payload: ReadPagePayload, fromHere = false) {
+  const message = { type: START_READING, fromHere, ...payload } satisfies StartReadingMessage
   try {
-    await browser.tabs.sendMessage(tabId, {
-      type: START_READING,
-      fromHere,
-      ...payload,
-    } satisfies StartReadingMessage)
+    await browser.tabs.sendMessage(tabId, message)
     return true
   } catch {
-    return false
+    try {
+      const file = "/content-scripts/reader.js"
+      if (browser.scripting) {
+        await browser.scripting.executeScript({ target: { tabId }, files: [file] })
+      } else {
+        await browser.tabs.executeScript(tabId, { file })
+      }
+      await browser.tabs.sendMessage(tabId, message)
+      return true
+    } catch {
+      return false
+    }
   }
 }
 

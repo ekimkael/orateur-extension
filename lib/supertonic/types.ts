@@ -17,11 +17,10 @@ export const SUPERTONIC_VOICES = [
 export type SupertonicVoice = (typeof SUPERTONIC_VOICES)[number]
 
 /**
- * Clés i18n (public/_locales/<locale>/messages.json), pas encore le texte : ce module
- * est importé par lib/tts-host.ts, qui n'a pas accès à `browser.i18n` (voir son
- * en-tête) — c'est à l'appelant côté UI (page d'options, popup) de résoudre la
- * clé avec `browser.i18n.getMessage(...)`. Mêmes clés que la liste dupliquée
- * dans reader.content.ts, pour que les deux restent traduites pareil.
+ * i18n keys (public/_locales/<locale>/messages.json), not text: lib/tts-host.ts
+ * imports this module and has no `browser.i18n`. The pill and the options page
+ * resolve them through `lib/voice-options.ts`. The revision import contains only static metadata and a helper with no
+ * module-level effects, so these values remain safe in content scripts.
  */
 export const SUPERTONIC_VOICE_LABEL_KEYS: Record<SupertonicVoice, string> = {
   M1: "voiceMale1",

@@ -1,5 +1,7 @@
+/** Pinned upstream revision for Supertonic assets. */
 export const MODEL_REVISION = "3cadd1ee6394adea1bd021217a0e650ede09a323"
 
+/** Expected SHA-256 digests from the pinned upstream assets. */
 export const MODEL_HASHES: Readonly<Record<string, string>> = {
   "duration_predictor.onnx": "c3eb91414d5ff8a7a239b7fe9e34e7e2bf8a8140d8375ffb14718b1c639325db",
   "text_encoder.onnx": "c7befd5ea8c3119769e8a6c1486c4edc6a3bc8365c67621c881bbb774b9902ff",
@@ -19,6 +21,7 @@ export const MODEL_HASHES: Readonly<Record<string, string>> = {
   "voice-M5.json": "dd22b92740314321f8ae11c5e87f8dd60d060f15dd3a632b5adf77f471f77af2"
 }
 
+/** Expected byte lengths of the pinned upstream assets. */
 export const MODEL_SIZES: Readonly<Record<string, number>> = {
   "duration_predictor.onnx": 3700147,
   "text_encoder.onnx": 36416150,
@@ -38,6 +41,7 @@ export const MODEL_SIZES: Readonly<Record<string, number>> = {
   "voice-M5.json": 291469
 }
 
+/** Reject unknown, truncated, or modified model files before use. */
 export async function verifyModelFile(name: string, bytes: ArrayBuffer): Promise<void> {
   const expected = MODEL_HASHES[name]
   if (!expected || bytes.byteLength !== MODEL_SIZES[name]) throw new Error(`Invalid model size: ${name}`)

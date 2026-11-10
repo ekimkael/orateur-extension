@@ -1,3 +1,4 @@
+import { isPasswordField, selectedFieldText } from "../lib/selection-field.ts"
 import { placeBubble } from "../lib/bubble-position"
 import { rangesToText, validateSelectionText } from "../lib/selection-text"
 import { isHidden, loadHiddenSites } from "../lib/site-rules.ts"
@@ -75,14 +76,14 @@ export default defineContentScript({
     // Site exclu (réglages → Sites) : ni pastille ni bulle sur ce domaine.
     // ponytail: pas d'abonnement aux changements ici, contrairement à la
     // pastille — retirer un site ramène la bulle au prochain rechargement.
-    if (isHidden(location.hostname, await loadHiddenSites())) return
+    const [hiddenSites, theme] = await Promise.all([loadHiddenSites(), loadUiPrefs()])
+    if (isHidden(location.hostname, hiddenSites)) return
 
     let captured: SelectionPayload | null = null
     /** Écouteurs de courte durée, actifs seulement quand la bulle est visible. */
     let watching: AbortController | null = null
     let pending = 0
 
-    const theme = await loadUiPrefs()
     const bubble = createBubble((action) => {
       if (captured) void browser.runtime.sendMessage(message(action, captured))
       dismiss()
@@ -179,6 +180,7 @@ function message(
  * la page ne doit jamais casser à cause de l'extension.
  */
 function capture() {
+  if (isPasswordField(document.activeElement)) return null
   const field = captureField()
   const raw = field ? field.text : captureDocument()
   const result = validateSelectionText(raw)
@@ -226,10 +228,10 @@ function captureField() {
     return null
 
   try {
-    const { selectionStart, selectionEnd, value } = element
-    if (selectionStart == null || selectionStart === selectionEnd) return null
+    const text = selectedFieldText(element)
+    if (text === null) return null
     return {
-      text: value.slice(selectionStart, selectionEnd ?? undefined),
+      text,
       rect: element.getBoundingClientRect(),
     }
   } catch {
@@ -282,7 +284,7 @@ button + button { margin-left: 6px }
 button:hover { background: color-mix(in srgb, var(--foreground) 8%, var(--card)) }
 button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
 /* Icône en masque plutôt qu'en emoji : rendu identique sur tous les OS, suit
-   currentColor. Même mécanisme que la pastille (entrypoints/reader.content.ts). */
+   currentColor. Même mécanisme que la pastille (entrypoints/reader.content/). */
 button[data-icon]::before {
   content: "";
   width: 15px;

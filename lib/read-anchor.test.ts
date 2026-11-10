@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { JSDOM } from "jsdom"
-import { createAnchorFinder, findBlockIndex } from "./read-anchor.ts"
+import { blockRange, createAnchorFinder, findBlockIndex } from "./read-anchor.ts"
 
 function docFrom(html: string) {
   return new JSDOM(html).window.document
@@ -32,7 +32,7 @@ test("un bloc introuvable ne désynchronise pas les suivants", () => {
   const find = createAnchorFinder(doc)
 
   assert.equal(find("Avant le code.")?.tagName, "P")
-  assert.equal(find("Extrait de code."), null)
+  assert.equal(find("Vous pouvez avoir un aperçu en regardant le code ci-dessous."), null)
   assert.equal(find("Après le code.")?.textContent, "Après le code.")
 })
 
@@ -87,4 +87,41 @@ test("retrouve le paragraphe ciblé par Lire à partir d'ici", () => {
   const doc = docFrom("<article><p>Premier passage.</p><p><span>Passage ciblé.</span></p><p>Dernier passage.</p></article>")
   const target = doc.querySelector("span")!
   assert.equal(findBlockIndex(doc, ["Premier passage.", "Passage ciblé.", "Dernier passage."], target), 1)
+})
+
+test("Lire à partir d'ici ne saute pas le paragraphe visé (infobox Wikipédia)", () => {
+  // « Proconsul. » n'est qu'une ligne de la cellule ; son seul écho est le
+  // titre de section plus bas, qui entraînait le curseur au-delà de la cible.
+  const doc = docFrom(`<h1>Cicéron</h1><div><table><tr><td>Questeur<br>Proconsul</td></tr></table>
+    <p>Cicéron, dont le nom romain est Marcus Tullius Cicero.</p>
+    <p>Citoyen romain de <a href="#">province</a>, il naît à Arpinum.</p>
+    <h3>Proconsul</h3><p>La suite.</p></div>`)
+  const blocks = ["Cicéron.", "Questeur.", "Proconsul.", "Cicéron, dont le nom romain est Marcus Tullius Cicero.", "Citoyen romain de province, il naît à Arpinum.", "Proconsul.", "La suite."]
+  assert.equal(findBlockIndex(doc, blocks, doc.querySelectorAll("p")[1]!), 4)
+  assert.equal(findBlockIndex(doc, blocks, doc.querySelectorAll("p")[0]!), 3)
+})
+
+test("un clic sur un conteneur part de son premier bloc", () => {
+  const doc = docFrom("<article><p>Premier passage.</p><section><p>Deuxième passage.</p><p>Troisième.</p></section></article>")
+  assert.equal(findBlockIndex(doc, ["Premier passage.", "Deuxième passage.", "Troisième."], doc.querySelector("section")), 1)
+  assert.equal(findBlockIndex(doc, ["Premier passage."], null), -1)
+})
+
+test("un emoji retiré à l'extraction n'empêche pas de retrouver le bloc", () => {
+  // X : le texte lu perd le 🛑 de tête, la page le garde.
+  const doc = docFrom("<article><div>🛑DIPLOMATIE - EXTRADITION CASSÉE.\n\nL’affaire secoue les chancelleries.</div></article>")
+  const find = createAnchorFinder(doc)
+
+  assert.equal(find("DIPLOMATIE - EXTRADITION CASSÉE.")?.tagName, "DIV")
+})
+
+test("blockRange only matches a block that starts a line", () => {
+  const { document } = new JSDOM(`<p>Voir l'Introduction plus bas.</p>`).window
+  assert.equal(blockRange(document.querySelector("p")!, "Introduction"), null)
+  assert.equal(blockRange(document.querySelector("p")!, "Absent"), null)
+})
+
+test("blockRange leaves an element that holds only its block to the element", () => {
+  const { document } = new JSDOM(`<p>Un paragraphe ordinaire.</p>`).window
+  assert.equal(blockRange(document.querySelector("p")!, "Un paragraphe ordinaire.", "Le suivant."), null)
 })

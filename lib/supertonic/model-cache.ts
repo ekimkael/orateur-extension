@@ -324,6 +324,7 @@ export async function readCachedVoiceStyle(voice: SupertonicVoice): Promise<Arra
 }
 
 
+/** Load a voice style from verified cache bytes or a verified pinned download. */
 export async function loadVoiceStyleBytes(voice: SupertonicVoice): Promise<ArrayBuffer> {
   const cached = await readCachedVoiceStyle(voice)
   if (cached) return cached
