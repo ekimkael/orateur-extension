@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-10
+
+### Added
+
+- At the end of an article, the reader thanks you in the article's own voice ("End of the article, thank you for listening."). On the first article, then every third one, it also invites you to support Orateur, and the pill shows "Thanks for listening · ♥ Support" with a link to the donation page and a button to stop the voice. The thanks is spoken in French and English; pages in other languages get the link without the spoken message. Selections and X posts end as before.
+- Settings have a new Support section, and a Support link in the footer.
+
 ## [0.10.0] - 2026-11-09
 
 ### Added
