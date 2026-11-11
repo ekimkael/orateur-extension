@@ -84,8 +84,10 @@ copies in `tests/fixtures/x/`).
 - `lib/live-page.ts` never re-reads an element that also holds the next block,
   so a post is not followed through a browser translation. Re-reading the post
   for its first paragraph would speak all of it, then each line again.
-- A logged-out Article has no `lang` attribute and the page language is the
-  UI's (`fr` for an English Article). The reader's language detection then
-  picks the voice, as it does elsewhere.
+- A logged-out Article carries no language of its own, and the page declares
+  X's interface language (`fr` for an English Article). An Article's language is
+  therefore detected from its own text through `resolveDocLang`, which keeps the
+  page's declaration when the text is indecisive. A post still trusts its own
+  `lang` attribute and only falls back to the page's.
 - Author threads are not followed: each post is read on its own page.
 - Listening checks in Chrome and Firefox, with both engines: see the PR.

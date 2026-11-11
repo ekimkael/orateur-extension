@@ -92,6 +92,15 @@ test("inline hashtag and mention are read without their sign; links are dropped"
 const ARTICLE_URL = "https://x.com/DeRonin_/status/2095180126359105955"
 
 for (const view of ["in", "out"]) {
+  // X serves a logged-out Article with its interface language, so both fixtures
+  // declare lang="fr" on an English Article. The text has to decide.
+  test(`${view}: X Article language comes from its text, not the page's`, () => {
+    const article = extractXPost(load(`${view}-article`, ARTICLE_URL), ARTICLE_URL)
+    assert.equal(article.lang, "en")
+  })
+}
+
+for (const view of ["in", "out"]) {
   test(`${view}: X Article reads its title, body and last lines, without URLs or chrome`, () => {
     const article = extractXPost(load(`${view}-article`, ARTICLE_URL), ARTICLE_URL)
     assert.equal(article.title, "How to become a Robotics Engineer in 6 months (RESOURCES)")

@@ -5,6 +5,7 @@
 
 import { clean, NOT_AN_ARTICLE, toSpeakableText, WORDS_PER_MINUTE, type ExtractedArticle } from "../extract-article.ts"
 import { countWords, normalize } from "./dom.ts"
+import { resolveDocLang } from "../detect-lang.ts"
 
 /** X under both names, desktop and mobile. */
 const X_HOST = /^(?:mobile\.)?(?:x|twitter)\.com$/
@@ -157,7 +158,10 @@ function xArticle(doc: Document, post: Element, body: Element, url: string): Ext
   }
   clean(root)
 
-  const lang = doc.documentElement.lang || null
+  // A logged-out Article carries no language of its own, so the page's
+  // declaration is X's interface language — "fr" for an English Article. The
+  // text decides instead; an indecisive one keeps the declaration.
+  const lang = resolveDocLang(doc.documentElement.lang || undefined, root.textContent ?? "")
   const textContent = toSpeakableText(root, lang ?? "", { pruneResidue: false })
   if (!textContent) throw new Error(NOT_AN_ARTICLE)
   return xResult(title, lang, root, textContent, url)
