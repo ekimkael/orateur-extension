@@ -28,14 +28,17 @@ Git Flow release. Agents run it with the `/release` skill; this page is the refe
    payloads, page content handling, and store credentials. Record findings in the PR. An open high or critical finding blocks the merge.
    Complete the manual Chrome and Firefox QA from the PR template and [testing.md](testing.md) on the release packages.
 7. Merge the `main` PR (merge commit).
-8. The merge runs [the release workflow](../.github/workflows/release.yml): it checks the version, the changelog section and
-   that the tag does not exist yet, then builds, tests and submits to the stores. Watch it with `gh run watch`.
-   A failure before the submit step submits nothing. Either way, fix forward with `hotfix/x.y.z`; never tag a failed run.
-9. Once that run is green, a repository admin tags the merge commit and pushes the tag (the run summary prints the command):
-   `git tag -a vx.y.z -m "Release x.y.z" <merge-sha> && git push origin vx.y.z`.
-   The tag push publishes the GitHub Release from the changelog section, with the exact ZIPs the run submitted.
-   `GITHUB_TOKEN` cannot create the tag itself: the "Release tags" ruleset limits `v*` tags to admins.
-10. Merge the `develop` PR, delete `release/x.y.z`, fast-forward local `main` and `develop`.
+8. Get the merge SHA with `gh pr view <main-pr> --json mergeCommit --jq .mergeCommit.oid`.
+   Find its store submission run with `gh run list --workflow release.yml --event push --branch main --commit <merge-sha>`
+   and wait for it to succeed with `gh run watch <run-id> --exit-status`. If the run fails, report the failing job and stop before tagging.
+9. After success, check `git ls-remote origin 'refs/tags/vx.y.z' 'refs/tags/vx.y.z^{}'`.
+   If the lookup succeeds and returns no refs, `/release` shows the command and waits for a repository admin to run it.
+   `git tag -a vx.y.z -m "Release x.y.z" <merge-sha> && git push origin vx.y.z`
+10. The tag push starts a separate run of the [same workflow](../.github/workflows/release.yml) to publish the GitHub Release
+    with the submitted ZIPs. On resuming `/release`, repeat the remote tag lookup and verify that the `^{}` entry matches
+    the merge SHA. Follow the run for that tag if publication is pending. Confirm `isDraft` is false and `publishedAt` is set
+    with `gh release view vx.y.z --json isDraft,publishedAt,url`. Stop if the tag fails verification or the publication run fails.
+11. After both checks pass, merge the `develop` PR, delete `release/x.y.z`, and fast-forward local `main` and `develop`.
 
 Never move or delete a published tag. A bad release is fixed by a new `hotfix/x.y.z`.
 
