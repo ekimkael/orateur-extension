@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react"
 import { useTranslation } from "../hooks/useTranslation"
 import type { ReaderEngine } from "../lib/reader-prefs"
+import { prepareSpeech } from "../lib/prepare-speech.ts"
 import type { SupertonicVoice } from "../lib/supertonic/types.ts"
 
 interface VoicePreviewButtonProps {
@@ -39,7 +40,7 @@ export function VoicePreviewButton({ engine, voiceURI, supertonicVoice, speed }:
   useEffect(() => stop, [engine, voiceURI, supertonicVoice])
 
   function playSystem(onError: () => void, onEnd: () => void) {
-    const utterance = new SpeechSynthesisUtterance(t("optionsPreviewSampleText"))
+    const utterance = new SpeechSynthesisUtterance(prepareSpeech(t("optionsPreviewSampleText"), document.documentElement.lang))
     const voice = speechSynthesis.getVoices().find((v) => v.voiceURI === voiceURI)
     if (voice) utterance.voice = voice
     utterance.rate = speed

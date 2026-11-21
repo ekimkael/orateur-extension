@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { prepareSpeech } from "../../lib/prepare-speech.ts"
 import { browserTest, browserName, waitFor } from "../support/browser.mjs"
 
 const reader = "orateur-reader-pill"
@@ -22,11 +23,15 @@ browserTest("installs the production ZIP and persists settings through a page re
 browserTest("reads an already-open article, then pauses, resumes and stops", async h => {
   await h.install()
   if (browserName === "chrome") assert.equal(await h.page.$(reader), null, "Chrome page predates installation")
+  await h.page.$eval("#selection", paragraph => { paragraph.append(" Le rendez-vous est à 20H30. 🎉 🇨🇲") })
   await h.fakeSpeech()
   assert.equal(await h.script(() => (globalThis.browser ?? chrome).runtime.sendMessage({ type: "orateur:read-page" })), true)
   await waitFor(() => h.page.title().then(title => title.startsWith("🔊 ")), "Reading marks the article tab")
   const speech = await waitFor(() => h.speech().then(state => state.spoken.length && state), "Extracted article is spoken")
   assert.match(speech.spoken[0].text, /Orateur permet de lire/)
+  assert.match(speech.spoken[0].text, /vingt heures trente/)
+  assert.doesNotMatch(speech.spoken[0].text, /🎉|🇨🇲/u)
+  assert.match(await h.page.$eval("#selection", paragraph => paragraph.textContent), /20H30\. 🎉 🇨🇲/u)
   await h.click("Pause")
   await waitFor(() => h.speech().then(state => state.paused), "Pause reaches the speech engine")
   await h.click("Resume reading")
@@ -177,7 +182,7 @@ browserTest("mouse selection exposes the bubble and reads only the selected text
   assert.equal(selected, await h.page.$eval("#selection", paragraph => paragraph.textContent))
   await h.click("Listen to selection with Orateur", h.page, "orateur-selection-bubble")
   const speech = await waitFor(() => h.speech().then(state => state.spoken.length && state), "Selection reaches speech engine")
-  assert.equal(speech.spoken[0].text, selected)
+  assert.equal(speech.spoken[0].text, prepareSpeech(selected, "fr"))
 })
 
 browserTest("only the most recently started tab keeps playing", async h => {
@@ -242,11 +247,19 @@ browserTest("paragraph navigation and speed changes reach the speech engine", as
   await h.install()
   await h.page.reload()
   await h.page.waitForSelector(reader)
+  await h.page.$eval("#selection", paragraph => {
+    const emoji = document.createElement("p")
+    emoji.textContent = "🎉 🇨🇲"
+    paragraph.after(emoji)
+  })
   await h.fakeSpeech()
   await h.click(read)
   await waitFor(() => h.speech().then(state => state.spoken.length), "Initial paragraph starts")
   await h.click("Next paragraph")
   await waitFor(() => h.speech().then(state => state.spoken.some(item => item.text.includes("deuxième paragraphe"))), "Next paragraph reaches the engine")
+  await h.click("Previous paragraph")
+  await waitFor(() => h.speech().then(state => state.spoken.at(-1)?.text.includes("premier paragraphe")), "Previous skips the silent paragraph")
+  assert.equal((await h.speech()).spoken.length, 3, "No utterance is emitted for the emoji-only paragraph")
   await h.click("Reading settings")
   await h.page.bringToFront()
   // Focus without changing the track value: a pending pointer write can race the keys.

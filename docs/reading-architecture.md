@@ -11,6 +11,7 @@ it is generated with archify from [architecture.json](architecture.json).
 | Wiring | `entrypoints/reader.content/` | `pill.ts`: the pill's DOM (CSS in `styles.ts`). `follower.ts`: the paragraph highlight. `index.ts`: the listeners that forward user actions, extension messages and page lifecycle to the session. |
 | Session | `lib/reading-session.ts` | One tab's reading: the paragraph shown by the pill, saved progress, telemetry, the tab's reader token. Builds no DOM. |
 | Player factory | `lib/player-factory.ts` | Resolves the effective engine from the saved choice, text language and cache availability, then creates its player. |
+| Speech preparation | `lib/prepare-speech.ts` | Resolves language from the original paragraphs, protects personal replacements, removes emoji and runs Verbalis for all engines. Reuses the prepared paragraph until live text changes. Empty prepared paragraphs stay addressable by their original indices and produce no audio. |
 | Player contract | `lib/player.ts` | `start / pause / resume / seek / update / stop / dispose`, and the events an engine reports (`loading`, `playing`, `paused`, `ended`, `error`). |
 | System engine | `lib/system-player.ts` | `speechSynthesis`, one utterance per paragraph, and the paragraph and word position. |
 | Local players | `lib/local-player.ts` | The tab's end of the TTS port: engine-specific commands out, host events in, live paragraph answers. |
@@ -48,12 +49,13 @@ A reading marked `outro: true` (an article or a page's fallback text, never a se
 1. The local player sends `TTS_OPEN` to the background, which creates the
    offscreen document on Chrome (Firefox already hosts it in its background page).
 2. The player opens `runtime.connect({ name: TTS_PORT })` and sends `TTS_SPEAK`
-   with its engine, language and voice. The server validates those fields and
+   with its engine, language, voice and prepared paragraphs. The server validates those fields and
    answers a refused request with an error event on that port only, so the pill
    folds instead of waiting and the current owner keeps reading.
    Commands given before the port opens wait for it, in order.
 3. The host answers on the same port: `TTS_EVENT` states, and `TTS_PREPARE_BLOCK`
    requests for live pages, which the tab answers with `TTS_PREPARED` and the same `id`.
+   Older content scripts can still send raw text, which the server prepares once.
 
 The background no longer relays commands, events or paragraph requests.
 
@@ -61,7 +63,7 @@ The first installation saves Supertonic. Updates keep stored engines and voices.
 The system engine is the compatibility choice for profiles from before the
 engine preference. Language and private-window fallbacks affect only the
 effective engine for one reading. That engine determines whether to load and
-apply pronunciation rules.
+apply personal pronunciation rules. Verbalis prepares the text regardless of engine.
 
 ## Invariants
 

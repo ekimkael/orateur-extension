@@ -80,6 +80,32 @@ test("live paragraphs are requested over the owner's port and matched by id", as
   assert.equal(h.requests[1]!.prepareParagraph, undefined, "Selections and previews keep their supplied text")
 })
 
+test("prepared paragraphs and live replies are not normalized again by the port", async () => {
+  const h = server()
+  const tab = h.open(12)
+  const literal = { text: "20 kg", lang: "fr" }
+  tab.send({ ...speak(), text: undefined, paragraphs: [literal] })
+  assert.deepEqual(h.requests[0]!.paragraphs, [literal])
+  const pending = h.requests[0]!.prepareParagraph!(0)
+  tab.send({ type: messages.TTS_PREPARED, id: 1, prepared: literal })
+  assert.deepEqual(await pending, literal)
+
+  const oldTab = h.open(13)
+  oldTab.send({ ...speak(), text: "20 kg" })
+  assert.deepEqual(h.requests[1]!.paragraphs, [{ text: "vingt kilogrammes", lang: "fr" }])
+})
+
+test("the port passes silent prepared blocks through without renumbering them", async () => {
+  const h = server()
+  const tab = h.open(12)
+  const paragraphs = [{ text: "Un.", lang: "fr" }, { text: "", lang: "fr" }]
+  tab.send({ ...speak(), text: undefined, paragraphs })
+  assert.deepEqual(h.requests[0]?.paragraphs, paragraphs)
+  const pending = h.requests[0]!.prepareParagraph!(1)
+  tab.send({ type: messages.TTS_PREPARED, id: 1, prepared: paragraphs[1] })
+  assert.deepEqual(await pending, paragraphs[1])
+})
+
 test("a new reading takes the floor from the previous tab", async () => {
   const h = server()
   const first = h.open(12)

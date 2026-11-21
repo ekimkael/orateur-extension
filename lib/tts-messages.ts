@@ -56,8 +56,10 @@ export type LocalTtsEngine = "supertonic" | "pocket"
 
 interface TtsSpeakBase {
   type: typeof TTS_SPEAK
-  text: string
-  title?: string
+  /** Prepared paragraphs keep the same indices as the original page text. */
+  paragraphs?: TtsPreparedBlock<string>[]
+  /** Raw text sent by content scripts from before paragraph preparation. */
+  text?: string
   speed: number
   /** Premier paragraphe à synthétiser lors d'une reprise. */
   startBlock?: number
@@ -96,7 +98,7 @@ export interface TtsPrepareBlockMessage {
   prefetch?: boolean
 }
 
-/** Live text prepared by the tab in the selected model's language. */
+/** Text prepared by the tab in the selected model's language. Empty text marks a silent paragraph. */
 export interface TtsPreparedBlock<Language extends string = SupportedLang> {
   text: string
   lang: Language

@@ -2,10 +2,16 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { createPocketTtsHost } from "./pocket-tts-host.ts"
 import type { TtsState } from "./tts-messages.ts"
+import { splitBlocks } from "./reading-language.ts"
+import type { PocketSpeakRequest } from "./local-tts-host.ts"
+
+function speak(host: ReturnType<typeof createPocketTtsHost>, { text, ...request }: Omit<PocketSpeakRequest, "paragraphs"> & { text: string }) {
+  host.speak({ ...request, paragraphs: splitBlocks(text).map((text) => ({ text, lang: request.lang })) })
+}
 
 const sample = { pcm: new Float32Array([0, 0.25, -0.25]), sampleRate: 24_000 }
 const settle = () => new Promise((resolve) => setImmediate(resolve))
-const request = { text: "API at 14:05.\n\nA second paragraph.", lang: "en", voice: "auto", speed: 1 }
+const request = { text: "API at two oh five p.m.\n\nA second paragraph.", lang: "en", voice: "auto", speed: 1 }
 
 function setup() {
   const media: FakeAudio[] = []
@@ -33,11 +39,11 @@ function setup() {
   return { host, states, jobs, media }
 }
 
-test("Pocket prefetches unprepared text and keeps a seek paused until resumed", async () => {
+test("Pocket prefetches prepared text and keeps a seek paused until resumed", async () => {
   const { host, states, jobs, media } = setup()
-  host.speak(request)
+  speak(host, request)
   await settle()
-  assert.equal(jobs[0]?.text, "API at 14:05.")
+  assert.equal(jobs[0]?.text, "API at two oh five p.m.")
   jobs[0]!.result.resolve(sample)
   await settle()
   assert.deepEqual(states.at(-1), { phase: "playing", block: 0, total: 2 })
@@ -66,7 +72,7 @@ test("Pocket prefetches a live paragraph passively and promotes it at the transi
   const { host, states, jobs, media } = setup()
   const prepared: [number, boolean | undefined][] = []
   const second = Promise.withResolvers<{ text: string; lang: string }>()
-  host.speak({ ...request, prepareParagraph(block, prefetch) {
+  speak(host, { ...request, prepareParagraph(block, prefetch) {
     prepared.push([block, prefetch])
     return block === 0 ? Promise.resolve({ text: "Texte traduit.", lang: "fr" }) : second.promise
   } })
@@ -91,7 +97,7 @@ test("Pocket prefetches a live paragraph passively and promotes it at the transi
 
 test("Pocket chains live paragraphs without a gap once lookahead is ready", async () => {
   const { host, states, jobs, media } = setup()
-  host.speak({ ...request, async prepareParagraph(block) {
+  speak(host, { ...request, async prepareParagraph(block) {
     return { text: block === 0 ? "First." : "Second.", lang: "en" }
   } })
   await settle()
@@ -108,9 +114,38 @@ test("Pocket chains live paragraphs without a gap once lookahead is ready", asyn
   host.dispose?.()
 })
 
+test("Pocket skips a silent live block and promotes the next block at the transition", async () => {
+  const { host, states, jobs, media } = setup()
+  const final = Promise.withResolvers<{ text: string; lang: string }>()
+  const requested: [number, boolean | undefined][] = []
+  host.speak({
+    ...request, paragraphs: ["First.", "", "Last."].map((text) => ({ text, lang: "en" })),
+    async prepareParagraph(block, prefetch) {
+      requested.push([block, prefetch])
+      if (block === 2) {
+        if (!prefetch) final.resolve({ text: "Last.", lang: "en" })
+        return final.promise
+      }
+      return { text: block === 0 ? "First." : "", lang: "en" }
+    },
+  })
+  await settle()
+  jobs[0]!.result.resolve(sample)
+  await settle()
+  assert.deepEqual(requested, [[0, false], [1, true], [2, true]])
+  media[0]!.onended?.()
+  await settle()
+  assert.deepEqual(requested.at(-1), [2, false])
+  assert.equal(jobs[1]?.text, "Last.")
+  jobs[1]!.result.resolve(sample)
+  await settle()
+  assert.deepEqual(states.at(-1), { phase: "playing", block: 2, total: 3 })
+  host.control("stop")
+})
+
 test("Pocket keeps several units ahead so a short heading does not leave a gap", async () => {
   const { host, jobs, media } = setup()
-  host.speak({ ...request, text: "Title.\n\nA long paragraph.\n\nThe third one." })
+  speak(host, { ...request, text: "Title.\n\nA long paragraph.\n\nThe third one." })
   await settle()
   jobs[0]!.result.resolve(sample)
   await settle()
@@ -126,7 +161,7 @@ test("Pocket ramps unit sizes up after a start so the first sound arrives quickl
     "Chaque paragraphe est découpé en morceaux courts, synthétisés pendant que le précédent est joué. " +
     "Si la synthèse prend plus de temps que la lecture du morceau précédent, on entend un silence entre les deux. " +
     "Ce test vérifie donc la taille des premiers morceaux."
-  host.speak({ ...request, text, lang: "fr" })
+  speak(host, { ...request, text, lang: "fr" })
   await settle()
   for (let i = 0; i < 6 && jobs[i]; i++) {
     jobs[i]!.result.resolve(sample)
@@ -149,7 +184,7 @@ test("Pocket adds a pause after sentence and paragraph ends, none after a clause
     samples.push((blob.size - 44) / 2)
     return createObjectURL(blob)
   })
-  host.speak({ ...request, lang: "fr", text: "Le soleil se lève doucement sur la ville encore endormie ce matin. " +
+  speak(host, { ...request, lang: "fr", text: "Le soleil se lève doucement sur la ville encore endormie ce matin. " +
     "Les rues sont calmes et les cafés ouvrent leurs portes un à un.\n\n" +
     "Nous partons tôt pour éviter la foule et la chaleur de midi qui arrive, " +
     "puis nous rentrons tranquillement à la maison avant le déjeuner prévu." })
@@ -167,7 +202,7 @@ test("Pocket adds a pause after sentence and paragraph ends, none after a clause
 
 test("Pocket keeps the unit after a short opening heading short", async () => {
   const { host, jobs } = setup()
-  host.speak({ ...request, text: "Introduction.\n\nThis paragraph is long enough to need several units, because it keeps going " +
+  speak(host, { ...request, text: "Introduction.\n\nThis paragraph is long enough to need several units, because it keeps going " +
     "with more words, more clauses and more details than a single short unit could ever hold at once." })
   await settle()
   jobs[0]!.result.resolve(sample)
@@ -180,7 +215,7 @@ test("Pocket keeps the unit after a short opening heading short", async () => {
 test("Pocket does not re-request a live paragraph that is already prepared", async () => {
   const { host, jobs, media } = setup()
   const prepared: [number, boolean | undefined][] = []
-  host.speak({ ...request, async prepareParagraph(block, prefetch) {
+  speak(host, { ...request, async prepareParagraph(block, prefetch) {
     prepared.push([block, prefetch])
     return { text: block === 0 ? "First." : "Second.", lang: "en" }
   } })
@@ -196,7 +231,7 @@ test("Pocket does not re-request a live paragraph that is already prepared", asy
 
 test("Pocket reports why synthesis failed, so a download error can be classified", async () => {
   const { host, states, jobs } = setup()
-  host.speak(request)
+  speak(host, request)
   await settle()
   jobs[0]!.result.reject(new Error("Pocket model download failed (HTTP 503)"))
   await settle()

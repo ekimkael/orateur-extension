@@ -177,10 +177,10 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     if (!started && !reading) view.setState("error", document.title)
   }
 
-  /** Précédent vise toujours le paragraphe précédent ; suivant, le suivant. */
+  /** Navigate between speakable paragraphs using their original page positions. */
   function navigate(delta: -1 | 1) {
     if (!reading || outro) return
-    const target = moveReadingBlock(blockIndex, readingTotal, delta)
+    const target = moveReadingBlock(blockIndex, readingTotal, delta, player?.hasSpeech)
     if (target != null) seekTo(target)
   }
 
@@ -237,7 +237,7 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
 
     const next: Player = createPlayer(selection, {
       // The players speak the title as an intro; an empty one is silent.
-      paragraphs, text: payload.text, title: payload.announceTitle === false ? "" : title,
+      paragraphs, text: payload.text, documentLanguage: payload.lang, title: payload.announceTitle === false ? "" : title,
       startBlock, personalRules, source, prefs,
       emit: (event: PlayerEvent) => {
         if (player === next) onPlayerEvent(next.engine, event)
@@ -324,7 +324,7 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
     pageSource?.stop()
     pageSource = null
     const next: Player = createPlayer(readingSelection, {
-      paragraphs: [speech], text: speech, title: "", startBlock: 0, personalRules: [], source: null, prefs,
+      paragraphs: [speech], text: speech, documentLanguage: readingPayload.lang, title: "", startBlock: 0, personalRules: [], source: null, prefs,
       emit: (event: PlayerEvent) => {
         if (player === next) onPlayerEvent(next.engine, event)
       },

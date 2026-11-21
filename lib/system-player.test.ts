@@ -122,6 +122,25 @@ test("every paragraph reports its position, then the end of the reading", () => 
   ])
 })
 
+test("skips emoji-only blocks from the snapshot and the live page", async () => {
+  const source = livePage()
+  const { events } = read(["🎉", FR, EN, "🇨🇲"], { lang: "fr", source })
+  source.pending[0]!.resolve("🎉")
+  await settle()
+  assert.equal(spoken.length, 0)
+  source.pending[1]!.resolve("👍🏾")
+  await settle()
+  assert.equal(spoken.length, 0)
+  source.pending[2]!.resolve(EN)
+  await settle()
+  assert.deepEqual(spoken.map((utterance) => utterance.text), [EN])
+  spoken[0]!.dispatchEvent(new Event("start"))
+  spoken[0]!.dispatchEvent(new Event("end"))
+  source.pending[3]!.resolve("🇨🇲")
+  await settle()
+  assert.deepEqual(events, [{ phase: "playing", block: 2, total: 4 }, { phase: "ended" }])
+})
+
 test("a start racing a pause does not report playing", () => {
   const { player, events } = read([EN], { lang: "en" })
   player.pause()

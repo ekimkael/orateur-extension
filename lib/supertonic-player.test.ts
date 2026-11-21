@@ -89,6 +89,18 @@ test("commands given before the port opens follow the start, in order", async ()
   assert.deepEqual(port!.posted.at(-1), { type: TTS_SEEK, block: 0, paused: true }, "A seek while paused stays paused")
 })
 
+test("both local engines send normalized initial and live text from the tab", async () => {
+  for (const pocket of [false, true]) {
+    const { port } = await read({ pocket, paragraphs: ["I need 2 tickets.", EN], source: { prepare: async () => "I need 3 tickets." } })
+    assert.deepEqual(port!.posted[0].paragraphs[0], { text: "I need two tickets.", lang: "en" })
+    port!.send({ type: TTS_PREPARE_BLOCK, id: 1, block: 0 })
+    await settle()
+    assert.deepEqual(port!.posted.at(-1), {
+      type: TTS_PREPARED, id: 1, prepared: { text: "I need three tickets.", lang: "en" },
+    })
+  }
+})
+
 test("Pocket sends its own voice and never sends pronunciation or Supertonic download events", async () => {
   const { port, host } = await read({ pocket: true })
   const request = port!.posted[0]
@@ -96,7 +108,7 @@ test("Pocket sends its own voice and never sends pronunciation or Supertonic dow
   assert.equal(request.voice, "estelle")
   assert.equal(request.cacheOnly, true)
   assert.equal(request.lang, "en")
-  assert.equal(request.text, [EN, EN, EN].join("\n\n"))
+  assert.deepEqual(request.paragraphs, [EN, EN, EN].map((text) => ({ text, lang: "en" })))
   assert.equal("personalRules" in request, false)
   host({ phase: "loading", reason: "downloading-model", progress: 50 })
   host({ phase: "loading", reason: "downloading-model", progress: 80 })
