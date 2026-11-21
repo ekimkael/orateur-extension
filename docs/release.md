@@ -21,9 +21,11 @@ Git Flow release. Agents run it with the `/release` skill; this page is the refe
    Manual lines already under `[Unreleased]` come first. Insert it as `## [x.y.z] - YYYY-MM-DD` under an empty `## [Unreleased]`.
 4. `node scripts/validate-changelog.mjs x.y.z`.
 5. Commit `chore(release): x.y.z`, push, and open two PRs: into `main`, then into `develop`.
-6. Once CI is green on the `main` PR: `npm audit --audit-level=high`, a gitleaks scan, and a security review of risky areas
-   (page content handling, message passing, telemetry payloads, store credentials).
-   No merge with an open high or critical finding.
+6. On the `main` PR, wait for the [Security workflow](../.github/workflows/security.yml). Reuse the successful `dependencies`
+   (`npm audit --audit-level=high`) and `secrets` (Gitleaks) jobs for the current PR revision. Record the PR head SHA and link
+   both jobs in the PR. Refresh the evidence if the tested revision changes.
+   Review changes to extension permissions and host access, message validation between components, telemetry consent and
+   payloads, page content handling, and store credentials. Record findings in the PR. An open high or critical finding blocks the merge.
    Complete the manual Chrome and Firefox QA from the PR template and [testing.md](testing.md) on the release packages.
 7. Merge the `main` PR (merge commit).
 8. The merge runs [the release workflow](../.github/workflows/release.yml): it checks the version, the changelog section and
