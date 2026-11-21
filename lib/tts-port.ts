@@ -14,8 +14,11 @@
 import type { SpeakRequest } from "./tts-host.ts"
 import type { LocalTtsHost, PocketSpeakRequest } from "./local-tts-host.ts"
 import { isPocketVoice, POCKET_LANGUAGES } from "./pocket/catalog.ts"
+import { createSpeechPreparation, prepareSpeech } from "./prepare-speech.ts"
+import { sanitizePronunciationRules, type PronunciationRule } from "./pronunciation/personal.ts"
+import { splitBlocks } from "./reading-language.ts"
 import { SPEED } from "./reader-prefs.ts"
-import { AVAILABLE_LANGS } from "./supertonic-lang.ts"
+import { AVAILABLE_LANGS, toSupertonicLang } from "./supertonic-lang.ts"
 import { SUPERTONIC_VOICES } from "./supertonic/types.ts"
 import {
   TTS_CONTROL,
@@ -59,6 +62,7 @@ interface Reading {
   tabId: number
   token: string
   engine: LocalTtsEngine
+  legacyRules?: PronunciationRule[]
 }
 
 type ActiveHost =
@@ -76,10 +80,21 @@ function validSpeed(value: unknown): value is number {
   return typeof value === "number" && value >= SPEED.min && value <= SPEED.max
 }
 
+function validBlock(value: unknown, languages: ReadonlySet<string>): value is TtsPreparedBlock<string> {
+  if (!value || typeof value !== "object") return false
+  const block = value as Partial<TtsPreparedBlock<string>>
+  return typeof block.text === "string" && (block.text === "" || !!block.text.trim()) &&
+    typeof block.lang === "string" && languages.has(block.lang)
+}
+
 /** Validate before taking ownership: a malformed message must not stop another tab. */
 function validSpeak(message: Partial<TtsSpeakMessage>): message is TtsSpeakMessage {
-  if (typeof message.text !== "string" || !message.text.trim() ||
-    typeof message.lang !== "string" || typeof message.voice !== "string" ||
+  const languages = message.engine === "pocket" ? pocketLanguages : supertonicLanguages
+  const validText = message.paragraphs === undefined
+    ? typeof message.text === "string" && !!message.text.trim()
+    : message.text === undefined && Array.isArray(message.paragraphs) && message.paragraphs.length > 0 &&
+      Array.from(message.paragraphs).every((paragraph) => validBlock(paragraph, languages))
+  if (!validText || typeof message.lang !== "string" || typeof message.voice !== "string" ||
     typeof message.token !== "string" || !message.token ||
     !validSpeed(message.speed) ||
     (message.startBlock !== undefined && (!Number.isInteger(message.startBlock) || message.startBlock < 0)) ||
@@ -91,6 +106,15 @@ function validSpeak(message: Partial<TtsSpeakMessage>): message is TtsSpeakMessa
   return (message.engine === undefined || message.engine === "supertonic") &&
     supertonicLanguages.has(message.lang) && supertonicVoices.has(message.voice) &&
     (message.personalRules === undefined || Array.isArray(message.personalRules))
+}
+
+/** Old tabs send raw text. Prepare it once before handing it to the host. */
+function legacyParagraphs(text: string, message: TtsSpeakMessage, personalRules: PronunciationRule[]) {
+  return createSpeechPreparation({ paragraphs: splitBlocks(text), text, title: "", personalRules }, message.lang)
+    .paragraphs.map((paragraph) => ({
+      text: paragraph.text,
+      lang: message.engine === "pocket" ? message.lang : toSupertonicLang(paragraph.lang) ?? message.lang,
+    }))
 }
 
 /**
@@ -156,26 +180,34 @@ export function createTtsServer(
         port.postMessage(START_FAILED)
         return
       }
-      release()
       const engine = message.engine ?? "supertonic"
       const reading: Reading = { port, tabId, token: message.token, engine }
+      let paragraphs = message.paragraphs
+      if (!paragraphs) {
+        reading.legacyRules = message.engine === "pocket" ? [] : sanitizePronunciationRules(message.personalRules)
+        try {
+          paragraphs = legacyParagraphs(message.text!, message, reading.legacyRules)
+        } catch {
+          port.postMessage(START_FAILED)
+          return
+        }
+      }
+      release()
       try {
         const target = activate(engine)
         owner = reading
         const common = {
-          text: message.text, speed: message.speed, startBlock: message.startBlock,
+          paragraphs, speed: message.speed, startBlock: message.startBlock,
+          prepareParagraph: message.livePage ? (block: number, prefetch = false) => requestParagraph(reading, block, prefetch) : undefined,
         }
         if (target.engine === "pocket" && message.engine === "pocket") {
           target.host.speak({
             ...common, lang: message.lang, voice: message.voice, cacheOnly: message.cacheOnly,
-            prepareParagraph: message.livePage ? (block, prefetch = false) => requestParagraph(reading, block, prefetch) : undefined,
           })
         } else if (target.engine === "supertonic" && message.engine !== "pocket") {
           target.host.speak({
-            ...common, lang: message.lang, voice: message.voice, personalRules: message.personalRules,
-            prepareParagraph: message.livePage
-              ? (block, prefetch = false) => requestParagraph(reading, block, prefetch) as Promise<TtsPreparedBlock>
-              : undefined,
+            ...common, voice: message.voice, paragraphs: paragraphs as TtsPreparedBlock[],
+            prepareParagraph: common.prepareParagraph as SpeakRequest["prepareParagraph"],
           })
         }
       } catch {
@@ -191,10 +223,16 @@ export function createTtsServer(
       const prepared = message.prepared
       const languages = request.reading.engine === "pocket" ? pocketLanguages : supertonicLanguages
       if (prepared == null) request.resolve(null)
-      else if (typeof prepared.text !== "string" || typeof prepared.lang !== "string" ||
-        !languages.has(prepared.lang)) {
+      else if (!validBlock(prepared, languages)) {
         request.reject(new Error("Invalid prepared paragraph"))
-      } else request.resolve(prepared)
+      } else {
+        try {
+          const rules = request.reading.legacyRules
+          request.resolve(rules ? { ...prepared, text: prepareSpeech(prepared.text, prepared.lang, rules) } : prepared)
+        } catch {
+          request.reject(new Error("Invalid prepared paragraph"))
+        }
+      }
       return
     }
     // A tab that lost the floor cannot drive someone else's reading.

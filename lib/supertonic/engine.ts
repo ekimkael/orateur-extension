@@ -25,8 +25,6 @@ import { AVAILABLE_LANGS, type SupportedLang } from "../supertonic-lang.ts"
 import type { SupertonicVoice } from "./types.ts"
 import { VOICE_STYLE_BASE } from "./types.ts"
 import { readCachedVoiceStyle } from "./model-cache.ts"
-import { normalizeSpokenNumbers } from "../pronunciation/numbers.ts"
-import { spellNumbers } from "../pronunciation/number-words.ts"
 
 export type { SupportedLang }
 
@@ -39,60 +37,11 @@ async function loadOrt(): Promise<typeof ort> {
   return ORT
 }
 
-// Spoken forms of digits 0–9 for every language supported by the model.
-// Used to expand zero-padded numbers (e.g. "01" → "zéro un") before
-// the text reaches the ONNX character-level encoder.
-const DIGIT_WORDS: Partial<Record<string, string[]>> = {
-  en: ["zero","one","two","three","four","five","six","seven","eight","nine"],
-  fr: ["zéro","un","deux","trois","quatre","cinq","six","sept","huit","neuf"],
-  de: ["null","eins","zwei","drei","vier","fünf","sechs","sieben","acht","neun"],
-  es: ["cero","uno","dos","tres","cuatro","cinco","seis","siete","ocho","nueve"],
-  it: ["zero","uno","due","tre","quattro","cinque","sei","sette","otto","nove"],
-  pt: ["zero","um","dois","três","quatro","cinco","seis","sete","oito","nove"],
-  nl: ["nul","één","twee","drie","vier","vijf","zes","zeven","acht","negen"],
-  ru: ["ноль","один","два","три","четыре","пять","шесть","семь","восемь","девять"],
-  uk: ["нуль","один","два","три","чотири","п'ять","шість","сім","вісім","дев'ять"],
-  pl: ["zero","jeden","dwa","trzy","cztery","pięć","sześć","siedem","osiem","dziewięć"],
-  cs: ["nula","jedna","dva","tři","čtyři","pět","šest","sedm","osm","devět"],
-  sk: ["nula","jedna","dva","tri","štyri","päť","šesť","sedem","osem","deväť"],
-  ro: ["zero","unu","doi","trei","patru","cinci","șase","șapte","opt","nouă"],
-  hu: ["nulla","egy","kettő","három","négy","öt","hat","hét","nyolc","kilenc"],
-  hr: ["nula","jedan","dva","tri","četiri","pet","šest","sedam","osam","devet"],
-  sl: ["nič","ena","dva","tri","štiri","pet","šest","sedem","osem","devet"],
-  bg: ["нула","едно","две","три","четири","пет","шест","седем","осем","девет"],
-  el: ["μηδέν","ένα","δύο","τρία","τέσσερα","πέντε","έξι","επτά","οκτώ","εννέα"],
-  lt: ["nulis","vienas","du","trys","keturi","penki","šeši","septyni","aštuoni","devyni"],
-  lv: ["nulle","viens","divi","trīs","četri","pieci","seši","septiņi","astoņi","deviņi"],
-  et: ["null","üks","kaks","kolm","neli","viis","kuus","seitse","kaheksa","üheksa"],
-  sv: ["noll","ett","två","tre","fyra","fem","sex","sju","åtta","nio"],
-  da: ["nul","et","to","tre","fire","fem","seks","syv","otte","ni"],
-  fi: ["nolla","yksi","kaksi","kolme","neljä","viisi","kuusi","seitsemän","kahdeksan","yhdeksän"],
-  tr: ["sıfır","bir","iki","üç","dört","beş","altı","yedi","sekiz","dokuz"],
-  id: ["nol","satu","dua","tiga","empat","lima","enam","tujuh","delapan","sembilan"],
-  vi: ["không","một","hai","ba","bốn","năm","sáu","bảy","tám","chín"],
-  ko: ["영","일","이","삼","사","오","육","칠","팔","구"],
-  ja: ["ゼロ","一","二","三","四","五","六","七","八","九"],
-  ar: ["صفر","واحد","اثنان","ثلاثة","أربعة","خمسة","ستة","سبعة","ثمانية","تسعة"],
-  hi: ["शून्य","एक","दो","तीन","चार","पाँच","छह","सात","आठ","नौ"],
-}
-
 export class UnicodeProcessor {
   private indexer: number[]
 
   constructor(indexer: number[]) {
     this.indexer = indexer
-  }
-
-  private expandLeadingZeroNumbers(text: string, lang: string): string {
-    const words = DIGIT_WORDS[lang]
-    return text.replace(/(?<![\p{L}\p{M}\p{N}_])0\d+(?![\p{L}\p{M}\p{N}_])/gu, (match, offset: number) => {
-      // Decimal parts, version/IP components, minutes (« 14:05 ») and date
-      // parts (« 01/02/2024 », « 2024-03-15 ») are not zero-padded codes.
-      if (/\d[.,:/-]$/.test(text.slice(Math.max(0, offset - 2), offset)) ||
-          /^[.,:/-]\d/.test(text.slice(offset + match.length, offset + match.length + 2))) return match
-      if (!words) return match.split("").join(" ")
-      return match.split("").map((d) => words[parseInt(d, 10)] ?? d).join(" ")
-    })
   }
 
   call(textList: string[], langList: string[]) {
@@ -117,14 +66,7 @@ export class UnicodeProcessor {
   }
 
   preprocessText(text: string, lang: string): string {
-    // A spaced slash between words separates two ideas (« corruption /
-    // Coopération »): a pause, or the space it becomes below runs them
-    // together. Between numbers it stays a ratio.
-    text = text.replace(/(?<=\p{L})\s+\/\s+(?=\p{L})/gu, ", ")
-    text = normalizeSpokenNumbers(text, lang)
-    // Before `/` becomes a space below, which would hide that « 01/02 » is a date.
-    text = this.expandLeadingZeroNumbers(text, lang)
-    text = spellNumbers(text, lang)
+    // The speech text is already verbalized. Adapt it to the model vocabulary.
     text = text.normalize("NFKD")
     const emojiPattern =
       /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}]+/gu
@@ -140,13 +82,6 @@ export class UnicodeProcessor {
       text = text.replaceAll(k, v)
     }
     text = text.replace(/[♥☆♡©\\]/g, "")
-
-    const exprReplacements: Record<string, string> = {
-      "@": " at ", "e.g.,": "for example, ", "i.e.,": "that is, ",
-    }
-    for (const [k, v] of Object.entries(exprReplacements)) {
-      text = text.replaceAll(k, v)
-    }
 
     text = text.replace(/ ,/g, ",").replace(/ \./g, ".").replace(/ !/g, "!")
       .replace(/ \?/g, "?").replace(/ ;/g, ";").replace(/ :/g, ":")

@@ -43,7 +43,8 @@ engine retained for older profiles without a saved engine.
 
 The two local engines work offline with their cached files. Unsupported
 languages and private windows without cached models use a system voice for
-the reading. Personal pronunciation rules apply with Supertonic and system voices.
+the reading. Verbalis prepares spoken text for every engine in its supported languages.
+Personal pronunciation rules apply with Supertonic and system voices.
 
 In-page reading does not send article text to the Orateur web app. Explicit
 save actions transfer extracted content, title, language and source URL; a

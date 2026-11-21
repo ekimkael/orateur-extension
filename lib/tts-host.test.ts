@@ -1,8 +1,16 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import test from "node:test"
-import { resolveBlockLangs, splitBlocks, splitUnits } from "./tts-host.ts"
+import { splitUnits } from "./tts-host.ts"
+import { resolveBlockLangs, splitBlocks } from "./reading-language.ts"
+import { createSpeechPreparation, prepareSpeech } from "./prepare-speech.ts"
+import { toSupertonicLang, type SupportedLang } from "./supertonic-lang.ts"
 import type { PronunciationRule } from "./pronunciation/personal.ts"
+
+function splitArticle(text: string, lang: SupportedLang, personalRules: PronunciationRule[] = []) {
+  const { paragraphs } = createSpeechPreparation({ paragraphs: splitBlocks(text), text, title: "", personalRules }, lang)
+  return splitUnits(paragraphs.map((block) => ({ ...block, lang: toSupertonicLang(block.lang) ?? lang })))
+}
 
 const EN_PARAGRAPH =
   "The cat is sitting on the mat and watching the window with attention, " +
@@ -13,7 +21,7 @@ const FR_PARAGRAPH =
 
 test("English digest headings and technical paragraphs use English despite Gmail's French declaration", () => {
   const text = readFileSync(new URL("../tests/fixtures/english-digest.txt", import.meta.url), "utf8")
-  const units = splitUnits(text, "fr")
+  const units = splitArticle(text, "fr")
   assert.equal(units.filter((unit) => unit.endsParagraph).length, splitBlocks(text).length)
   assert.ok(units.every((unit) => unit.lang === "en"))
 })
@@ -24,9 +32,9 @@ test("neural reading applies personal rules per original paragraph language and 
     { id: "en", language: "en", source: "API", replacement: "English interface", caseSensitive: false },
   ]
   const raw = `${FR_PARAGRAPH} API : 40 000.\n\n${EN_PARAGRAPH} API: 40,000.`
-  const units = splitUnits(raw, "fr", rules)
-  assert.match(units.filter((unit) => unit.paragraph === 0).map((unit) => unit.text).join(" "), /interface française, 40000/)
-  assert.match(units.filter((unit) => unit.paragraph === 1).map((unit) => unit.text).join(" "), /English interface, 40000/)
+  const units = splitArticle(raw, "fr", rules)
+  assert.match(units.filter((unit) => unit.paragraph === 0).map((unit) => unit.text).join(" "), /interface française\s*:\s*quarante mille/)
+  assert.match(units.filter((unit) => unit.paragraph === 1).map((unit) => unit.text).join(" "), /English interface:\s*forty thousand/)
   assert.ok(units.every((unit) => unit.lang === (unit.paragraph === 0 ? "fr" : "en")))
   assert.match(raw, /API : 40 000/)
 })
@@ -35,7 +43,7 @@ test("neural preview uses the rule language instead of detecting its source word
   const rules: PronunciationRule[] = [
     { id: "fr", language: "fr", source: "Overview", replacement: "vue d'ensemble", caseSensitive: false },
   ]
-  assert.deepEqual(splitUnits("Overview", "fr", rules, false), [
+  assert.deepEqual(splitUnits([{ text: prepareSpeech("Overview", "fr", rules), lang: "fr" }]), [
     { text: "vue d'ensemble.", endsParagraph: true, paragraph: 0, lang: "fr" },
   ])
 })
@@ -53,7 +61,7 @@ test("splitBlocks renvoie un tableau vide pour un texte vide", () => {
 })
 
 test("splitUnits garde un paragraphe court en une seule unité", () => {
-  assert.deepEqual(splitUnits("Un.\n\nDeux.", "fr"), [
+  assert.deepEqual(splitArticle("Un.\n\nDeux.", "fr"), [
     { text: "Un.", endsParagraph: true, paragraph: 0, lang: "fr" },
     { text: "Deux.", endsParagraph: true, paragraph: 1, lang: "fr" },
   ])
@@ -63,14 +71,14 @@ test("splitUnits découpe un paragraphe long en plusieurs unités", () => {
   // Trois phrases de ~200 caractères : impossible d'en tenir deux sous les 300
   // caractères d'une unité française.
   const phrase = (n: number) => `Phrase numéro ${n} ${"a".repeat(200)}.`
-  const units = splitUnits([phrase(1), phrase(2), phrase(3)].join(" "), "fr")
+  const units = splitArticle([phrase(1), phrase(2), phrase(3)].join(" "), "fr")
   assert.equal(units.length, 3)
   for (const u of units) assert.ok(u.text.length <= 300, `unité trop longue : ${u.text.length}`)
 })
 
 test("splitUnits ne marque la fin de paragraphe que sur la dernière unité", () => {
   const phrase = (n: number) => `Phrase numéro ${n} ${"a".repeat(200)}.`
-  const units = splitUnits(`${phrase(1)} ${phrase(2)}\n\nCourt.`, "fr")
+  const units = splitArticle(`${phrase(1)} ${phrase(2)}\n\nCourt.`, "fr")
   assert.deepEqual(
     units.map((u) => u.endsParagraph),
     [false, true, true]
@@ -96,24 +104,24 @@ test("splitUnits découpe plus court en japonais et en coréen", () => {
   // Deux phrases de 106 caractères : elles tiennent ensemble sous les 300 du
   // français, pas sous les 120 du japonais.
   const text = `${"a".repeat(105)}. ${"b".repeat(105)}.`
-  assert.equal(splitUnits(text, "fr").length, 1)
-  assert.equal(splitUnits(text, "ja").length, 2)
+  assert.equal(splitArticle(text, "fr").length, 1)
+  assert.equal(splitArticle(text, "ja").length, 2)
 
   // Vrai japonais : 。 sans espace derrière, qui ne coupait rien avant.
   const ja = "これはとても長い日本語の文章です。".repeat(20)
-  const units = splitUnits(ja, "ja")
+  const units = splitArticle(ja, "ja")
   assert.ok(units.length > 1)
   for (const unit of units) assert.ok(unit.text.length <= 120)
 })
 
 test("splitUnits couvre toutes les unités de tous les paragraphes", () => {
-  const units = splitUnits("Un. Deux.\n\nTrois.\n\n  \n\nQuatre.", "fr")
+  const units = splitArticle("Un. Deux.\n\nTrois.\n\n  \n\nQuatre.", "fr")
   assert.equal(units.filter((u) => u.endsParagraph).length, 3)
 })
 
 test("splitUnits rapporte chaque unité à son paragraphe", () => {
   const phrase = (n: number) => `Phrase numéro ${n} ${"a".repeat(200)}.`
-  const units = splitUnits(`${phrase(1)} ${phrase(2)}\n\nCourt.\n\nAutre.`, "fr")
+  const units = splitArticle(`${phrase(1)} ${phrase(2)}\n\nCourt.\n\nAutre.`, "fr")
   assert.deepEqual(
     units.map((u) => u.paragraph),
     [0, 0, 1, 2]
@@ -127,7 +135,7 @@ test("splitUnits bascule un paragraphe entièrement anglais dans un texte franç
   const en =
     "The cat is sitting on the mat and watching the window with attention, while the rain " +
     "falls gently on the roofs of the whole city outside."
-  const units = splitUnits(`${fr}\n\n${en}\n\nCourt.`, "fr")
+  const units = splitArticle(`${fr}\n\n${en}\n\nCourt.`, "fr")
   assert.deepEqual(
     units.map((u) => u.lang),
     ["fr", "en", "fr"]

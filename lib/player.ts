@@ -34,6 +34,8 @@ export interface PlayerOptions {
   paragraphs: string[]
   /** The whole extracted text the paragraphs come from. */
   text: string
+  /** Original language tag, including the region when known. */
+  documentLanguage?: string
   title: string
   startBlock: number
   personalRules: PronunciationRule[]
@@ -52,6 +54,8 @@ export interface Player {
   pause(): void
   /** Resumes, applying any speed or voice change made while paused. */
   resume(): void
+  /** Whether the latest prepared text for this paragraph can be spoken. */
+  hasSpeech(block: number): boolean
   /** Jumps to the start of paragraph `block`, keeping the paused state. */
   seek(block: number): void
   /** Speed or voice changed while reading; `previous` holds the old values. */

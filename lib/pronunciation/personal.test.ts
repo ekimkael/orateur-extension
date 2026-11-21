@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { expandText } from "./index.ts"
+import { prepareSpeech } from "../prepare-speech.ts"
 import {
   MAX_RULES, MAX_SOURCE_LENGTH, MAX_REPLACEMENT_LENGTH,
   sanitizePronunciationRules, splitPronunciationSegments, validatePronunciationRule,
@@ -79,25 +79,18 @@ test("longest expression wins, strict case wins ties, and input order cannot cha
   assert.equal(apply("open AI", [rule("Open AI", "strict", { caseSensitive: true }), rule("Open", "court")]), "court AI")
 })
 
-test("generated replacements are protected from other personal rules and builtins in both engines", () => {
-  const personalRules = [rule("bug", "API"), rule("API", "NASA"), rule("NASA", "gone")]
-  for (const skipPhonetic of [false, true]) {
-    assert.equal(expandText("un bug, API et NASA !", { language: "fr", personalRules, skipPhonetic }), "un API, NASA et gone !")
-    assert.equal(expandText("bug : fin", { language: "fr", personalRules, skipPhonetic }), "API, fin")
-  }
-  assert.equal(expandText("bug et frontend", { language: "fr", personalRules }), "API et frontènde")
-  assert.equal(expandText("bug et frontend", { language: "fr", personalRules, skipPhonetic: true }), "API et frontend")
-  assert.equal(expandText("bug", { language: "en", personalRules }), "bug")
+test("personal replacements bypass other rules and Verbalis", () => {
+  const rules = [rule("bug", "API"), rule("API", "20 kg"), rule("kg", "unité")]
+  assert.equal(prepareSpeech("un bug, API et kg !", "fr", rules), "un API, 20 kg et unité !")
+  assert.equal(prepareSpeech("bug", "en", rules), "bug")
 })
 
-test("preserves segment joins around replacements and normalizes final whitespace once", () => {
-  const personalRules = [rule("API", "alpha  beta")]
-  assert.equal(expandText("  l'API-API, une API !  ", { personalRules }), "l'alpha beta-alpha beta, une alpha beta !")
+test("normalizes speech outside personal replacements without joining adjacent words", () => {
+  const rules = [rule("API", "alpha  beta")]
+  assert.equal(prepareSpeech("  Une API et 2 kg.  ", "fr", rules), "Une alpha beta et deux kilogrammes.")
 })
 
 test("personal numeric sources match before normalization and numeric replacements stay protected", () => {
-  const personalRules = [rule("40 000", "quelques milliers"), rule("montant", "40 000")]
-  for (const skipPhonetic of [false, true]) {
-    assert.equal(expandText("40 000 et montant", { language: "fr", personalRules, skipPhonetic }), "quelques milliers et 40 000")
-  }
+  const rules = [rule("40 000", "quelques milliers"), rule("montant", "40 000")]
+  assert.equal(prepareSpeech("40 000 et montant", "fr", rules), "quelques milliers et 40 000")
 })

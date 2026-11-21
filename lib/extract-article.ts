@@ -1,6 +1,5 @@
 import { isProbablyReaderable, Readability } from "@mozilla/readability"
-// Extension explicite : `node --test` résout les modules sans elle, contrairement
-// à Vite. Même raison que l'import de `pronunciation/index.ts` dans le lecteur.
+// The Node test runner requires explicit extensions for relative imports.
 import { withStop } from "./reading-intro.ts"
 import { speakTable } from "./speak-table.ts"
 import { countWords, hostnameOf, normalize, remove } from "./extract/dom.ts"
