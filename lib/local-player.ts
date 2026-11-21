@@ -8,9 +8,7 @@
  * into the bundle of a script loaded on every page.
  */
 
-import { buildReadingIntro } from "./reading-intro.ts"
-import { resolveBlockLangs } from "./reading-language.ts"
-import { detectLang, resolveDocLang } from "./detect-lang.ts"
+import { createSpeechPreparation } from "./prepare-speech.ts"
 import { toSupertonicLang, type SupportedLang } from "./supertonic-lang.ts"
 import type { PocketLanguage, PocketVoice } from "./pocket/catalog.ts"
 import { track } from "./telemetry.ts"
@@ -58,19 +56,12 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
   | { engine: "supertonic"; lang: SupportedLang }
   | { engine: "pocket"; lang: PocketLanguage; voice: PocketVoice; cacheOnly: boolean }
 )): Player {
-  const { engine, paragraphs, text, title, lang, startBlock, personalRules, source, token, prefs, emit } = options
-
-  // `lang` is the resolved language (declaration or detection), not
-  // necessarily the page's: the title intro must sound in the language
-  // that will actually be read.
-  //
-  // Same title intro as the system voices (buildReadingIntro), composed here
-  // rather than by the host: the hosts know neither tabs nor titles, only
-  // text to synthesize.
-  const intro = buildReadingIntro(lang, title)
-  // Same per-block languages as the host computes: a block re-prepared
-  // from the live page falls back on them, not on the page declaration.
-  const blockLangs = engine === "supertonic" ? resolveBlockLangs(paragraphs, lang) : []
+  const { engine, paragraphs, lang, startBlock, source, token, prefs, emit } = options
+  const speech = createSpeechPreparation(options, lang)
+  function modelBlock(paragraph: TtsPreparedBlock<string>): TtsPreparedBlock<string> {
+    // Pocket keeps one cached language model for the entire reading.
+    return { text: paragraph.text, lang: engine === "pocket" ? lang : toSupertonicLang(paragraph.lang) ?? lang }
+  }
   let block = startBlock
   let paused = false
   let disposed = false
@@ -175,15 +166,7 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
       (message.prefetch !== undefined && typeof message.prefetch !== "boolean")) return Promise.resolve(null)
     return source.prepare(index, prefs().follow, !!message.prefetch, index > block ? "nearest" : "center").then((text) => {
       if (disposed) return null
-      const paragraph = index === 0 && intro ? `${intro} ${text}` : text
-      // Pocket loads one model per reading. A translated block must not cause
-      // a second model download or invalidate a private-window cache check.
-      if (engine === "pocket") return { text: paragraph, lang }
-      // A short block decides nothing alone: Gmail's French declaration
-      // would win over the English message the start already resolved.
-      const resolved = toSupertonicLang(blockLangs[index] ?? "")
-      const blockLang = (resolved ? detectLang(text, resolved) : resolveDocLang(document.documentElement.lang, text)) ?? "na"
-      return { text: paragraph, lang: blockLang }
+      return modelBlock(speech.refresh(index, text))
     })
   }
 
@@ -200,15 +183,13 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
 
   return {
     engine,
+    hasSpeech: speech.hasSpeech,
     start() {
       emit({ phase: "loading" })
       connection = open()
       const request = {
         type: TTS_SPEAK,
-        // The title intro appears nowhere in the page text: the host joins it
-        // to the first paragraph (`splitBlocks`), so block indexes still match.
-        text: intro ? `${intro} ${text}` : text,
-        title,
+        paragraphs: speech.paragraphs.map(modelBlock),
         lang,
         speed: prefs().speed,
         startBlock,
@@ -217,7 +198,7 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
       } as const
       send(options.engine === "pocket"
         ? { ...request, engine: options.engine, voice: options.voice, cacheOnly: options.cacheOnly }
-        : { ...request, engine: "supertonic", voice: prefs().supertonicVoice, personalRules })
+        : { ...request, engine: "supertonic", voice: prefs().supertonicVoice })
     },
     pause() {
       paused = true

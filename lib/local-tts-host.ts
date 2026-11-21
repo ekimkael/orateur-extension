@@ -10,9 +10,9 @@ export interface LocalTtsHost<Request> {
   dispose?(): void
 }
 
-/** Pocket's host input deliberately excludes pronunciation rules. */
+/** Pocket receives speech-ready paragraphs and keeps one model per reading. */
 export interface PocketSpeakRequest {
-  text: string
+  paragraphs: readonly TtsPreparedBlock<string>[]
   lang: string
   voice: string
   speed: number

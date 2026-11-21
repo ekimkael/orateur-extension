@@ -3,11 +3,7 @@
  * whole position — paragraph and word — kept here, next to the page.
  */
 
-import { expandText } from "./pronunciation/index.ts"
-import { resolveBlockLangs } from "./reading-language.ts"
-import { buildReadingIntro } from "./reading-intro.ts"
-import { toSupertonicLang } from "./supertonic-lang.ts"
-import { detectLang } from "./detect-lang.ts"
+import { createSpeechPreparation } from "./prepare-speech.ts"
 import type { Player, PlayerOptions } from "./player.ts"
 
 /**
@@ -16,36 +12,9 @@ import type { Player, PlayerOptions } from "./player.ts"
  * @param options.lang The page's declared language; the text may override it.
  */
 export function createSystemPlayer(options: PlayerOptions & { lang?: string }): Player {
-  const { paragraphs, text: pageText, title, startBlock, personalRules, source, prefs, emit } = options
-
-  // Un bloc par paragraphe, pour éviter la limite de longueur de Chrome.
-  // Le découpage passe avant `expandText`, qui écrase les blancs — les
-  // frontières de paragraphes n'y survivraient pas.
-  const raw = [...paragraphs]
-
-  // La déclaration de la page l'emporte quand la détection ne la
-  // contredit pas — elle porte souvent une région (`en-US`) que la
-  // détection, elle, ne rend jamais. Ne s'en écarter que si le texte
-  // réel dit clairement autre chose : article entier mal étiqueté, ou
-  // page sans `lang` du tout.
-  const declared = toSupertonicLang(options.lang ?? "")
-  const detected = detectLang(pageText, declared)
-  const lang = detected && detected !== declared ? detected : options.lang
-  const docLang = toSupertonicLang(lang ?? "") ?? "na"
-  const blockLangs: string[] = resolveBlockLangs(raw, docLang).map((blockLang) =>
-    blockLang === docLang ? lang ?? blockLang : blockLang
-  )
-
-  // Le titre n'est pas dans le texte extrait — Readability retire le h1 qui
-  // le répète. L'annoncer en tête du premier bloc plutôt qu'en bloc à part :
-  // il suit alors la même reprise que le reste, comme sur mobile.
-  const intro = buildReadingIntro(lang ?? "", title)
-  if (intro && raw.length) raw[0] = `${intro} ${raw[0]}`
-
-  // Texte à dire, jamais à afficher : sigles épelés, symboles verbalisés,
-  // anglicismes réécrits pour les voix système. Ce sont les seules
-  // disponibles ici, donc la couche phonétique s'applique toujours.
-  const blocks = raw.map((block, i) => expandText(block, { language: blockLangs[i], personalRules }))
+  const { startBlock, source, prefs, emit } = options
+  const speech = createSpeechPreparation(options, options.lang)
+  const blocks = speech.paragraphs
 
   /** Position de lecture : le bloc en cours, et où la voix en est dedans. */
   let blockIndex = startBlock
@@ -87,31 +56,33 @@ export function createSystemPlayer(options: PlayerOptions & { lang?: string }): 
   }
 
   async function play(block: number, from: number) {
-    let text = blocks[block]
-    if (text === undefined) return emit({ phase: "ended" })
     const mine = generation
-    if (source) {
-      blockIndex = block
-      charIndex = from
-      try {
-        const current = await source.prepare(block, prefs().follow)
-        if (mine !== generation) return
-        if (paused) {
-          stale = true
+    let prepared = blocks[block]
+    while (prepared) {
+      if (source) {
+        blockIndex = block
+        charIndex = from
+        try {
+          const current = await source.prepare(block, prefs().follow)
+          if (mine !== generation) return
+          if (paused) {
+            stale = true
+            return
+          }
+          const refreshed = speech.refresh(block, current)
+          if (refreshed.text !== prepared.text || refreshed.lang !== prepared.lang) from = 0
+          prepared = blocks[block] = refreshed
+        } catch {
+          if (mine !== generation) return
+          emit({ phase: "error", reason: "preparation" })
           return
         }
-        const currentLang = detectLang(current, toSupertonicLang(blockLangs[block] ?? lang ?? ""))
-        if (currentLang) blockLangs[block] = currentLang
-        const spoken = block === 0 && intro ? `${intro} ${current}` : current
-        const expanded = expandText(spoken, { language: blockLangs[block], personalRules })
-        if (text !== expanded) from = 0
-        text = blocks[block] = expanded
-      } catch {
-        if (mine !== generation) return
-        emit({ phase: "error", reason: "preparation" })
-        return
       }
+      if (prepared.text) break
+      prepared = blocks[++block]
+      from = 0
     }
+    if (!prepared) return emit({ phase: "ended" })
 
     // Résolue à chaque énoncé : `getVoices()` reconstruit sa liste à
     // chaque appel. Introuvable (voix désinstallée, autre machine) vaut
@@ -120,9 +91,8 @@ export function createSystemPlayer(options: PlayerOptions & { lang?: string }): 
     const voice = voiceURI
       ? speechSynthesis.getVoices().find((v) => v.voiceURI === voiceURI)
       : undefined
-    const utterance = new SpeechSynthesisUtterance(text.slice(from))
-    const spokenLang = blockLangs[block] ?? lang
-    if (spokenLang && spokenLang !== "na") utterance.lang = spokenLang
+    const utterance = new SpeechSynthesisUtterance(prepared.text.slice(from))
+    if (prepared.lang !== "na") utterance.lang = prepared.lang
     utterance.rate = speed
     // A saved voice overrides `lang`, including on a translated page.
     // Let the browser choose when that voice speaks another language.
@@ -171,6 +141,7 @@ export function createSystemPlayer(options: PlayerOptions & { lang?: string }): 
 
   return {
     engine: "system",
+    hasSpeech: speech.hasSpeech,
     start: speak,
     pause() {
       paused = true

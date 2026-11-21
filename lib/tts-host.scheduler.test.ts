@@ -1,3 +1,6 @@
+import { splitBlocks } from "./reading-language.ts"
+import type { SpeakRequest, TtsHost } from "./tts-host.ts"
+import type { SupportedLang } from "./supertonic-lang.ts"
 /**
  * Le banc de l'ordonnanceur : cache, avance, éviction, arrêt.
  *
@@ -102,6 +105,10 @@ mock.module(new URL("./supertonic/engine.ts", import.meta.url).href, {
 
 const { createTtsHost } = await import("./tts-host.ts")
 
+function speak(host: TtsHost, { text, lang, ...request }: Omit<SpeakRequest, "paragraphs"> & { text: string; lang: SupportedLang }) {
+  host.speak({ ...request, paragraphs: splitBlocks(text).map((text) => ({ text, lang })) })
+}
+
 // Simulated clock: a real `setTimeout(0)` costs ~1 ms in Node, which added up
 // to seconds across this suite.
 mock.timers.enable({ apis: ["setTimeout"] })
@@ -122,7 +129,7 @@ function article(n: number) {
 function start(n: number) {
   const states: string[] = []
   const host = createTtsHost((s) => states.push(s.phase))
-  host.speak({ text: article(n), lang: "fr", voice: "F1", speed: 1 })
+  speak(host, { text: article(n), lang: "fr", voice: "F1", speed: 1 })
   return { host, states }
 }
 
@@ -143,7 +150,7 @@ beforeEach(() => {
 test("un titre de mail a son audio et son silence avant la prose avec la voix IA", async () => {
   const doc = new JSDOM("<div><b>Prochaine étape</b><br>Nous préparons maintenant la suite du projet.</div>").window.document
   const host = createTtsHost(() => {})
-  host.speak({ text: extractSelectionText(doc.body), lang: "fr", voice: "F1", speed: 1 })
+  speak(host, { text: extractSelectionText(doc.body), lang: "fr", voice: "F1", speed: 1 })
   await settle()
   assert.deepEqual(contentSynths(), ["Prochaine étape.", "Nous préparons maintenant la suite du projet."])
   assert.equal(encodedPcm.length, 2)
@@ -215,7 +222,7 @@ test("une nouvelle lecture ne réutilise pas le cache de la précédente", async
   const { host } = start(4)
   await settle()
   const revokedBefore = revoked.length
-  host.speak({ text: article(4), lang: "fr", voice: "F1", speed: 1 })
+  speak(host, { text: article(4), lang: "fr", voice: "F1", speed: 1 })
   await settle()
   assert.ok(revoked.length > revokedBefore, "le cache de la lecture précédente survit")
   assert.equal(contentSynths().filter((t) => t === "Paragraphe 0.").length, 2)
@@ -225,7 +232,7 @@ test("une nouvelle lecture ne réutilise pas le cache de la précédente", async
 test("une reprise Supertonic commence au paragraphe demandé", async () => {
   const states: Array<{ phase: string; block?: number }> = []
   const host = createTtsHost((state) => states.push(state))
-  host.speak({ text: article(5), lang: "fr", voice: "F1", speed: 1, startBlock: 3 })
+  speak(host, { text: article(5), lang: "fr", voice: "F1", speed: 1, startBlock: 3 })
   await settle()
   assert.equal(contentSynths()[0], "Paragraphe 3.")
   assert.equal(states.find((state) => state.phase === "playing")?.block, 3)
@@ -235,7 +242,7 @@ test("une reprise Supertonic commence au paragraphe demandé", async () => {
 test("un déplacement en pause reste en pause puis reprend au paragraphe demandé", async () => {
   const states: Array<{ phase: string; block?: number }> = []
   const host = createTtsHost((state) => states.push(state))
-  host.speak({ text: article(5), lang: "fr", voice: "F1", speed: 1 })
+  speak(host, { text: article(5), lang: "fr", voice: "F1", speed: 1 })
   await settle()
   host.control("pause")
   host.seek(3, true)
@@ -255,7 +262,7 @@ test("deux déplacements rapides ne jouent que le dernier", async () => {
     if (state.phase === "playing") playing.push(state.block)
     if (state.phase === "error") errors++
   })
-  host.speak({ text: article(6), lang: "fr", voice: "F1", speed: 1 })
+  speak(host, { text: article(6), lang: "fr", voice: "F1", speed: 1 })
   await settle()
   host.seek(2, false)
   host.seek(4, false)
@@ -268,7 +275,7 @@ test("deux déplacements rapides ne jouent que le dernier", async () => {
 test("une erreur tardive de l'ancienne tête n'arrête pas le déplacement", async () => {
   const phases: string[] = []
   const host = createTtsHost((state) => phases.push(state.phase))
-  host.speak({ text: article(5), lang: "fr", voice: "F1", speed: 1 })
+  speak(host, { text: article(5), lang: "fr", voice: "F1", speed: 1 })
   await settle()
   const staleHead = audios[0]!
   host.seek(2, false)
@@ -288,7 +295,7 @@ test("la préparation attend le français puis précharge les paragraphes suivan
     if (state.phase === "playing") playing.push(state)
     if (state.phase === "loading") loading.push(state.reason ?? "")
   })
-  host.speak({
+  speak(host, {
     text: "The original first paragraph.\n\nThe original second paragraph.\n\nThe original third paragraph.",
     lang: "en", voice: "F1", speed: 1,
     prepareParagraph: async (paragraph) => {
@@ -334,7 +341,7 @@ test("l'avance audio franchit un titre court déjà traduit pendant la lecture d
     if (state.phase === "playing") playing.push(state.block)
     if (state.phase === "loading") loading.push(state.reason ?? "")
   })
-  host.speak({
+  speak(host, {
     text: article(3), lang: "en", voice: "F1", speed: 1,
     prepareParagraph: async (paragraph, prefetch) => {
       requested.push({ paragraph, prefetch })
@@ -361,7 +368,7 @@ test("l'avance audio franchit un titre court déjà traduit pendant la lecture d
 test("une préparation rejetée signale l'erreur sans lire le texte original", async () => {
   const states: { phase: string; message?: string }[] = []
   const host = createTtsHost((state) => states.push(state))
-  host.speak({
+  speak(host, {
     text: "The original English paragraph.", lang: "en", voice: "F1", speed: 1,
     prepareParagraph: async () => { throw new Error("Traduction indisponible") },
   })
@@ -376,7 +383,7 @@ test("une préparation vide ou malformée ne relit pas le texte original", async
   for (const prepared of [null, { text: " ", lang: "fr" }, { text: "Texte traduit.", lang: "invalid" }]) {
     const phases: string[] = []
     const host = createTtsHost((state) => phases.push(state.phase))
-    host.speak({
+    speak(host, {
       text: "The original English paragraph.", lang: "en", voice: "F1", speed: 1,
       prepareParagraph: async () => prepared as never,
     })
@@ -387,16 +394,42 @@ test("une préparation vide ou malformée ne relit pas le texte original", async
   }
 })
 
+test("Supertonic skips silent blocks and keeps the original live positions", async () => {
+  const states: TtsState[] = []
+  const host = createTtsHost((state) => states.push(state))
+  const snapshot = ["", "Première phrase.", "Avant la traduction.", "Dernière phrase.", ""]
+  const current = ["", "Première phrase.", "", "Dernière phrase.", ""]
+  host.speak({
+    paragraphs: snapshot.map((text) => ({ text, lang: "fr" })), voice: "F1", speed: 1,
+    prepareParagraph: async (block) => ({ text: current[block]!, lang: "fr" }),
+  })
+  await settle()
+  assert.deepEqual(contentSynths(), ["Première phrase.", "Dernière phrase."])
+  assert.deepEqual(states.at(-1), { phase: "playing", block: 1, total: 5 })
+  audios.find((audio) => !audio.paused)!.finish()
+  await settle()
+  assert.deepEqual(states.at(-1), { phase: "playing", block: 3, total: 5 })
+  audios.find((audio) => !audio.paused)!.finish()
+  await settle()
+  assert.deepEqual(states.at(-1), { phase: "ended" })
+  current[2] = "Texte apparu dans la page."
+  host.seek(2, false)
+  await settle()
+  assert.deepEqual(states.at(-1), { phase: "playing", block: 2, total: 5 })
+  assert.ok(contentSynths().includes(current[2]))
+  host.control("stop")
+})
+
 test("arrêter une préparation bloquée permet immédiatement une nouvelle lecture", async () => {
   const old = Promise.withResolvers<{ text: string; lang: "fr" }>()
   const host = createTtsHost(() => {})
-  host.speak({
+  speak(host, {
     text: article(2), lang: "fr", voice: "F1", speed: 1,
     prepareParagraph: () => old.promise,
   })
   await settle(10)
   host.control("stop")
-  host.speak({ text: "Nouvelle lecture.", lang: "fr", voice: "F1", speed: 1 })
+  speak(host, { text: "Nouvelle lecture.", lang: "fr", voice: "F1", speed: 1 })
   await settle()
   assert.deepEqual(contentSynths(), ["Nouvelle lecture."])
   old.resolve({ text: "Ancienne traduction.", lang: "fr" })
@@ -413,7 +446,7 @@ test("un déplacement ignore une préparation bloquée puis relit le DOM même p
   const host = createTtsHost((state) => {
     if (state.phase === "playing") playing.push(state.block)
   })
-  host.speak({
+  speak(host, {
     text: article(2), lang: "fr", voice: "F1", speed: 1,
     prepareParagraph: async (paragraph) => {
       requested.push(paragraph)
@@ -440,7 +473,7 @@ test("une reprise pendant la préparation attend le texte et ne joue pas une tê
   const prepared = Promise.withResolvers<{ text: string; lang: "fr" }>()
   const phases: string[] = []
   const host = createTtsHost((state) => phases.push(state.phase))
-  host.speak({
+  speak(host, {
     text: article(1), lang: "fr", voice: "F1", speed: 1,
     prepareParagraph: () => prepared.promise,
   })
@@ -465,7 +498,7 @@ test("des déplacements rapides ignorent le refus tardif de l'ancien play", asyn
     if (state.phase === "playing") playing.push(state.block)
     if (state.phase === "error") errors.push(state.message)
   })
-  host.speak({
+  speak(host, {
     text: article(5), lang: "fr", voice: "F1", speed: 1,
     prepareParagraph: async (paragraph) => ({ text: `Traduction du paragraphe ${paragraph}.`, lang: "fr" }),
   })
@@ -490,7 +523,7 @@ test("un déplacement ignore le rejet tardif d'une ancienne préparation", async
     if (state.phase === "playing") playing.push(state.block)
     if (state.phase === "error") errors.push(state.message)
   })
-  host.speak({
+  speak(host, {
     text: article(2), lang: "fr", voice: "F1", speed: 1,
     prepareParagraph: async (paragraph) => paragraph === 0 ? old.promise : { text: "Le paragraphe courant est traduit.", lang: "fr" },
   })
@@ -508,7 +541,7 @@ test("le dernier chunk active une préparation passive sans remplacer deux fois 
   const next = Promise.withResolvers<{ text: string; lang: "fr" }>()
   const requested: { paragraph: number; prefetch: boolean | undefined }[] = []
   const host = createTtsHost(() => {})
-  host.speak({
+  speak(host, {
     text: article(2), lang: "fr", voice: "F1", speed: 1,
     prepareParagraph: async (paragraph, prefetch) => {
       requested.push({ paragraph, prefetch })
@@ -540,7 +573,7 @@ test("l'activation ne révèle pas un corps au-delà d'un long paragraphe déjà
   const requested: { paragraph: number; prefetch: boolean | undefined }[] = []
   const long = "Ce paragraphe français laisse assez de temps pour préparer la suite sans déplacer la page trop loin pendant la lecture. ".repeat(4)
   const host = createTtsHost(() => {})
-  host.speak({
+  speak(host, {
     text: article(4), lang: "en", voice: "F1", speed: 1,
     prepareParagraph: async (paragraph, prefetch) => {
       requested.push({ paragraph, prefetch })
@@ -570,7 +603,7 @@ test("un titre en attente est activé puis laisse préparer son corps pendant le
     if (state.phase === "playing") playing.push(state.block)
     if (state.phase === "loading") loading.push(state.reason ?? "")
   })
-  host.speak({
+  speak(host, {
     text: article(3), lang: "en", voice: "F1", speed: 1,
     prepareParagraph: async (paragraph, prefetch) => {
       requested.push({ paragraph, prefetch })
@@ -616,7 +649,7 @@ for (const resume of [false, true]) {
       if (state.phase === "playing") playing.push(state.block)
       if (state.phase === "loading") loading.push(state.reason ?? "")
     })
-    host.speak({
+    speak(host, {
       text: article(3), lang: "en", voice: "F1", speed: 1,
       prepareParagraph: async (paragraph, prefetch) => {
         requested.push({ paragraph, prefetch })
@@ -659,7 +692,7 @@ test("une ancienne préparation passive bloquée ne prive pas le déplacement de
   const old = Promise.withResolvers<{ text: string; lang: "fr" }>()
   const requested: number[] = []
   const host = createTtsHost(() => {})
-  host.speak({
+  speak(host, {
     text: article(4), lang: "fr", voice: "F1", speed: 1,
     prepareParagraph: async (paragraph) => {
       requested.push(paragraph)
@@ -699,7 +732,7 @@ test("un refus de lecture audio ne signale jamais playing", async () => {
   const play = deferredPlay()
   const states: Array<{ phase: string; reason?: string }> = []
   const host = createTtsHost((state) => states.push(state))
-  host.speak({ text: article(1), lang: "fr", voice: "F1", speed: 1 })
+  speak(host, { text: article(1), lang: "fr", voice: "F1", speed: 1 })
   await settle()
   audios.find((audio) => !audio.paused)!.pause()
   play.reject(new Error("Lecture refusée"))
@@ -752,7 +785,7 @@ for (const outcome of ["resolve", "reject"] as const) {
         host.control("stop")
       } else {
         current = deferredPlay()
-        if (action === "speak") host.speak({ text: article(1), lang: "fr", voice: "F1", speed: 1 })
+        if (action === "speak") speak(host, { text: article(1), lang: "fr", voice: "F1", speed: 1 })
         else host.seek(0, false)
         await settle()
       }
@@ -773,7 +806,7 @@ for (const outcome of ["resolve", "reject"] as const) {
 test("un refus de reprise audio ne signale pas un nouveau playing", async () => {
   const states: Array<{ phase: string; reason?: string }> = []
   const host = createTtsHost((state) => states.push(state))
-  host.speak({ text: article(1), lang: "fr", voice: "F1", speed: 1 })
+  speak(host, { text: article(1), lang: "fr", voice: "F1", speed: 1 })
   await settle()
   host.control("pause")
   const play = deferredPlay()

@@ -1,7 +1,6 @@
 import type { LocalTtsHost, PocketSpeakRequest } from "./local-tts-host.ts"
 import { isPocketVoice, toPocketLanguage, type PocketLanguage } from "./pocket/catalog.ts"
 import { createPocketRuntime } from "./pocket/runtime.ts"
-import { splitBlocks } from "./reading-language.ts"
 import { chunkText, writeWavFile } from "./supertonic/engine.ts"
 import type { TtsPreparedBlock, TtsState } from "./tts-messages.ts"
 
@@ -28,6 +27,12 @@ function pieces(text: string, max: number): string[] {
 const SENTENCE_PAUSE = 0.6
 const PARAGRAPH_PAUSE = 1
 
+interface LivePreparation {
+  preparing: number | null
+  lastYielded: number | null
+  waitingAfter: number | null
+}
+
 /** Append the silence a unit's ending calls for; a clause or word cut keeps the flow. */
 function withPause(pcm: Float32Array, sampleRate: number, unit: { text: string; lastInBlock: boolean }, final: boolean): Float32Array {
   const seconds = final ? 0 : unit.lastInBlock ? PARAGRAPH_PAUSE : /[.!?…]["'»”’)\]]*$/u.test(unit.text) ? SENTENCE_PAUSE : 0
@@ -37,12 +42,12 @@ function withPause(pcm: Float32Array, sampleRate: number, unit: { text: string; 
   return padded
 }
 
-/** Plays bounded Pocket units with a few units of lookahead and no pronunciation preparation. */
+/** Plays bounded Pocket units with a few units of lookahead. */
 export function createPocketTtsHost(
   onState: (state: TtsState) => void,
   runtime = createPocketRuntime(),
 ): LocalTtsHost<PocketSpeakRequest> {
-  let reading: { request: PocketSpeakRequest; blocks: string[] } | null = null
+  let reading: PocketSpeakRequest | null = null
   let work: AbortController | null = null
   let clip: { audio: HTMLAudioElement; play(): void; pause(): void } | null = null
   let paused = false
@@ -52,26 +57,29 @@ export function createPocketTtsHost(
   // paragraph passively, without scrolling or turning an untranslated snapshot into audio.
   // `live.preparing` names the block whose live text is still awaited.
   async function* units(
-    request: PocketSpeakRequest, blocks: string[], start: number, signal: AbortSignal, live: { preparing: number | null },
+    request: PocketSpeakRequest, start: number, signal: AbortSignal, live: LivePreparation,
   ): AsyncGenerator<{ text: string; block: number; lang: PocketLanguage; lastInBlock: boolean }, void, boolean | undefined> {
     let prefetch = false
     let limit = FIRST_UNIT
+    const blocks = request.paragraphs
     for (let block = start; block < blocks.length; block++) {
       signal.throwIfAborted()
       live.preparing = request.prepareParagraph ? block : null
-      const prepared: TtsPreparedBlock<string> | null | undefined = await request.prepareParagraph?.(block, prefetch)
+      const passive = prefetch && live.waitingAfter !== live.lastYielded
+      const prepared: TtsPreparedBlock<string> | null | undefined = await request.prepareParagraph?.(block, passive)
         .finally(() => { live.preparing = null })
       signal.throwIfAborted()
       if (prepared === null) throw new Error("Live paragraph unavailable")
       const lang = toPocketLanguage(prepared?.lang ?? request.lang)
       if (!lang) throw new Error("Unsupported Pocket language")
-      let rest: string = prepared?.text ?? blocks[block]!
+      let rest: string = prepared?.text ?? blocks[block]!.text
       while (rest) {
         const [text, ...others] = pieces(rest, limit)
         if (!text) break
         rest = others.join(" ")
         // Once units reach full size the lookahead keeps them ahead; a later short heading must not shrink them.
         if (limit < MAX_UNIT) limit = Math.min(MAX_UNIT, Math.max(FIRST_UNIT, Math.floor(text.length * GROWTH)))
+        live.lastYielded = block
         prefetch = (yield { text, block, lang, lastInBlock: !rest }) === true
       }
     }
@@ -117,11 +125,12 @@ export function createPocketTtsHost(
     })
   }
 
-  async function run({ request, blocks }: NonNullable<typeof reading>, start: number, signal: AbortSignal) {
+  async function run(request: PocketSpeakRequest, start: number, signal: AbortSignal) {
+    const blocks = request.paragraphs
     const voice = request.voice
     if (!isPocketVoice(voice)) throw new Error("Unsupported Pocket voice")
-    const live = { preparing: null as number | null }
-    const queue = units(request, blocks, start, signal, live)
+    const live: LivePreparation = { preparing: null, lastYielded: null, waitingAfter: null }
+    const queue = units(request, start, signal, live)
     let waiting = true
     const render = async (prefetch: boolean) => {
       const { value, done } = await queue.next(prefetch)
@@ -150,6 +159,7 @@ export function createPocketTtsHost(
       while (current) {
         signal.throwIfAborted()
         waiting = false
+        live.waitingAfter = null
         const playback = playClip(current.pcm, current.sampleRate, current.block, blocks.length, signal)
         const last = current.lastInBlock && current.block === blocks.length - 1
         while (!last && ahead.length < LOOKAHEAD) {
@@ -169,7 +179,10 @@ export function createPocketTtsHost(
           if (!paused) onState({ phase: "loading", reason: "preparing-next" })
           // The listener now needs this paragraph: upgrade the passive wait so a
           // translated page reveals it, as the Supertonic host does.
-          if (live.preparing === current.block + 1) void request.prepareParagraph?.(current.block + 1, false)?.catch(() => {})
+          if (current.lastInBlock && live.lastYielded === current.block) {
+            live.waitingAfter = current.block
+            if (live.preparing !== null) void request.prepareParagraph?.(live.preparing, false)?.catch(() => {})
+          }
         }
         const result = await next.result
         if ("error" in result) throw result.error
@@ -182,7 +195,7 @@ export function createPocketTtsHost(
   }
 
   function jump(block: number, stayPaused: boolean) {
-    if (!reading || block < 0 || block >= reading.blocks.length) return
+    if (!reading || block < 0 || block >= reading.paragraphs.length) return
     work?.abort()
     const controller = new AbortController()
     work = controller
@@ -208,10 +221,10 @@ export function createPocketTtsHost(
   return {
     speak(request) {
       stop()
-      reading = { request, blocks: splitBlocks(request.text) }
+      reading = request
       speed = request.speed
       const start = request.startBlock ?? 0
-      if (start >= reading.blocks.length) onState({ phase: "ended" })
+      if (start >= request.paragraphs.length) onState({ phase: "ended" })
       else jump(start, false)
     },
     control(action) {

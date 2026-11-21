@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom"
 import { extractArticle, visibleText } from "./extract-article.ts"
 import { extractGmailMessage } from "./extract/gmail.ts"
 import { splitUnits } from "./tts-host.ts"
+import { splitBlocks } from "./reading-language.ts"
 
 /**
  * Readability n'accorde de score qu'aux blocs de plus de 140 caractères : les
@@ -211,7 +212,7 @@ test("la voix IA reçoit chaque sous-titre séparément, même dans une liste ou
       const html = `<${wrapper}><h${level}>${heading}</h${level}><p>${paragraph}</p></${wrapper}>`
       const doc = docFrom(withinArticle(html))
       for (const text of [extractArticle(doc).textContent, visibleText(doc).text]) {
-        const units = splitUnits(text, "fr")
+        const units = splitUnits(splitBlocks(text).map((text) => ({ text, lang: "fr" })))
         const index = units.findIndex((unit) => unit.text === `${heading}.`)
         assert.ok(index >= 0, `${wrapper}/h${level} : titre isolé`)
         assert.equal(units[index]!.endsParagraph, true)

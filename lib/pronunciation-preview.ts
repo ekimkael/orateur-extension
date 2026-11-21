@@ -1,5 +1,5 @@
 import type { ReaderPreferences } from "./reader-prefs.ts"
-import { expandText } from "./pronunciation/index.ts"
+import { prepareSpeech } from "./prepare-speech.ts"
 import { validatePronunciationRule, type PronunciationRule } from "./pronunciation/personal.ts"
 import { ENGINE_CAPABILITIES } from "./engine-capabilities.ts"
 import type { TtsHost } from "./tts-host.ts"
@@ -63,6 +63,11 @@ export function createPronunciationPreview(onState: (state: TtsState) => void) {
     const rule = validation.rule
     onState({ phase: "loading" })
     try {
+      const text = prepareSpeech(rule.source, rule.language, [rule])
+      if (!text) {
+        onState({ phase: "ended" })
+        return
+      }
       if (prefs.engine === "supertonic") {
         const { isModelCached } = await import("./supertonic/model-cache.ts")
         if (!await isModelCached()) {
@@ -90,11 +95,9 @@ export function createPronunciationPreview(onState: (state: TtsState) => void) {
         host ??= createTtsHost(receive)
         neuralGeneration = mine
         host.speak({
-          text: rule.source, lang: rule.language, voice: prefs.supertonicVoice,
-          speed: prefs.speed, personalRules: [rule], detectLanguage: false,
+          paragraphs: [{ text, lang: rule.language }], voice: prefs.supertonicVoice, speed: prefs.speed,
         })
       } else {
-        const text = expandText(rule.source, { language: rule.language, personalRules: [rule] })
         const utterance = new SpeechSynthesisUtterance(text)
         const voices = speechSynthesis.getVoices()
         const voice = voices.find((voice) => voice.voiceURI === prefs.voiceURI)

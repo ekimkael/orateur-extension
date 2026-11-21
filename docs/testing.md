@@ -188,8 +188,8 @@ tests, which do not download models for each PR.
 For Pocket, listen to French and English with the matching models, then
 repeat with a populated cache and the network offline. Check a mid-reading
 seek, pause/resume, stop during synthesis, and switching between the local
-engines. Pocket should leave personal pronunciation rules inactive and the
-other two engines should still use them.
+engines. Check that a date and an amount are normalized on all three engines.
+Pocket leaves personal pronunciation rules inactive. The other two engines apply them.
 
 For lifecycle changes, also check installation into an already-open tab, updates
 during playback and MV3 service-worker wakeup. Attaching a debugger can affect

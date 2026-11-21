@@ -278,6 +278,20 @@ test("navigation stays within the article and saves the target", async () => {
   assert.equal((stored[READING_PROGRESS_KEY] as any)["https://example.test/article"].block, 1)
 })
 
+test("previous and next skip emoji-only blocks without changing article positions", async () => {
+  const s = session()
+  await s.reader.start({ ...ARTICLE, text: `${EN}\n\n🎉 🇨🇲\n\nThe last paragraph.`, outro: false })
+  finish(0)
+  spoken[1]!.dispatchEvent(new Event("start"))
+  assert.deepEqual(s.positions.at(-1), [2, 3])
+  s.reader.navigate(-1)
+  assert.deepEqual(s.positions.at(-1), [0, 3])
+  assert.match(spoken[2]!.text, /The cat is sitting/)
+  s.reader.navigate(1)
+  assert.deepEqual(s.positions.at(-1), [2, 3])
+  assert.equal(spoken[3]!.text, "The last paragraph.")
+})
+
 test("saved progress resumes where the reading stopped, or is cleared", async () => {
   for (const resume of [true, false]) {
     const s = session({ resume })

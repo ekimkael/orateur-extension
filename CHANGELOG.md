@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-21
+
+### Changed
+
+- All three voice engines read numbers, dates, times, currencies, and units using the language of the paragraph.
+- The reader skips emoji and moves past paragraphs with no spoken text. Highlights and saved progress still follow the original page.
+
+### Fixed
+
+- French text uses natural readings for midnight, 24/7 schedules, ticket numbers, phone numbers, and version numbers. English scientific notation distinguishes letter names from units, as in “omega”, “ten ohms”, and “five micrograms”.
+- X Articles use the language of the article text when the page only declares the interface language.
+
 ## [0.11.0] - 2026-11-10
 
 ### Added
