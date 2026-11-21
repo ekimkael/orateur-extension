@@ -204,10 +204,11 @@ cancellation or a skipped job blocks it.
 
 Release runs its own compilation, Node, package and Chrome/Firefox checks before
 submission. A passing PR does not validate a later rebuild. The release workflow
-validates production PostHog configuration before packaging and verifies runtime
-ZIP hashes before store submission and GitHub release creation. The generated
-Firefox source archive is excluded from package validation and hash checks.
-Do not rebuild archives between validation and submission.
+validates production PostHog configuration before packaging and archives the ZIPs
+after the checks. Each store job and the GitHub Release verify the same archive
+checksums. Package validation covers the runtime ZIPs. The generated Firefox
+source archive gets a checksum before storage. Retry a store job with the original
+artifact. See [the targeted retry procedure](release.md#retry-a-store-submission).
 
 For playback, translation or preloading changes, also attach a completed real
 Chrome and Firefox walkthrough: an article containing long paragraphs and short
