@@ -2,6 +2,8 @@ import type { LocalTtsHost, ChunkedSpeakRequest } from "./local-tts-host.ts"
 import { isPocketVoice, toPocketLanguage } from "./pocket/catalog.ts"
 import { isKaleVoice } from "./kale/catalog.ts"
 import { createKaleRuntime } from "./kale/runtime.ts"
+import { isPhononLanguage } from "./phonon/config.ts"
+import { createPhononRuntime } from "./phonon/runtime.ts"
 import { createPocketRuntime } from "./pocket/runtime.ts"
 import { chunkText, writeWavFile } from "./supertonic/engine.ts"
 import type { TtsPreparedBlock, TtsState } from "./tts-messages.ts"
@@ -66,6 +68,12 @@ export function createPocketTtsHost(
 /** Plays English with Kale through the shared chunk scheduler. */
 export function createKaleTtsHost(onState: (state: TtsState) => void) {
   return createChunkedTtsHost(onState, createKaleRuntime(), isKaleVoice, (lang) => lang === "en" ? "en" : null)
+}
+
+/** Plays French and English with Phonon through the shared chunk scheduler. */
+export function createPhononTtsHost(onState: (state: TtsState) => void) {
+  return createChunkedTtsHost(onState, createPhononRuntime(), (voice): voice is "auto" => voice === "auto",
+    (lang) => isPhononLanguage(lang) ? lang : null)
 }
 
 function createChunkedTtsHost<Language extends string, Voice extends string>(

@@ -5,7 +5,8 @@
  * tab and storage events. Firefox runs the host in its background page.
  */
 import { createTtsHost } from "../../lib/tts-host"
-import { createKaleTtsHost, createPocketTtsHost } from "../../lib/pocket-tts-host"
+import { phononManifest } from "../../lib/phonon/config"
+import { createKaleTtsHost, createPhononTtsHost, createPocketTtsHost } from "../../lib/pocket-tts-host"
 import { createTtsServer } from "../../lib/tts-port"
 import { loadModelFiles } from "../../lib/supertonic/model-cache"
 import {
@@ -108,6 +109,7 @@ const server = createTtsServer(
   (forward) => createTtsHost(keepOpen(forward)),
   (forward) => createPocketTtsHost(keepOpen(forward)),
   (forward) => createKaleTtsHost(keepOpen(forward)),
+  phononManifest ? (forward) => createPhononTtsHost(keepOpen(forward)) : undefined,
 )
 browser.runtime.onConnect.addListener(server.connect)
 

@@ -92,6 +92,27 @@ separately named candidate under `.output/kale-release-candidate`. Run
 assets. `ORATEUR_KALE_GPU_FIXTURE` optionally supplies the FP32 graph for a
 direct WebGPU check on a capable browser. The fixture server stays on loopback.
 
+## Phonon candidate
+
+Phonon 40M Multilingual is an opt-in CPU engine for English and French. Both
+languages use the same q8 checkpoint and select a language-specific voice.
+The Pocket playback queue handles progress, pause, resume, seek and stop.
+The SDK, its workers, WebAssembly and license notices are packaged with the
+extension. Only verified model data is fetched from the configured source.
+Cached assets support offline playback and private-window cache-only reading.
+Unsupported languages use the system voice. The candidate does not report
+Phonon playback or download events.
+
+Builds expose Phonon only when `ORATEUR_PHONON_MANIFEST` points to a model
+source manifest. For local setup and browser tests, see
+[Phonon candidate fixtures](testing.md#phonon-candidate-fixtures).
+
+Gradium licenses the 40M model files under CC BY-NC 4.0. A deployment needs a
+source and attribution for model files that Orateur is authorized to distribute.
+The browser uses that source without a Hugging Face account or credentials.
+[Model card](https://huggingface.co/gradium/phonon-40m-multilingual#license) ·
+[Browser SDK](https://github.com/gradium-ai/xn-ptts/blob/v0.7.1/ptts-wasm/js/README.md#the-model)
+
 ## Invariants
 
 - **One owner.** The last port to send `TTS_SPEAK` owns the host. Commands from

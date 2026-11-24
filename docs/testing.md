@@ -202,6 +202,33 @@ For lifecycle changes, also check installation into an already-open tab, updates
 during playback and MV3 service-worker wakeup. Attaching a debugger can affect
 the worker's sleep behavior.
 
+## Phonon candidate fixtures
+
+Use files obtained through an authorized account from a pinned
+[Phonon 40M Multilingual revision](https://huggingface.co/gradium/phonon-40m-multilingual/tree/1537ce46c64f42903e0d608b132ccb073dac46d2).
+Keep them outside the checkout. The fixture directory contains
+`model.q8.gguf`, `config.json`, `tokenizer.json` and the chosen Gradium
+embeddings saved as `en.safetensors` and `fr.safetensors`. For example, use [Zoey](https://huggingface.co/gradium/phonon-voices/blob/0ee17205f254b5abc43b266c8a0f215565c352f7/voices/NbpkqMVS3CJeq2j8.safetensors)
+and [Noémie](https://huggingface.co/gradium/phonon-voices/blob/0ee17205f254b5abc43b266c8a0f215565c352f7/voices/FXxJ9mANRq6BCTX5.safetensors).
+Generate the manifest from these trusted copies. Use the same bytes when
+serving the files.
+
+```sh
+export ORATEUR_PHONON_FIXTURES=/path/to/phonon-fixtures
+export ORATEUR_PHONON_MANIFEST=/path/to/phonon-manifest.json
+node scripts/phonon-manifest.mjs "$ORATEUR_PHONON_FIXTURES" http://127.0.0.1:18768/ > "$ORATEUR_PHONON_MANIFEST"
+npm run zip && npm run zip:firefox
+npm run test:packages -- .output/phonon-candidate/*-chrome.zip .output/phonon-candidate/*-firefox.zip
+ORATEUR_TEST_ARCHIVE_DIR=.output/phonon-candidate npm run test:e2e
+ORATEUR_TEST_ARCHIVE_DIR=.output/phonon-candidate npm run test:e2e:firefox
+```
+
+Run the browser suites sequentially because the Phonon scenario binds the
+fixture port from the manifest. Use an unpacked candidate and serve the same
+directory on that port for manual listening. Check article and selection
+playback in both languages, first sound with and without a cache, pause and
+seek, and an offline restart after both voices are cached.
+
 ## Release gate
 
 CI checks code and built archives. Its `packages` job builds the extension

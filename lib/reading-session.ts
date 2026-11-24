@@ -274,21 +274,21 @@ export function createReadingSession({ token, view, follower, page, prefs }: Rea
    * générations des moteurs écartent leurs callbacks devenus obsolètes.
    */
   function trackReadingStarted(engine: ReaderEngine) {
-    if (engine === "kale" || readingTelemetryStarted) return
+    if (engine === "kale" || engine === "phonon" || readingTelemetryStarted) return
     readingTelemetryStarted = true
     track({ name: "read_started", properties: { engine } })
   }
 
   /** Une catégorie fermée par lecture suffit à repérer les écoutes en échec. */
   function trackReadingFailed(engine: ReaderEngine, reason: ReadFailure) {
-    if (engine === "kale" || readingTelemetryFailed) return
+    if (engine === "kale" || engine === "phonon" || readingTelemetryFailed) return
     readingTelemetryFailed = true
     track({ name: "read_failed", properties: { engine, reason } })
   }
 
   /** Arrivée en fin de file après un son, y compris après navigation ou erreurs. */
   function trackReadingCompleted(engine: ReaderEngine) {
-    if (engine === "kale" || !readingTelemetryStarted) return
+    if (engine === "kale" || engine === "phonon" || !readingTelemetryStarted) return
     track({ name: "read_completed", properties: { engine, had_errors: readingTelemetryFailed } })
   }
 

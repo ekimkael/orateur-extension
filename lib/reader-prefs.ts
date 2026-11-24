@@ -1,10 +1,11 @@
 import { SUPERTONIC_VOICES, type SupertonicVoice } from "./supertonic/types.ts"
 import { DEFAULT_POCKET_VOICE, isPocketVoice, type PocketVoice } from "./pocket/catalog.ts"
+import { phononManifest } from "./phonon/config.ts"
 import { ENGINE_CAPABILITIES } from "./engine-capabilities.ts"
 import { isKaleVoice, type KaleVoice } from "./kale/catalog.ts"
 
 /** Speech engines available to the reader. */
-export type ReaderEngine = "system" | "supertonic" | "pocket" | "kale"
+export type ReaderEngine = "system" | "supertonic" | "pocket" | "kale" | "phonon"
 
 export type PillPosition =
   | "top-left"
@@ -74,7 +75,8 @@ function normalizePrefs(value: unknown): ReaderPreferences {
   // Stored values can come from older builds or manual edits.
   return {
     ...prefs,
-    engine: typeof prefs.engine === "string" && Object.hasOwn(ENGINE_CAPABILITIES, prefs.engine) ? prefs.engine : "system",
+    engine: typeof prefs.engine === "string" && Object.hasOwn(ENGINE_CAPABILITIES, prefs.engine) &&
+      (prefs.engine !== "phonon" || phononManifest) ? prefs.engine : "system",
     speed: clampSpeed(prefs.speed),
     supertonicVoice: SUPERTONIC_VOICES.includes(prefs.supertonicVoice) ? prefs.supertonicVoice : DEFAULT_PREFS.supertonicVoice,
     pocketVoice: isPocketVoice(prefs.pocketVoice) ? prefs.pocketVoice : DEFAULT_POCKET_VOICE,

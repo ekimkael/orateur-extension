@@ -19,6 +19,8 @@ import { PositionSegmented } from "../../components/PositionSegmented"
 import { PronunciationSettings } from "../../components/PronunciationSettings"
 import { getSettingsSection, HeartIcon, SettingsNav } from "./SettingsNav"
 import { clearModelCache, getModelCacheSize } from "../../lib/supertonic/model-cache.ts"
+import { PHONON_NAME, phononManifest } from "../../lib/phonon/config.ts"
+import { clearPhononModelCache, getPhononModelCacheSize } from "../../lib/phonon/model-cache.ts"
 import { clearPocketModelCache, getPocketModelCacheSize } from "../../lib/pocket/model-cache.ts"
 import { clearKaleModelCache, getKaleModelCacheSize } from "../../lib/kale/model-cache.ts"
 import { toMegabytes } from "../../lib/storage-size.ts"
@@ -52,7 +54,13 @@ interface AppContentProps {
   updateUiPrefs: ReturnType<typeof useUiPrefs>["updatePrefs"]
 }
 
-type CacheEngine = "supertonic" | "pocket" | "kale"
+type CacheEngine = "supertonic" | "pocket" | "kale" | "phonon"
+
+const CACHE_ENGINES: CacheEngine[] = ["pocket", "supertonic", "kale"]
+if (phononManifest) CACHE_ENGINES.push("phonon")
+const CLEAR_CACHE = {
+  supertonic: clearModelCache, pocket: clearPocketModelCache, kale: clearKaleModelCache, phonon: clearPhononModelCache,
+}
 
 function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentProps) {
   const t = useTranslation()
@@ -65,7 +73,7 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
   const [siteInvalid, setSiteInvalid] = useState(false)
   const siteInputRef = useRef<HTMLInputElement>(null)
 
-  const [cacheBytes, setCacheBytes] = useState<Record<CacheEngine, number | null>>({ supertonic: null, pocket: null, kale: null })
+  const [cacheBytes, setCacheBytes] = useState<Record<CacheEngine, number | null>>({ supertonic: null, pocket: null, kale: null, phonon: null })
   const [clearing, setClearing] = useState<CacheEngine | null>(null)
   const [armed, setArmed] = useState<CacheEngine | null>(null)
   const [cacheError, setCacheError] = useState<CacheEngine | null>(null)
@@ -112,15 +120,17 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
   }, [])
 
   async function refreshCacheSize() {
-    const [supertonic, pocket, kale] = await Promise.all([getModelCacheSize(), getPocketModelCacheSize(), getKaleModelCacheSize()])
-    setCacheBytes({ supertonic, pocket, kale })
+    const [supertonic, pocket, kale, phonon] = await Promise.all([
+      getModelCacheSize(), getPocketModelCacheSize(), getKaleModelCacheSize(), phononManifest ? getPhononModelCacheSize() : null,
+    ])
+    setCacheBytes({ supertonic, pocket, kale, phonon })
   }
 
   async function handleClearCache(engine: CacheEngine) {
     setClearing(engine)
     setCacheError(null)
     try {
-      await (engine === "kale" ? clearKaleModelCache() : engine === "pocket" ? clearPocketModelCache() : clearModelCache())
+      await CLEAR_CACHE[engine]()
       await refreshCacheSize()
     } catch {
       setCacheError(engine)
@@ -297,7 +307,7 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
               </div>
             )}
 
-            {activeSection === "voix" && (
+            {activeSection === "voix" && prefs.engine !== "phonon" && (
               <VoicePicker
                 engine={prefs.engine}
                 voiceURI={prefs.voiceURI}
@@ -320,12 +330,12 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
           <section className="section" id="modele" hidden={activeSection !== "modele"} aria-labelledby="modele-heading">
             <h2 className="eyebrow" id="modele-heading" tabIndex={-1}>{t("optionsSectionModel")}</h2>
 
-            {(["pocket", "supertonic", "kale"] as const).map((engine) => {
+            {CACHE_ENGINES.map((engine) => {
               const bytes = cacheBytes[engine]
               const cacheMb = bytes ? String(Math.max(1, toMegabytes(bytes))) : null
               return (
                 <div className="row" key={engine} role="group" aria-labelledby={`cache-${engine}`}>
-                  <span className="row-label" id={`cache-${engine}`}>{t(engine === "kale" ? "engineKale" : engine === "pocket" ? "enginePocket" : "engineNaturalAI")}</span>
+                  <span className="row-label" id={`cache-${engine}`}>{engine === "phonon" ? PHONON_NAME : t(engine === "kale" ? "engineKale" : engine === "pocket" ? "enginePocket" : "engineNaturalAI")}</span>
                   {cacheMb ? (
                     <div className="cache-body">
                       <p className="cache-note">{t(engine === "supertonic" ? "optionsCacheSize" : "optionsPocketCacheSize", [cacheMb])}</p>

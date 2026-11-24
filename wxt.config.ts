@@ -1,8 +1,30 @@
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { defineConfig } from 'wxt';
+import { PHONON_FILES, type PhononManifest } from './lib/phonon/config';
+
+function readPhononManifest(path: string | undefined): PhononManifest | null {
+  if (!path) return null;
+  const manifest = JSON.parse(readFileSync(path, 'utf8')) as PhononManifest;
+  if (typeof manifest?.baseUrl !== 'string') throw new Error('Phonon asset base URL is required');
+  const url = new URL(manifest.baseUrl);
+  const loopback = url.protocol === 'http:' && url.hostname === '127.0.0.1';
+  if ((!loopback && url.protocol !== 'https:') || url.username || url.password ||
+      url.search || url.hash || !url.pathname.endsWith('/')) {
+    throw new Error('Phonon asset base URL must be credential-free HTTPS or loopback HTTP and end in /');
+  }
+  for (const key of Object.keys(PHONON_FILES) as (keyof typeof PHONON_FILES)[]) {
+    const file = manifest.files?.[key];
+    if (!file || !Number.isSafeInteger(file.size) || file.size < 1 || file.size > 100_000_000 ||
+        typeof file.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(file.sha256)) throw new Error('Invalid Phonon asset metadata for ' + key);
+  }
+  return manifest;
+}
+
+const phonon = readPhononManifest(process.env.ORATEUR_PHONON_MANIFEST);
+const phononRuntime = join(dirname(fileURLToPath(import.meta.url)), 'node_modules', 'phonon-tts');
 
 /**
  * Sert le runtime WASM d'onnxruntime-web depuis l'origine de l'extension.
@@ -43,6 +65,19 @@ const kaleTest = process.env.WXT_KALE_TEST === '1';
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   ...(kaleTest && { outDir: '.output/kale-release-candidate' }),
+  ...(phonon && {
+    outDir: '.output/phonon-candidate',
+    hooks: {
+      'build:publicAssets': (_, files) => {
+        for (const file of readdirSync(phononRuntime, { recursive: true, withFileTypes: true })) {
+          if (!file.isFile() || !/\.(?:js|wasm)$|^(?:LICENSE-|THIRD_PARTY_LICENSES)/.test(file.name)) continue;
+          const absoluteSrc = join(file.parentPath, file.name);
+          files.push({ absoluteSrc, relativeDest: 'phonon/' + absoluteSrc.slice(phononRuntime.length + 1) });
+        }
+      },
+    },
+  }),
+  vite: () => ({ define: { __ORATEUR_PHONON__: JSON.stringify(phonon) } }),
   // Page d'options (jalon 1b) et popup (jalon 4c) uniquement — jamais les
   // content scripts (reader/selection), qui doivent rester vanilla et légers
   // sur `<all_urls>`. Voir le commentaire en tête de entrypoints/options/App.tsx.
@@ -132,7 +167,7 @@ export default defineConfig({
     ...(browser === 'firefox' && {
       browser_specific_settings: {
         gecko: {
-          id: kaleTest ? 'orateur-kale-test@ekimkael' : 'orateur@ekimkael',
+          id: kaleTest ? 'orateur-kale-test@ekimkael' : phonon ? 'orateur-phonon-test@ekimkael' : 'orateur@ekimkael',
           // Obligatoire pour toute nouvelle extension Firefox depuis nov. 2025.
           //
           // La collecte technique reste facultative pour Firefox, même si le

@@ -8,7 +8,7 @@ import type { SupertonicVoice } from "../lib/supertonic/types.ts"
 import { voiceOptions } from "../lib/voice-options.ts"
 
 interface VoicePickerProps {
-  engine: ReaderEngine
+  engine: Exclude<ReaderEngine, "phonon">
   voiceURI: string | null
   supertonicVoice: SupertonicVoice
   pocketVoice: PocketVoice
@@ -46,7 +46,7 @@ export function VoicePicker({
     return () => speechSynthesis.removeEventListener("voiceschanged", refresh)
   }, [])
 
-  const localOptions = (local: Exclude<ReaderEngine, "system">) => voiceOptions(local).map((option) => (
+  const localOptions = (local: Exclude<VoicePickerProps["engine"], "system">) => voiceOptions(local).map((option) => (
     <option key={option.id} value={option.id}>{"key" in option ? t(option.key) : option.text}</option>
   ))
 

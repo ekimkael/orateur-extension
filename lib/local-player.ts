@@ -10,6 +10,7 @@
 
 import { createSpeechPreparation } from "./prepare-speech.ts"
 import { toSupertonicLang, type SupportedLang } from "./supertonic-lang.ts"
+import { PHONON_NAME, type PhononLanguage } from "./phonon/config.ts"
 import type { PocketLanguage, PocketVoice } from "./pocket/catalog.ts"
 import type { KaleVoice } from "./kale/catalog.ts"
 import { track } from "./telemetry.ts"
@@ -58,10 +59,16 @@ export function createKalePlayer(options: PlayerOptions & { lang: "en"; token: s
   return createLocalPlayer({ ...options, engine: "kale" })
 }
 
+/** Reads French and English with Phonon through the local TTS port. */
+export function createPhononPlayer(options: PlayerOptions & { lang: PhononLanguage; token: string; voice: "auto"; cacheOnly: boolean }): Player {
+  return createLocalPlayer({ ...options, engine: "phonon" })
+}
+
 function createLocalPlayer(options: PlayerOptions & { token: string } & (
   | { engine: "supertonic"; lang: SupportedLang }
   | { engine: "pocket"; lang: PocketLanguage; voice: PocketVoice; cacheOnly: boolean; webGpu?: never }
   | { engine: "kale"; lang: "en"; voice: KaleVoice; cacheOnly: boolean; webGpu: boolean }
+  | { engine: "phonon"; lang: PhononLanguage; voice: "auto"; cacheOnly: boolean; webGpu?: never }
 )): Player {
   const { engine, paragraphs, lang, startBlock, source, token, prefs, emit } = options
   const speech = createSpeechPreparation(options, lang)
@@ -76,6 +83,7 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
    * so `<engine>_download_completed`/`_failed` (telemetry, milestone 1c)
    * count only real downloads, not every reading that finds the model cached.
    */
+  const trackDownloads = engine === "pocket" || engine === "supertonic"
   let sawDownload = false
   /** Resolves to the open port, or to null once the reading is over. */
   let connection: Promise<Browser.runtime.Port | null> = Promise.resolve(null)
@@ -95,7 +103,8 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
         emit({
           phase: "error",
           reason: "preparation",
-          message: browser.i18n.getMessage(({
+          message: engine === "phonon" ? browser.i18n.getMessage("errorLocalStartFailed", PHONON_NAME)
+            : browser.i18n.getMessage(({
             pocket: "errorPocketStartFailed", supertonic: "errorSupertonicStartFailed", kale: "errorKaleSynthesis",
           } as const)[engine]),
         })
@@ -132,7 +141,7 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
       // Telemetry (milestone 1c): once per reading, on the first
       // "downloading-model"; later progress ticks take this same branch
       // without firing the event again.
-      if (engine !== "kale" && state.reason === "downloading-model" && !sawDownload) {
+      if (trackDownloads && state.reason === "downloading-model" && !sawDownload) {
         sawDownload = true
         track({ name: `${engine}_download_started` })
       }
@@ -141,7 +150,7 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
       paused = false
       block = state.block
       emit({ phase: "playing", block: state.block, total: state.total })
-      if (engine !== "kale" && sawDownload) {
+      if (trackDownloads && sawDownload) {
         sawDownload = false
         track({ name: `${engine}_download_completed` })
       }
@@ -158,10 +167,11 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
         // `state.message` from an exception (ONNX, network) cannot be
         // translated; only the hosts' static audio error can.
         message: audio ? browser.i18n.getMessage("ttsAudioError")
+          : engine === "phonon" ? browser.i18n.getMessage("errorLocalSynthesis", PHONON_NAME)
           : engine === "pocket" ? browser.i18n.getMessage("errorPocketSynthesis")
           : engine === "kale" ? browser.i18n.getMessage("errorKaleSynthesis") : state.message,
       })
-      if (engine !== "kale" && sawDownload) {
+      if (trackDownloads && sawDownload) {
         sawDownload = false
         track({ name: `${engine}_download_failed`, properties: { reason: classifyTtsError(state.message) } })
       }

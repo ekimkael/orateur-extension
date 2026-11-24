@@ -1,6 +1,7 @@
 import { savePrefs, SPEED, type ReaderEngine, type ReaderPreferences, type PillPosition } from "../../lib/reader-prefs"
 import type { ReaderViewState } from "../../lib/reading-session.ts"
 import { MODEL_CACHE_QUERY, type ModelCacheQueryMessage, type TtsLoadingReason } from "../../lib/tts-messages"
+import { PHONON_NAME, phononManifest } from "../../lib/phonon/config.ts"
 import { ENGINE_CAPABILITIES } from "../../lib/engine-capabilities.ts"
 import { isPocketVoice, toPocketLanguage } from "../../lib/pocket/catalog.ts"
 import { isKaleVoice, KALE_VOICES } from "../../lib/kale/catalog.ts"
@@ -95,6 +96,8 @@ export function createPill(
     ["supertonic", browser.i18n.getMessage("engineNaturalAI")],
     ["kale", browser.i18n.getMessage("engineKale")],
   ]
+
+  if (phononManifest) ENGINES.push(["phonon", PHONON_NAME])
 
   const host = document.createElement("orateur-reader-pill")
   host.lang = browser.i18n.getUILanguage()
@@ -346,7 +349,7 @@ export function createPill(
       // La valeur vide porte « laisser le navigateur choisir » : un select
       // n'a pas de null, et c'est aussi ce sur quoi il retombe si la voix
       // enregistrée a disparu de la machine.
-      savePrefs({ voiceURI: voice.value || null })
+      if (currentPrefs.engine === "system") savePrefs({ voiceURI: voice.value || null })
     }
   })
   /**
@@ -422,7 +425,10 @@ export function createPill(
     engine.value = currentPrefs.engine
     speed.value = String(currentPrefs.speed)
     speedValue.textContent = formatSpeed(currentPrefs.speed)
-    if (currentPrefs.engine === "kale") {
+    voice.disabled = currentPrefs.engine === "phonon"
+    if (currentPrefs.engine === "phonon") {
+      voice.value = "auto"
+    } else if (currentPrefs.engine === "kale") {
       voice.value = currentPrefs.kaleVoice ?? KALE_VOICES[0].id
     } else if (currentPrefs.engine === "pocket") {
       voice.value = currentPrefs.pocketVoice
@@ -443,7 +449,7 @@ export function createPill(
   /** Reflète `modelCached` sur le texte et la visibilité de la note. */
   function updateModelNote() {
     const engine = currentPrefs.engine
-    const hidden = engine === "system" || modelCached[engine] !== false
+    const hidden = engine === "system" || engine === "phonon" || modelCached[engine] !== false
     if (modelNote.hidden !== hidden && animations.length) settleMotion()
     modelNote.hidden = hidden
     if (modelNote.hidden) return
@@ -455,7 +461,7 @@ export function createPill(
 
   async function refreshModelCached() {
     const engine = currentPrefs.engine
-    if (engine === "system") return
+    if (engine === "system" || engine === "phonon") return
     const request = ++modelCacheRequest
     let cached: unknown
     try {
@@ -472,6 +478,11 @@ export function createPill(
   }
 
   function renderVoices() {
+    if (currentPrefs.engine === "phonon") {
+      voice.replaceChildren(voiceChoice("auto", browser.i18n.getMessage("voicePocketAuto")))
+      syncControls()
+      return
+    }
     if (currentPrefs.engine !== "system") {
       voice.replaceChildren(...voiceOptions(currentPrefs.engine).map((option) =>
         voiceChoice(option.id, "key" in option ? browser.i18n.getMessage(option.key) : option.text)))

@@ -323,6 +323,11 @@
   "errorKaleSynthesis": {
     "message": "Kale TTS Tiny could not generate speech. Try again or choose another engine."
   },
+  "noticeLocalPrivateWindow": { "message": "This private window uses a system voice because the $1 model is unavailable here. $1 stays selected." },
+  "noticeLocalLangUnsupported": { "message": "$1 does not support this language. This reading uses a system voice." },
+  "errorLocalStartFailed": { "message": "$1 could not start. Try again." },
+  "errorLocalSynthesis": { "message": "$1 could not read this passage. Try again or choose a system voice in Settings." },
+  "pronunciationUnavailableLocal": { "message": "To hear your saved rules, switch from $1 to Supertonic or a system voice." },
   "enginePocket": {
     "message": "Pocket TTS"
   },

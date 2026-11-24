@@ -120,7 +120,10 @@ export function browserTest(name, run, options = {}) {
     await writeFile(resolve(`.output/test-results/e2e/${browserName}-runtime.json`), JSON.stringify({
       browser: await browser.version(), executable: browser.process()?.spawnfile, extensionVersion: version,
     }, null, 2) + "\n")
+    const observed = new WeakSet()
     const observe = (page) => {
+      if (observed.has(page)) return
+      observed.add(page)
       page.on("console", (message) => logs.push({ url: page.url(), type: message.type(), text: message.text() }))
       page.on("pageerror", (error) => errors.push({ url: page.url(), message: String(error) }))
       page.on("dialog", dialog => dialog.dismiss())

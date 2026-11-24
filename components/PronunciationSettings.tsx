@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react"
 import { useTranslation } from "../hooks/useTranslation"
 import { createPronunciationPreview } from "../lib/pronunciation-preview"
+import { PHONON_NAME } from "../lib/phonon/config"
 import { ENGINE_CAPABILITIES } from "../lib/engine-capabilities"
 import {
   loadPronunciationRules,
@@ -231,7 +232,7 @@ export function PronunciationSettings({ prefs, modelCached, context = "options",
   return (
     <section className="section" id="prononciation" hidden={!active} aria-labelledby={`${id}-heading`}>
       <h2 className="eyebrow" id={`${id}-heading`} tabIndex={-1}>{t("optionsSectionPronunciation")}</h2>
-      {!pronunciationAvailable && <p id={`${id}-pocket-help`} className="help" role="status">{t("pronunciationUnavailablePocket")}</p>}
+      {!pronunciationAvailable && <p id={`${id}-pocket-help`} className="help" role="status">{prefs.engine === "phonon" ? t("pronunciationUnavailableLocal", [PHONON_NAME]) : t("pronunciationUnavailablePocket")}</p>}
       <p className="help pronunciation-intro">{t(context === "pdf" ? "pdfPronunciationHelp" : "pronunciationHelp")}</p>
       {pronunciationAvailable && <p className="help">{t("pronunciationNumbersHelp")}</p>}
       <details className="pronunciation-matching">
