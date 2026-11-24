@@ -5,4 +5,5 @@ export const ENGINE_CAPABILITIES = {
   system: { pronunciation: true, requiresModel: false },
   supertonic: { pronunciation: true, requiresModel: true },
   pocket: { pronunciation: false, requiresModel: true },
+  kale: { pronunciation: false, requiresModel: true },
 } as const satisfies Record<ReaderEngine, { pronunciation: boolean; requiresModel: boolean }>

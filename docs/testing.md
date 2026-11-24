@@ -97,6 +97,7 @@ an E2E test.
 | Lifecycle | Existing tab, navigation, closure, multiple tabs, updates | Browser |
 | Supertonic | Fresh-install default, download, cancellation, network failure, cache, offline playback | Node + browser + dedicated check |
 | Pocket TTS | Separate voice and cache, French and English synthesis, fallback, pronunciation isolation | Node + browser + listening |
+| Kale TTS Tiny | English article and selection playback, verified cache, WebGPU and CPU fallback | Node + browser + listening |
 | Privacy | Enabled by default, stops after opt-out, native Firefox permission required | Node + network observation |
 | Web application | Correct text, title, language and URL handoff | Node + browser |
 | Built-in PDF viewer | No injected reader; selected-text handoff when exposed by the browser | Manual |
@@ -188,8 +189,14 @@ tests, which do not download models for each PR.
 For Pocket, listen to French and English with the matching models, then
 repeat with a populated cache and the network offline. Check a mid-reading
 seek, pause/resume, stop during synthesis, and switching between the local
-engines. Check that a date and an amount are normalized on all three engines.
-Pocket leaves personal pronunciation rules inactive. The other two engines apply them.
+engines. Check that a date and an amount are normalized on each engine.
+Personal pronunciation rules apply to Supertonic and system voices.
+
+For Kale, listen to an English article and a selection with both US and UK
+voices. Populate the INT8 cache and repeat offline. Enable WebGPU on a supported
+device, prepare the FP32 graph, and repeat with WebGPU unavailable to exercise
+the cached CPU fallback. The [Kale test setup](reading-architecture.md#kale-tts-tiny)
+can run on verified fixtures without downloading both models for every test.
 
 For lifecycle changes, also check installation into an already-open tab, updates
 during playback and MV3 service-worker wakeup. Attaching a debugger can affect

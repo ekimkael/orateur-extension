@@ -11,6 +11,7 @@
 import { createSpeechPreparation } from "./prepare-speech.ts"
 import { toSupertonicLang, type SupportedLang } from "./supertonic-lang.ts"
 import type { PocketLanguage, PocketVoice } from "./pocket/catalog.ts"
+import type { KaleVoice } from "./kale/catalog.ts"
 import { track } from "./telemetry.ts"
 import {
   TTS_CONTROL,
@@ -52,15 +53,20 @@ export function createPocketPlayer(
   return createLocalPlayer({ ...options, engine: "pocket" })
 }
 
+/** Reads with the bundled Kale model through the local TTS port. */
+export function createKalePlayer(options: PlayerOptions & { lang: "en"; token: string; voice: KaleVoice; cacheOnly: boolean; webGpu: boolean }): Player {
+  return createLocalPlayer({ ...options, engine: "kale" })
+}
+
 function createLocalPlayer(options: PlayerOptions & { token: string } & (
   | { engine: "supertonic"; lang: SupportedLang }
-  | { engine: "pocket"; lang: PocketLanguage; voice: PocketVoice; cacheOnly: boolean }
+  | { engine: "pocket"; lang: PocketLanguage; voice: PocketVoice; cacheOnly: boolean; webGpu?: never }
+  | { engine: "kale"; lang: "en"; voice: KaleVoice; cacheOnly: boolean; webGpu: boolean }
 )): Player {
   const { engine, paragraphs, lang, startBlock, source, token, prefs, emit } = options
   const speech = createSpeechPreparation(options, lang)
   function modelBlock(paragraph: TtsPreparedBlock<string>): TtsPreparedBlock<string> {
-    // Pocket keeps one cached language model for the entire reading.
-    return { text: paragraph.text, lang: engine === "pocket" ? lang : toSupertonicLang(paragraph.lang) ?? lang }
+    return { text: paragraph.text, lang: engine === "supertonic" ? toSupertonicLang(paragraph.lang) ?? lang : lang }
   }
   let block = startBlock
   let paused = false
@@ -89,7 +95,9 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
         emit({
           phase: "error",
           reason: "preparation",
-          message: browser.i18n.getMessage(engine === "pocket" ? "errorPocketStartFailed" : "errorSupertonicStartFailed"),
+          message: browser.i18n.getMessage(({
+            pocket: "errorPocketStartFailed", supertonic: "errorSupertonicStartFailed", kale: "errorKaleSynthesis",
+          } as const)[engine]),
         })
         return null
       }
@@ -124,7 +132,7 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
       // Telemetry (milestone 1c): once per reading, on the first
       // "downloading-model"; later progress ticks take this same branch
       // without firing the event again.
-      if (state.reason === "downloading-model" && !sawDownload) {
+      if (engine !== "kale" && state.reason === "downloading-model" && !sawDownload) {
         sawDownload = true
         track({ name: `${engine}_download_started` })
       }
@@ -133,7 +141,7 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
       paused = false
       block = state.block
       emit({ phase: "playing", block: state.block, total: state.total })
-      if (sawDownload) {
+      if (engine !== "kale" && sawDownload) {
         sawDownload = false
         track({ name: `${engine}_download_completed` })
       }
@@ -150,9 +158,10 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
         // `state.message` from an exception (ONNX, network) cannot be
         // translated; only the hosts' static audio error can.
         message: audio ? browser.i18n.getMessage("ttsAudioError")
-          : engine === "pocket" ? browser.i18n.getMessage("errorPocketSynthesis") : state.message,
+          : engine === "pocket" ? browser.i18n.getMessage("errorPocketSynthesis")
+          : engine === "kale" ? browser.i18n.getMessage("errorKaleSynthesis") : state.message,
       })
-      if (sawDownload) {
+      if (engine !== "kale" && sawDownload) {
         sawDownload = false
         track({ name: `${engine}_download_failed`, properties: { reason: classifyTtsError(state.message) } })
       }
@@ -196,8 +205,8 @@ function createLocalPlayer(options: PlayerOptions & { token: string } & (
         token,
         livePage: !!source,
       } as const
-      send(options.engine === "pocket"
-        ? { ...request, engine: options.engine, voice: options.voice, cacheOnly: options.cacheOnly }
+      send(options.engine !== "supertonic"
+        ? { ...request, engine: options.engine, voice: options.voice, cacheOnly: options.cacheOnly, webGpu: options.webGpu }
         : { ...request, engine: "supertonic", voice: prefs().supertonicVoice })
     },
     pause() {

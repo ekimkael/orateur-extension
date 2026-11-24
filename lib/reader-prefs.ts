@@ -1,9 +1,10 @@
 import { SUPERTONIC_VOICES, type SupertonicVoice } from "./supertonic/types.ts"
 import { DEFAULT_POCKET_VOICE, isPocketVoice, type PocketVoice } from "./pocket/catalog.ts"
 import { ENGINE_CAPABILITIES } from "./engine-capabilities.ts"
+import { isKaleVoice, type KaleVoice } from "./kale/catalog.ts"
 
 /** Speech engines available to the reader. */
-export type ReaderEngine = "system" | "supertonic" | "pocket"
+export type ReaderEngine = "system" | "supertonic" | "pocket" | "kale"
 
 export type PillPosition =
   | "top-left"
@@ -36,6 +37,10 @@ export interface ReaderPreferences {
   supertonicVoice: SupertonicVoice
   /** Independent of the user's system and Supertonic voice choices. */
   pocketVoice: PocketVoice
+  /** Voice selected for Kale. */
+  kaleVoice?: KaleVoice
+  /** Allow Kale to download and use the larger graph on WebGPU. */
+  kaleWebGpu?: boolean
   /**
    * Suivre la lecture sur la page : surligner le paragraphe lu et l'amener
    * dans le champ de vision.
@@ -65,7 +70,7 @@ function normalizePrefs(value: unknown): ReaderPreferences {
   const stored = value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Partial<ReaderPreferences>
     : undefined
-  const prefs = { ...DEFAULT_PREFS, ...stored }
+  const { kaleVoice, kaleWebGpu, ...prefs } = { ...DEFAULT_PREFS, ...stored }
   // Stored values can come from older builds or manual edits.
   return {
     ...prefs,
@@ -73,6 +78,8 @@ function normalizePrefs(value: unknown): ReaderPreferences {
     speed: clampSpeed(prefs.speed),
     supertonicVoice: SUPERTONIC_VOICES.includes(prefs.supertonicVoice) ? prefs.supertonicVoice : DEFAULT_PREFS.supertonicVoice,
     pocketVoice: isPocketVoice(prefs.pocketVoice) ? prefs.pocketVoice : DEFAULT_POCKET_VOICE,
+    ...(isKaleVoice(kaleVoice) && { kaleVoice }),
+    ...(typeof kaleWebGpu === "boolean" && { kaleWebGpu }),
   }
 }
 

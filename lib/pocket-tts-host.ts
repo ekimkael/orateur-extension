@@ -1,5 +1,7 @@
-import type { LocalTtsHost, PocketSpeakRequest } from "./local-tts-host.ts"
-import { isPocketVoice, toPocketLanguage, type PocketLanguage } from "./pocket/catalog.ts"
+import type { LocalTtsHost, ChunkedSpeakRequest } from "./local-tts-host.ts"
+import { isPocketVoice, toPocketLanguage } from "./pocket/catalog.ts"
+import { isKaleVoice } from "./kale/catalog.ts"
+import { createKaleRuntime } from "./kale/runtime.ts"
 import { createPocketRuntime } from "./pocket/runtime.ts"
 import { chunkText, writeWavFile } from "./supertonic/engine.ts"
 import type { TtsPreparedBlock, TtsState } from "./tts-messages.ts"
@@ -42,12 +44,37 @@ function withPause(pcm: Float32Array, sampleRate: number, unit: { text: string; 
   return padded
 }
 
+/** Synthesis interface for engines that produce one PCM buffer per bounded unit. */
+export interface ChunkedRuntime<Language extends string, Voice extends string> {
+  synthesize(text: string, voice: Voice, language: Language, options: {
+    signal: AbortSignal
+    cacheOnly?: boolean
+    webGpu?: boolean
+    onProgress?: (state: { phase: "downloading-model"; progress: number } | { phase: "loading-engine" }) => void
+  }): Promise<{ pcm: Float32Array; sampleRate: number }>
+  dispose(): void
+}
+
 /** Plays bounded Pocket units with a few units of lookahead. */
 export function createPocketTtsHost(
   onState: (state: TtsState) => void,
   runtime = createPocketRuntime(),
-): LocalTtsHost<PocketSpeakRequest> {
-  let reading: PocketSpeakRequest | null = null
+): LocalTtsHost<ChunkedSpeakRequest> {
+  return createChunkedTtsHost(onState, runtime, isPocketVoice, toPocketLanguage)
+}
+
+/** Plays English with Kale through the shared chunk scheduler. */
+export function createKaleTtsHost(onState: (state: TtsState) => void) {
+  return createChunkedTtsHost(onState, createKaleRuntime(), isKaleVoice, (lang) => lang === "en" ? "en" : null)
+}
+
+function createChunkedTtsHost<Language extends string, Voice extends string>(
+  onState: (state: TtsState) => void,
+  runtime: ChunkedRuntime<Language, Voice>,
+  isVoice: (value: unknown) => value is Voice,
+  toLanguage: (value: string) => Language | null,
+): LocalTtsHost<ChunkedSpeakRequest> {
+  let reading: ChunkedSpeakRequest | null = null
   let work: AbortController | null = null
   let clip: { audio: HTMLAudioElement; play(): void; pause(): void } | null = null
   let paused = false
@@ -57,8 +84,8 @@ export function createPocketTtsHost(
   // paragraph passively, without scrolling or turning an untranslated snapshot into audio.
   // `live.preparing` names the block whose live text is still awaited.
   async function* units(
-    request: PocketSpeakRequest, start: number, signal: AbortSignal, live: LivePreparation,
-  ): AsyncGenerator<{ text: string; block: number; lang: PocketLanguage; lastInBlock: boolean }, void, boolean | undefined> {
+    request: ChunkedSpeakRequest, start: number, signal: AbortSignal, live: LivePreparation,
+  ): AsyncGenerator<{ text: string; block: number; lang: Language; lastInBlock: boolean }, void, boolean | undefined> {
     let prefetch = false
     let limit = FIRST_UNIT
     const blocks = request.paragraphs
@@ -70,8 +97,8 @@ export function createPocketTtsHost(
         .finally(() => { live.preparing = null })
       signal.throwIfAborted()
       if (prepared === null) throw new Error("Live paragraph unavailable")
-      const lang = toPocketLanguage(prepared?.lang ?? request.lang)
-      if (!lang) throw new Error("Unsupported Pocket language")
+      const lang = toLanguage(prepared?.lang ?? request.lang)
+      if (!lang) throw new Error("Unsupported synthesis language")
       let rest: string = prepared?.text ?? blocks[block]!.text
       while (rest) {
         const [text, ...others] = pieces(rest, limit)
@@ -125,10 +152,10 @@ export function createPocketTtsHost(
     })
   }
 
-  async function run(request: PocketSpeakRequest, start: number, signal: AbortSignal) {
+  async function run(request: ChunkedSpeakRequest, start: number, signal: AbortSignal) {
     const blocks = request.paragraphs
     const voice = request.voice
-    if (!isPocketVoice(voice)) throw new Error("Unsupported Pocket voice")
+    if (!isVoice(voice)) throw new Error("Unsupported synthesis voice")
     const live: LivePreparation = { preparing: null, lastYielded: null, waitingAfter: null }
     const queue = units(request, start, signal, live)
     let waiting = true
@@ -139,6 +166,7 @@ export function createPocketTtsHost(
       const sample = await runtime.synthesize(value.text, voice, value.lang, {
         signal,
         cacheOnly: request.cacheOnly,
+        webGpu: request.webGpu,
         onProgress: (state) => {
           if (waiting && !paused && !signal.aborted) {
             onState(state.phase === "downloading-model"
@@ -206,7 +234,7 @@ export function createPocketTtsHost(
       controller.abort()
       // The cause lets telemetry classify a failed download (HTTP, network);
       // the pill shows its own translated message for Pocket, never this one.
-      const message = error instanceof Error && error.message ? error.message : "Pocket playback failed"
+      const message = error instanceof Error && error.message ? error.message : "Local playback failed"
       onState({ phase: "error", message, reason: error instanceof AudioPlaybackError ? "audio-playback" : undefined })
     })
   }

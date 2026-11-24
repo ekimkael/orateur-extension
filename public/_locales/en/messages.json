@@ -296,6 +296,33 @@
   "engineNaturalAI": {
     "message": "Supertonic"
   },
+  "extNameKaleTest": {
+    "message": "Orateur – Kale Tiny test"
+  },
+  "engineKale": {
+    "message": "Kale TTS Tiny"
+  },
+  "engineKaleDesc": {
+    "message": "Ten English AI voices with offline playback."
+  },
+  "optionsKaleModelNote": {
+    "message": "The first English reading downloads about 90 MB for your voice. The model is then available offline."
+  },
+  "optionsKaleWebGpu": {
+    "message": "Use WebGPU when available"
+  },
+  "optionsKaleWebGpuNote": {
+    "message": "Acceleration downloads an additional 183 MB on compatible devices. Kale keeps the CPU model for fallback."
+  },
+  "noticeKalePrivateWindow": {
+    "message": "Kale's model is unavailable in this private window. Orateur will use your browser voice."
+  },
+  "noticeKaleLangUnsupported": {
+    "message": "Kale TTS Tiny reads English. Orateur will use your browser voice for this text."
+  },
+  "errorKaleSynthesis": {
+    "message": "Kale TTS Tiny could not generate speech. Try again or choose another engine."
+  },
   "enginePocket": {
     "message": "Pocket TTS"
   },

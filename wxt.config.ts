@@ -22,23 +22,27 @@ import { defineConfig } from 'wxt';
  * plus tard laissait `/ort/*` hors de ce type, et `browser.runtime.getURL()`
  * ne typait qu'après un premier build — donc jamais sur un checkout neuf.
  */
-function copyOrtAssets() {
-  const files = [
-    'ort-wasm-simd-threaded.jsep.wasm',
-    'ort-wasm-simd-threaded.jsep.mjs',
-    'ort.bundle.min.mjs',
-  ];
+function copyOrtAssets(packageName: string, directory: string, files: readonly string[]) {
   const here = dirname(fileURLToPath(import.meta.url));
-  const from = join(here, 'node_modules', 'onnxruntime-web', 'dist');
-  const to = join(here, 'public', 'ort');
+  const from = join(here, 'node_modules', packageName, 'dist');
+  const to = join(here, 'public', directory);
   mkdirSync(to, { recursive: true });
   for (const file of files) copyFileSync(join(from, file), join(to, file));
 }
 
-copyOrtAssets();
+copyOrtAssets('onnxruntime-web', 'ort', [
+  'ort-wasm-simd-threaded.jsep.wasm', 'ort-wasm-simd-threaded.jsep.mjs', 'ort.bundle.min.mjs',
+]);
+// Kale's FP32 graph needs the newer WebGPU kernels. Keep its runtime separate
+// from the WASM and WebGPU sessions already used by Supertonic.
+copyOrtAssets('onnxruntime-web-kale', 'ort-kale', [
+  'ort.webgpu.min.mjs', 'ort-wasm-simd-threaded.asyncify.mjs', 'ort-wasm-simd-threaded.asyncify.wasm',
+]);
+const kaleTest = process.env.WXT_KALE_TEST === '1';
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
+  ...(kaleTest && { outDir: '.output/kale-release-candidate' }),
   // Page d'options (jalon 1b) et popup (jalon 4c) uniquement — jamais les
   // content scripts (reader/selection), qui doivent rester vanilla et légers
   // sur `<all_urls>`. Voir le commentaire en tête de entrypoints/options/App.tsx.
@@ -54,14 +58,14 @@ export default defineConfig({
   // de toute façon recopié depuis node_modules au chargement de cette config,
   // donc l'envoyer ferait relire 26 Mo de WASM vendored pour rien.
   zip: {
-    excludeSources: ['public/ort/**', 'scratchpad/**', 'plans/**'],
+    excludeSources: ['public/ort/**', 'public/ort-kale/**', 'scratchpad/**', 'plans/**'],
   },
   manifest: ({ browser, manifestVersion }) => ({
     // `__MSG_*__` : résolu depuis public/_locales/<locale>/messages.json.
     // `default_locale: 'en'` fait de l'anglais le texte de repli — WXT l'exige
     // dès qu'un manifest référence `__MSG_*__` quelque part.
     default_locale: 'en',
-    name: '__MSG_extName__',
+    name: kaleTest ? '__MSG_extNameKaleTest__' : '__MSG_extName__',
     description: '__MSG_extDescription__',
     // `action` vide (sans popup) pour que le clic sur l'icône déclenche
     // onClicked. WXT le traduit en `browser_action` sur MV2.
@@ -128,7 +132,7 @@ export default defineConfig({
     ...(browser === 'firefox' && {
       browser_specific_settings: {
         gecko: {
-          id: 'orateur@ekimkael',
+          id: kaleTest ? 'orateur-kale-test@ekimkael' : 'orateur@ekimkael',
           // Obligatoire pour toute nouvelle extension Firefox depuis nov. 2025.
           //
           // La collecte technique reste facultative pour Firefox, même si le

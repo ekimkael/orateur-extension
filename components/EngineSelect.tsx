@@ -100,6 +100,14 @@ export function EngineSelect({ value, onChange, modelCached, onModelDownloaded, 
           </span>
           <span className="engine-desc">{t("engineNaturalAIDesc")}</span>
         </label>
+        <label className="engine-card">
+          <input type="radio" name="engine" value="kale" checked={value === "kale"} onChange={() => onChange("kale")} />
+          <span className="engine-head">
+            <span className="engine-title">{t("engineKale")}</span>
+            <span className="radio" aria-hidden="true" />
+          </span>
+          <span className="engine-desc">{t("engineKaleDesc")}</span>
+        </label>
       </div>
 
       {value === "pocket" && (

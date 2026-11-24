@@ -20,6 +20,7 @@ import { PronunciationSettings } from "../../components/PronunciationSettings"
 import { getSettingsSection, HeartIcon, SettingsNav } from "./SettingsNav"
 import { clearModelCache, getModelCacheSize } from "../../lib/supertonic/model-cache.ts"
 import { clearPocketModelCache, getPocketModelCacheSize } from "../../lib/pocket/model-cache.ts"
+import { clearKaleModelCache, getKaleModelCacheSize } from "../../lib/kale/model-cache.ts"
 import { toMegabytes } from "../../lib/storage-size.ts"
 import { resolveLocale } from "../../lib/i18n"
 import { applyTheme } from "../../lib/theme"
@@ -51,7 +52,7 @@ interface AppContentProps {
   updateUiPrefs: ReturnType<typeof useUiPrefs>["updatePrefs"]
 }
 
-type CacheEngine = "supertonic" | "pocket"
+type CacheEngine = "supertonic" | "pocket" | "kale"
 
 function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentProps) {
   const t = useTranslation()
@@ -64,7 +65,7 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
   const [siteInvalid, setSiteInvalid] = useState(false)
   const siteInputRef = useRef<HTMLInputElement>(null)
 
-  const [cacheBytes, setCacheBytes] = useState<Record<CacheEngine, number | null>>({ supertonic: null, pocket: null })
+  const [cacheBytes, setCacheBytes] = useState<Record<CacheEngine, number | null>>({ supertonic: null, pocket: null, kale: null })
   const [clearing, setClearing] = useState<CacheEngine | null>(null)
   const [armed, setArmed] = useState<CacheEngine | null>(null)
   const [cacheError, setCacheError] = useState<CacheEngine | null>(null)
@@ -111,15 +112,15 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
   }, [])
 
   async function refreshCacheSize() {
-    const [supertonic, pocket] = await Promise.all([getModelCacheSize(), getPocketModelCacheSize()])
-    setCacheBytes({ supertonic, pocket })
+    const [supertonic, pocket, kale] = await Promise.all([getModelCacheSize(), getPocketModelCacheSize(), getKaleModelCacheSize()])
+    setCacheBytes({ supertonic, pocket, kale })
   }
 
   async function handleClearCache(engine: CacheEngine) {
     setClearing(engine)
     setCacheError(null)
     try {
-      await (engine === "pocket" ? clearPocketModelCache() : clearModelCache())
+      await (engine === "kale" ? clearKaleModelCache() : engine === "pocket" ? clearPocketModelCache() : clearModelCache())
       await refreshCacheSize()
     } catch {
       setCacheError(engine)
@@ -280,16 +281,34 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
               locale={locale}
             />
 
+            {prefs.engine === "kale" && (
+              <div className="row">
+                <p className="cache-note">{t("optionsKaleModelNote")}</p>
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={prefs.kaleWebGpu ?? false}
+                    onChange={(event) => updatePrefs({ kaleWebGpu: event.target.checked })}
+                    aria-describedby="kale-webgpu-note"
+                  />
+                  <span className="toggle-text">{t("optionsKaleWebGpu")}</span>
+                </label>
+                <p className="cache-note" id="kale-webgpu-note">{t("optionsKaleWebGpuNote")}</p>
+              </div>
+            )}
+
             {activeSection === "voix" && (
               <VoicePicker
                 engine={prefs.engine}
                 voiceURI={prefs.voiceURI}
                 supertonicVoice={prefs.supertonicVoice}
                 pocketVoice={prefs.pocketVoice}
+                kaleVoice={prefs.kaleVoice}
                 speed={prefs.speed}
                 onChangeSystemVoice={(voiceURI) => updatePrefs({ voiceURI })}
                 onChangeSupertonicVoice={(supertonicVoice) => updatePrefs({ supertonicVoice })}
                 onChangePocketVoice={(pocketVoice) => updatePrefs({ pocketVoice })}
+                onChangeKaleVoice={(kaleVoice) => updatePrefs({ kaleVoice })}
               />
             )}
 
@@ -301,15 +320,15 @@ function AppContent({ prefs, updatePrefs, uiPrefs, updateUiPrefs }: AppContentPr
           <section className="section" id="modele" hidden={activeSection !== "modele"} aria-labelledby="modele-heading">
             <h2 className="eyebrow" id="modele-heading" tabIndex={-1}>{t("optionsSectionModel")}</h2>
 
-            {(["pocket", "supertonic"] as const).map((engine) => {
+            {(["pocket", "supertonic", "kale"] as const).map((engine) => {
               const bytes = cacheBytes[engine]
               const cacheMb = bytes ? String(Math.max(1, toMegabytes(bytes))) : null
               return (
                 <div className="row" key={engine} role="group" aria-labelledby={`cache-${engine}`}>
-                  <span className="row-label" id={`cache-${engine}`}>{t(engine === "pocket" ? "enginePocket" : "engineNaturalAI")}</span>
+                  <span className="row-label" id={`cache-${engine}`}>{t(engine === "kale" ? "engineKale" : engine === "pocket" ? "enginePocket" : "engineNaturalAI")}</span>
                   {cacheMb ? (
                     <div className="cache-body">
-                      <p className="cache-note">{t(engine === "pocket" ? "optionsPocketCacheSize" : "optionsCacheSize", [cacheMb])}</p>
+                      <p className="cache-note">{t(engine === "supertonic" ? "optionsCacheSize" : "optionsPocketCacheSize", [cacheMb])}</p>
                       <div className="cache-actions" aria-live="polite" aria-atomic="true">
                         <button
                           type="button"

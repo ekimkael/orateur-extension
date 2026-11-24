@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { randomUUID } from "node:crypto"
+import { createReadStream } from "node:fs"
 import { createServer } from "node:http"
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -8,6 +9,7 @@ import { setTimeout } from "node:timers/promises"
 import test from "node:test"
 import puppeteer from "puppeteer"
 import { extractPackage } from "./package.mjs"
+import { KALE_FILES } from "../../lib/kale/asset-files.ts"
 
 export const browserName = process.env.ORATEUR_TEST_BROWSER ?? "chrome"
 assert.ok(["chrome", "firefox"].includes(browserName), "ORATEUR_TEST_BROWSER must be chrome or firefox")
@@ -24,6 +26,14 @@ const germanArticle = `<!doctype html><html lang="de"><head><meta charset="utf-8
 <p>Dieser deutsche Artikel prüft, ob die Erweiterung den Text mit einer passenden Systemstimme vorliest. Der erste Absatz enthält mehrere Sätze, damit der Browser den Inhalt zuverlässig erkennen kann.</p>
 <p>Im zweiten Absatz geht es um die Auswahl der Stimme. Die Einstellungen bleiben erhalten, auch wenn für diesen Artikel eine andere Stimme verwendet wird.</p>
 </article></body></html>`
+
+const englishArticle = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>A morning ferry</title></head>
+<body><article><h1>A morning ferry</h1>
+<p id="selection">The ferry leaves from Pier Seven at ten thirty. The captain watched the sun as the passengers walked onto the boat.</p>
+<p>The harbour grew quieter as the sky began to turn blue. From the deck we could see the lighthouse and a row of fishing boats.</p>
+<p>By the time the ferry arrived, the market was open. We bought some bread and walked along the shore to watch the waves.</p>
+<p>Around the bend, a narrow path led past the old lifeboat station and up to the headland. We stopped at the top and looked back across the water, where the little ferry was leaving the harbour again.</p>
+<p>After lunch we followed the track inland, through a field of wet grass and on to the village. The clouds cleared as we reached the last gate, and for the first time that morning we could see the mountains.</p></article></body></html>`
 
 export async function waitFor(predicate, message, timeout = 10_000) {
   const deadline = Date.now() + timeout
@@ -48,9 +58,25 @@ export function browserTest(name, run, options = {}) {
     const sockets = new Set()
     let browser
     const server = createServer((req, res) => {
+      if (process.env.ORATEUR_KALE_FIXTURES && req.url?.startsWith("/kale-assets/")) {
+        const path = req.url.slice("/kale-assets/".length)
+        if (!Object.hasOwn(KALE_FILES, path)) return res.writeHead(404).end()
+        const file = path.endsWith(".fp32.onnx") ? process.env.ORATEUR_KALE_GPU_FIXTURE : join(process.env.ORATEUR_KALE_FIXTURES, path)
+        if (!file) return res.writeHead(404).end()
+        const stream = createReadStream(file)
+        stream.on("error", error => res.destroy(error))
+        res.on("close", () => stream.destroy())
+        res.writeHead(200, {
+          "Content-Length": KALE_FILES[path][0], "Content-Type": "application/octet-stream",
+          "Access-Control-Allow-Origin": "*", "Cross-Origin-Resource-Policy": "cross-origin",
+        })
+        stream.pipe(res)
+        return
+      }
       res.setHeader("Content-Type", "text/html; charset=utf-8")
       if (req.url === "/empty") return res.end("<html><body>Empty page</body></html>")
-      res.end(req.url === "/german-article" ? germanArticle : article)
+      if (req.url === "/german-article") return res.end(germanArticle)
+      res.end(req.url === "/english-article" ? englishArticle : article)
     })
     // No test may upload fixture text or download live models by accident.
     const proxy = createServer((req, res) => { blocked.push(req.url); res.writeHead(502).end() })
@@ -67,7 +93,7 @@ export function browserTest(name, run, options = {}) {
       await rm(temporary, { recursive: true, force: true })
     })
     const port = await listen(server), proxyPort = await listen(proxy)
-    const archive = resolve(`.output/orateur-extension-${version}-${browserName}.zip`)
+    const archive = resolve(process.env.ORATEUR_TEST_ARCHIVE_DIR ?? ".output", `orateur-extension-${version}-${browserName}.zip`)
     const pkg = await extractPackage(archive, join(temporary, "extension"))
     const uuid = randomUUID()
     const id = pkg.manifest.browser_specific_settings?.gecko?.id

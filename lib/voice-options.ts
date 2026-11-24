@@ -1,4 +1,5 @@
 import { POCKET_VOICES } from "./pocket/catalog.ts"
+import { KALE_VOICES } from "./kale/catalog.ts"
 import { SUPERTONIC_VOICES, SUPERTONIC_VOICE_LABEL_KEYS } from "./supertonic/types.ts"
 import type { MessageKey } from "./i18n.ts"
 
@@ -10,7 +11,8 @@ export type VoiceOption = { id: string; key: MessageKey } | { id: string; text: 
  * both show them. Supertonic lists its female voices first, since F1 is the
  * default; Pocket's voices are proper names, except its automatic choice.
  */
-export function voiceOptions(engine: "supertonic" | "pocket"): VoiceOption[] {
+export function voiceOptions(engine: "supertonic" | "pocket" | "kale"): readonly VoiceOption[] {
+  if (engine === "kale") return KALE_VOICES
   if (engine === "pocket") {
     return POCKET_VOICES.map((id) => id === "auto"
       ? { id, key: "voicePocketAuto" }

@@ -58,6 +58,13 @@ the `idle-intelligence/pocket-tts-gguf` and
 `kyutai/pocket-tts-without-voice-cloning` repositories on Hugging Face. It stores
 them in the extension's Cache Storage for offline use.
 
+Kale TTS Tiny synthesizes English on the device. First playback downloads
+approximately 90 MB of model and voice data from `KaleComputer/kale-tts-1`
+on Hugging Face. The optional WebGPU setting adds a 183 MB model on
+compatible devices. The extension caches both model variants for offline
+use and retains the CPU model as a fallback. Private windows use cached
+files or fall back to the browser's voice.
+
 Supertonic runs speech synthesis locally. First playback with this engine,
 or an explicit model download from Settings, downloads approximately
 400 MB of public models and voice styles from the
@@ -68,8 +75,8 @@ Private windows without a complete cache use the system engine for that reading.
 
 Model requests contain no article or selected text. Hugging Face and its
 download infrastructure receive the network metadata needed to serve the
-files, such as the requesting IP address. Text synthesized by Pocket TTS and
-Supertonic stays on your device.
+files, such as the requesting IP address. Text synthesized by Pocket TTS,
+Kale and Supertonic stays on your device.
 
 ### 3. Optional usage analytics
 
@@ -120,7 +127,7 @@ The main extension stores:
   Records older than 30 days are discarded when progress is next loaded;
   finishing an article clears its saved progress.
 - A coordination token so only one tab reads at a time.
-- Pocket TTS and Supertonic model and voice files, if downloaded.
+- Pocket TTS, Kale and Supertonic model and voice files, if downloaded.
 - The statistics preference and its random UUID while enabled.
 
 These values use local extension storage, not browser sync. They are not
@@ -137,7 +144,7 @@ from Settings. Uninstalling an extension removes its local storage.
 | `scripting` (Chrome MV3) | Inject the extractor or reader when needed. |
 | `storage` | Save preferences, pronunciation rules, reading progress and statistics settings; coordinate reading tabs. |
 | `unlimitedStorage` | Allow local speech model caches to exceed ordinary storage limits. |
-| `offscreen` (Chrome MV3) | Run Pocket TTS and Supertonic audio playback outside the service worker. Firefox uses its persistent background page. |
+| `offscreen` (Chrome MV3) | Run local audio playback outside the service worker. Firefox uses its persistent background page. |
 | `technicalAndInteraction` (Firefox, optional) | Allow usage statistics in addition to the extension's own switch. |
 
 ## Contact

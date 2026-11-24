@@ -12,7 +12,8 @@
  */
 
 import type { SpeakRequest } from "./tts-host.ts"
-import type { LocalTtsHost, PocketSpeakRequest } from "./local-tts-host.ts"
+import type { LocalTtsHost, ChunkedSpeakRequest } from "./local-tts-host.ts"
+import { isKaleVoice } from "./kale/catalog.ts"
 import { isPocketVoice, POCKET_LANGUAGES } from "./pocket/catalog.ts"
 import { createSpeechPreparation, prepareSpeech } from "./prepare-speech.ts"
 import { sanitizePronunciationRules, type PronunciationRule } from "./pronunciation/personal.ts"
@@ -67,11 +68,12 @@ interface Reading {
 
 type ActiveHost =
   | { engine: "supertonic"; host: LocalTtsHost<SpeakRequest> }
-  | { engine: "pocket"; host: LocalTtsHost<PocketSpeakRequest> }
+  | { engine: "pocket" | "kale"; host: LocalTtsHost<ChunkedSpeakRequest> }
 
 const supertonicLanguages = new Set<string>(AVAILABLE_LANGS)
 const supertonicVoices = new Set<string>(SUPERTONIC_VOICES)
 const pocketLanguages = new Set<string>(POCKET_LANGUAGES)
+const languagesByEngine = { supertonic: supertonicLanguages, pocket: pocketLanguages, kale: new Set(["en"]) }
 
 /** A reading that cannot start must say so: its pill would otherwise stay on "loading". */
 const START_FAILED = { type: TTS_EVENT, state: { phase: "error", message: "Unable to start speech." } } satisfies TtsEventMessage
@@ -89,7 +91,8 @@ function validBlock(value: unknown, languages: ReadonlySet<string>): value is Tt
 
 /** Validate before taking ownership: a malformed message must not stop another tab. */
 function validSpeak(message: Partial<TtsSpeakMessage>): message is TtsSpeakMessage {
-  const languages = message.engine === "pocket" ? pocketLanguages : supertonicLanguages
+  if (message.engine !== undefined && message.engine !== "supertonic" && message.engine !== "pocket" && message.engine !== "kale") return false
+  const languages = languagesByEngine[message.engine ?? "supertonic"]
   const validText = message.paragraphs === undefined
     ? typeof message.text === "string" && !!message.text.trim()
     : message.text === undefined && Array.isArray(message.paragraphs) && message.paragraphs.length > 0 &&
@@ -103,6 +106,11 @@ function validSpeak(message: Partial<TtsSpeakMessage>): message is TtsSpeakMessa
     return pocketLanguages.has(message.lang) && isPocketVoice(message.voice) &&
       (message.cacheOnly === undefined || typeof message.cacheOnly === "boolean")
   }
+  if (message.engine === "kale") {
+    return message.lang === "en" && isKaleVoice(message.voice) &&
+      (message.cacheOnly === undefined || typeof message.cacheOnly === "boolean") &&
+      (message.webGpu === undefined || typeof message.webGpu === "boolean")
+  }
   return (message.engine === undefined || message.engine === "supertonic") &&
     supertonicLanguages.has(message.lang) && supertonicVoices.has(message.voice) &&
     (message.personalRules === undefined || Array.isArray(message.personalRules))
@@ -113,7 +121,8 @@ function legacyParagraphs(text: string, message: TtsSpeakMessage, personalRules:
   return createSpeechPreparation({ paragraphs: splitBlocks(text), text, title: "", personalRules }, message.lang)
     .paragraphs.map((paragraph) => ({
       text: paragraph.text,
-      lang: message.engine === "pocket" ? message.lang : toSupertonicLang(paragraph.lang) ?? message.lang,
+      lang: message.engine === undefined || message.engine === "supertonic"
+        ? toSupertonicLang(paragraph.lang) ?? message.lang : message.lang,
     }))
 }
 
@@ -122,10 +131,12 @@ function legacyParagraphs(text: string, message: TtsSpeakMessage, personalRules:
  *
  * @param createHost Builds Supertonic's host; existing callers need no Pocket factory.
  * @param createPocketHost Builds Pocket's host with its own synthesis and cache.
+ * @param createKaleHost Builds Kale's host when the test model is packaged.
  */
 export function createTtsServer(
   createHost: (onState: (state: TtsState) => void) => LocalTtsHost<SpeakRequest>,
-  createPocketHost?: (onState: (state: TtsState) => void) => LocalTtsHost<PocketSpeakRequest>,
+  createPocketHost?: (onState: (state: TtsState) => void) => LocalTtsHost<ChunkedSpeakRequest>,
+  createKaleHost?: (onState: (state: TtsState) => void) => LocalTtsHost<ChunkedSpeakRequest>,
 ) {
   let owner: Reading | null = null
   let active: ActiveHost | null = null
@@ -146,9 +157,9 @@ export function createTtsServer(
       owner.port.postMessage({ type: TTS_EVENT, state } satisfies TtsEventMessage)
       if (state.phase === "ended" || state.phase === "error") release()
     }
-    active = engine === "pocket"
-      ? { engine, host: createPocketHost!(onState) }
-      : { engine, host: createHost(onState) }
+    active = engine === "supertonic"
+      ? { engine, host: createHost(onState) }
+      : { engine, host: (engine === "kale" ? createKaleHost! : createPocketHost!)(onState) }
     return active
   }
 
@@ -175,7 +186,8 @@ export function createTtsServer(
 
   function receive(port: TtsPort, tabId: number, message: Incoming) {
     if (message?.type === TTS_SPEAK) {
-      if (!validSpeak(message) || (message.engine === "pocket" && !createPocketHost)) {
+      if (!validSpeak(message) || (message.engine === "pocket" && !createPocketHost) ||
+        (message.engine === "kale" && !createKaleHost)) {
         // Answer the refused port only: the current owner keeps reading.
         port.postMessage(START_FAILED)
         return
@@ -184,7 +196,7 @@ export function createTtsServer(
       const reading: Reading = { port, tabId, token: message.token, engine }
       let paragraphs = message.paragraphs
       if (!paragraphs) {
-        reading.legacyRules = message.engine === "pocket" ? [] : sanitizePronunciationRules(message.personalRules)
+        reading.legacyRules = engine === "supertonic" ? sanitizePronunciationRules(message.personalRules) : []
         try {
           paragraphs = legacyParagraphs(message.text!, message, reading.legacyRules)
         } catch {
@@ -200,11 +212,12 @@ export function createTtsServer(
           paragraphs, speed: message.speed, startBlock: message.startBlock,
           prepareParagraph: message.livePage ? (block: number, prefetch = false) => requestParagraph(reading, block, prefetch) : undefined,
         }
-        if (target.engine === "pocket" && message.engine === "pocket") {
+        if (target.engine !== "supertonic" && (message.engine === "pocket" || message.engine === "kale")) {
           target.host.speak({
             ...common, lang: message.lang, voice: message.voice, cacheOnly: message.cacheOnly,
+            webGpu: message.engine === "kale" ? message.webGpu : undefined,
           })
-        } else if (target.engine === "supertonic" && message.engine !== "pocket") {
+        } else if (target.engine === "supertonic" && (message.engine === undefined || message.engine === "supertonic")) {
           target.host.speak({
             ...common, voice: message.voice, paragraphs: paragraphs as TtsPreparedBlock[],
             prepareParagraph: common.prepareParagraph as SpeakRequest["prepareParagraph"],
@@ -221,7 +234,7 @@ export function createTtsServer(
       if (!request || request.reading.port !== port) return
       pending.delete(message.id!)
       const prepared = message.prepared
-      const languages = request.reading.engine === "pocket" ? pocketLanguages : supertonicLanguages
+      const languages = languagesByEngine[request.reading.engine]
       if (prepared == null) request.resolve(null)
       else if (!validBlock(prepared, languages)) {
         request.reject(new Error("Invalid prepared paragraph"))
