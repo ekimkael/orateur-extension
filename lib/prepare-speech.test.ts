@@ -81,7 +81,15 @@ test("dictates grouped international telephone numbers and preserves signed quan
   assert.equal(prepareSpeech("Tél. : +237 699 003 056.", "fr"),
     "téléphone : plus deux trois sept, six neuf neuf, zéro zéro trois, zéro cinq six.")
   const amount = "Une hausse de +1 234 567 890 FCFA."
-  assert.equal(prepareSpeech(amount, "fr"), new Verbalizer("fr").process(amount))
+  assert.equal(prepareSpeech(amount, "fr"), new Verbalizer("fr").process(amount.replace("FCFA", "francs CFA")))
+})
+
+test("reads FCFA as francs CFA in French speech", () => {
+  assert.equal(prepareSpeech("FCFA", "fr"), "franc CFA")
+  assert.equal(prepareSpeech("1 FCFA, 1,50 FCFA et 500FCFA.", "fr"),
+    "un franc CFA, un virgule cinquante franc CFA et cinq cents francs CFA.")
+  const identifiers = "Le code X_FCFA, la référence FCFA_2 et https://example.org/FCFA."
+  assert.equal(prepareSpeech(identifiers, "fr"), new Verbalizer("fr").process(identifiers))
 })
 
 test("reads French ticket numbers and displayed statuses without changing standalone identifiers", () => {
