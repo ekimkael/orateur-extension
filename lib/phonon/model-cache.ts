@@ -1,7 +1,7 @@
 import { createModelFileCache } from "../model-file-cache.ts"
 import { PHONON_FILES, phononManifest, type PhononLanguage } from "./config.ts"
 
-const cache = createModelFileCache("orateur-phonon-tts-v1", "Phonon")
+const cache = createModelFileCache("orateur-phonon-tts-v1", "Phonon", { resumeDownloads: true })
 
 /** Source and integrity metadata for the assets needed by a language. */
 export function phononModelFiles(lang: PhononLanguage) {

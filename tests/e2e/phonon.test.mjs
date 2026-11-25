@@ -16,18 +16,32 @@ browserTest("Phonon loads verified assets and plays without a Hugging Face sessi
   assert.equal(base.hostname, "127.0.0.1")
   const requests = []
   let fail = true
+  let interruptWeights = true
   const server = createServer((req, res) => {
     const entry = Object.entries(PHONON_FILES).find(([, name]) => req.url === base.pathname + name)
     if (!entry) return res.writeHead(404).end()
     const [key, name] = entry
-    requests.push({ key, cookie: req.headers.cookie, authorization: req.headers.authorization })
+    const { range, cookie, authorization } = req.headers
+    requests.push({ key, range, cookie, authorization })
     if (fail) return res.writeHead(503).end()
-    res.writeHead(200, {
+    const size = manifest.files[key].size
+    const offset = range && /^bytes=(\d+)-$/.exec(range)
+    const start = offset ? Number(offset[1]) : 0
+    if (range && (!offset || start >= size)) return res.writeHead(416).end()
+    res.writeHead(range ? 206 : 200, {
       "Access-Control-Allow-Origin": "*",
+      "Access-Control-Expose-Headers": "Content-Range",
       "Cross-Origin-Resource-Policy": "cross-origin",
-      "Content-Length": manifest.files[key].size,
+      "Content-Length": size - start,
+      ...(range && { "Content-Range": `bytes ${start}-${size - 1}/${size}` }),
     })
-    createReadStream(join(directory, name)).on("error", () => res.destroy()).pipe(res)
+    const cut = key === "weights" && interruptWeights && !range
+    if (cut) interruptWeights = false
+    const stream = createReadStream(join(directory, name), { start, end: cut ? 256 * 1024 - 1 : size - 1 })
+    stream.on("error", () => res.destroy())
+    res.on("close", () => stream.destroy())
+    if (cut) stream.once("end", () => setTimeout(() => res.destroy(), 200))
+    stream.pipe(res, { end: !cut })
   })
   await new Promise((resolve, reject) => server.once("error", reject).listen(Number(base.port), base.hostname, resolve))
   t.after(() => { server.closeAllConnections(); server.close() })
@@ -92,7 +106,9 @@ browserTest("Phonon loads verified assets and plays without a Hugging Face sessi
     }
     assert.equal(requests.length, downloaded)
   }
-  assert.equal(requests.filter(({ key }) => key === "weights").length, 2, "One failed request and one shared download")
+  const weightRequests = requests.filter(({ key }) => key === "weights")
+  assert.deepEqual(weightRequests.map(({ range }) => range), [undefined, undefined, "bytes=262144-"],
+    "One unavailable request, one interrupted download and one resumed download shared across languages")
   assert.ok(requests.every(({ authorization, cookie }) => !authorization && !cookie))
   assert.equal(h.blocked.some(url => /huggingface/.test(url)), false)
 }, { skip: !source || !directory, timeout: 90_000 })
