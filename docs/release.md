@@ -55,3 +55,19 @@ Never move or delete a published tag. A bad release is fixed by a new `hotfix/x.
 - **Re-running:** a re-run resubmits to every configured store, and stores refuse a version they already have.
   Ship a fix as a new patch version instead.
 - **Rollback:** stores have no rollback. Publish a `hotfix/x.y.z` with the fix or the revert.
+
+## Phonon model hosting
+
+Commit `phonon-release-manifest.json` at the repository root to enable Phonon
+in both store packages. Generate it with
+`node scripts/phonon-manifest.mjs DIRECTORY HTTPS_BASE_URL > phonon-release-manifest.json`
+using the exact weights, tokenizer, configuration and voices served at that URL.
+The host must serve the files without credentials. Confirm distribution rights
+and provide attribution under the model's license before making the files
+available. See [the model card](https://huggingface.co/gradium/phonon-40m-multilingual#license).
+
+Verify first playback in English and French with the production URL in both
+browsers, then verify playback from the cache with model requests blocked.
+The Firefox source archive includes the release manifest for reproducible
+builds. Without that file, store builds omit Phonon. The
+`ORATEUR_PHONON_MANIFEST` file setting builds an isolated candidate.

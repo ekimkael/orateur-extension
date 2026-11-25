@@ -1,19 +1,18 @@
-import { copyFileSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { defineConfig } from 'wxt';
 import { PHONON_FILES, type PhononManifest } from './lib/phonon/config';
 
-function readPhononManifest(path: string | undefined): PhononManifest | null {
-  if (!path) return null;
+function readPhononManifest(path: string, candidate: boolean): PhononManifest {
   const manifest = JSON.parse(readFileSync(path, 'utf8')) as PhononManifest;
   if (typeof manifest?.baseUrl !== 'string') throw new Error('Phonon asset base URL is required');
   const url = new URL(manifest.baseUrl);
-  const loopback = url.protocol === 'http:' && url.hostname === '127.0.0.1';
+  const loopback = candidate && url.protocol === 'http:' && url.hostname === '127.0.0.1';
   if ((!loopback && url.protocol !== 'https:') || url.username || url.password ||
       url.search || url.hash || !url.pathname.endsWith('/')) {
-    throw new Error('Phonon asset base URL must be credential-free HTTPS or loopback HTTP and end in /');
+    throw new Error('Phonon asset base URL must be credential-free HTTPS and end in / (candidate builds also accept loopback HTTP)');
   }
   for (const key of Object.keys(PHONON_FILES) as (keyof typeof PHONON_FILES)[]) {
     const file = manifest.files?.[key];
@@ -23,7 +22,11 @@ function readPhononManifest(path: string | undefined): PhononManifest | null {
   return manifest;
 }
 
-const phonon = readPhononManifest(process.env.ORATEUR_PHONON_MANIFEST);
+const phononCandidatePath = process.env.ORATEUR_PHONON_MANIFEST;
+const phononReleasePath = fileURLToPath(new URL('./phonon-release-manifest.json', import.meta.url));
+const phonon = phononCandidatePath
+  ? readPhononManifest(phononCandidatePath, true)
+  : existsSync(phononReleasePath) ? readPhononManifest(phononReleasePath, false) : null;
 const phononRuntime = join(dirname(fileURLToPath(import.meta.url)), 'node_modules', 'phonon-tts');
 
 /**
@@ -65,8 +68,8 @@ const kaleTest = process.env.WXT_KALE_TEST === '1';
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   ...(kaleTest && { outDir: '.output/kale-release-candidate' }),
+  ...(phonon && phononCandidatePath && { outDir: '.output/phonon-candidate' }),
   ...(phonon && {
-    outDir: '.output/phonon-candidate',
     hooks: {
       'build:publicAssets': (_, files) => {
         for (const file of readdirSync(phononRuntime, { recursive: true, withFileTypes: true })) {
@@ -167,7 +170,7 @@ export default defineConfig({
     ...(browser === 'firefox' && {
       browser_specific_settings: {
         gecko: {
-          id: kaleTest ? 'orateur-kale-test@ekimkael' : phonon ? 'orateur-phonon-test@ekimkael' : 'orateur@ekimkael',
+          id: kaleTest ? 'orateur-kale-test@ekimkael' : phonon && phononCandidatePath ? 'orateur-phonon-test@ekimkael' : 'orateur@ekimkael',
           // Obligatoire pour toute nouvelle extension Firefox depuis nov. 2025.
           //
           // La collecte technique reste facultative pour Firefox, même si le

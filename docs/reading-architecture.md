@@ -103,9 +103,11 @@ Cached assets support offline playback and private-window cache-only reading.
 Unsupported languages use the system voice. The candidate does not report
 Phonon playback or download events.
 
-Builds expose Phonon only when `ORATEUR_PHONON_MANIFEST` points to a model
-source manifest. For local setup and browser tests, see
-[Phonon candidate fixtures](testing.md#phonon-candidate-fixtures).
+Candidate builds load a model source manifest file from `ORATEUR_PHONON_MANIFEST`.
+Store builds read `phonon-release-manifest.json` and keep the
+standard package paths and Firefox extension ID. See
+[Phonon candidate fixtures](testing.md#phonon-candidate-fixtures) and
+[release configuration](release.md#phonon-model-hosting).
 
 Gradium licenses the 40M model files under CC BY-NC 4.0. A deployment needs a
 source and attribution for model files that Orateur is authorized to distribute.

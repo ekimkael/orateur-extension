@@ -73,10 +73,14 @@ are cached in the extension's private storage (OPFS). A complete cache
 allows offline synthesis; missing files may require another download.
 Private windows without a complete cache use the system engine for that reading.
 
-Model requests contain no article or selected text. Hugging Face and its
-download infrastructure receive the network metadata needed to serve the
-files, such as the requesting IP address. Text synthesized by Pocket TTS,
-Kale and Supertonic stays on your device.
+In builds that offer Phonon, the engine synthesizes English and French
+locally. It downloads about 75 MB of shared model data and a small voice
+file for each language from the HTTPS source configured for that build.
+The extension verifies and caches the files for offline use.
+
+Model requests contain no article or selected text. Model hosts receive the
+network metadata needed to serve the files, such as the requesting IP address.
+Text synthesized by Pocket TTS, Kale, Supertonic and Phonon stays on your device.
 
 ### 3. Optional usage analytics
 
@@ -127,7 +131,7 @@ The main extension stores:
   Records older than 30 days are discarded when progress is next loaded;
   finishing an article clears its saved progress.
 - A coordination token so only one tab reads at a time.
-- Pocket TTS, Kale and Supertonic model and voice files, if downloaded.
+- Pocket TTS, Kale, Supertonic and Phonon model and voice files, if downloaded.
 - The statistics preference and its random UUID while enabled.
 
 These values use local extension storage, not browser sync. They are not
