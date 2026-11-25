@@ -16,37 +16,49 @@ async function readVerified(
   file: ModelFile,
   signal: AbortSignal,
   onProgress?: (loaded: number) => void,
+  resume?: (offset: number) => Promise<Response>,
 ): Promise<ArrayBuffer> {
-  if (!response.body) throw new Error("Model file has no data")
   const bytes = new Uint8Array(new ArrayBuffer(file.size))
-  const reader = response.body.getReader()
   let offset = 0
-  let ended = false
-  try {
-    onProgress?.(0)
-    for (;;) {
-      const { done, value } = await reader.read()
-      signal.throwIfAborted()
-      if (done) {
-        ended = true
-        break
+
+  async function read(response: Response) {
+    if (!response.body) throw new Error("Model file has no data")
+    const reader = response.body.getReader()
+    let ended = false
+    try {
+      for (;;) {
+        const chunk = await reader.read().catch((error: unknown) => ({ error }))
+        signal.throwIfAborted()
+        if ("error" in chunk) return chunk
+        if (chunk.done) {
+          ended = true
+          return
+        }
+        if (offset + chunk.value.byteLength > bytes.byteLength) throw new Error("Model file exceeds its published size")
+        bytes.set(chunk.value, offset)
+        offset += chunk.value.byteLength
+        onProgress?.(offset)
       }
-      if (offset + value.byteLength > bytes.byteLength) throw new Error("Model file exceeds its published size")
-      bytes.set(value, offset)
-      offset += value.byteLength
-      onProgress?.(offset)
+    } finally {
+      if (!ended) await reader.cancel().catch(() => {})
+      reader.releaseLock()
     }
-  } finally {
-    if (!ended) await reader.cancel().catch(() => {})
-    reader.releaseLock()
   }
+
+  onProgress?.(0)
+  let failure = await read(response)
+  // Keep partial bytes in memory. Only the complete pinned digest can reach the cache or runtime.
+  for (let attempt = 0; resume && offset > 0 && offset < file.size && attempt < 2; attempt++) {
+    failure = await read(await resume(offset))
+  }
+  if (failure) throw failure.error
   if (offset !== file.size || !await verified(bytes.buffer, file)) throw new Error("Model file integrity check failed")
   signal.throwIfAborted()
   return bytes.buffer
 }
 
-/** Cache complete, verified model files independently of other engines. */
-export function createModelFileCache(cacheName: string, name: string) {
+/** Cache complete, verified model files. Opt in to resuming only for range-capable sources. */
+export function createModelFileCache(cacheName: string, name: string, { resumeDownloads = false } = {}) {
   async function openCache() {
     try {
       return await globalThis.caches?.open(cacheName)
@@ -106,9 +118,18 @@ export function createModelFileCache(cacheName: string, name: string) {
     }
     signal.throwIfAborted()
     if (cacheOnly) throw new Error(`Verified ${name} model is unavailable offline`)
-    const response = await fetch(file.url, { signal, credentials: "omit", referrerPolicy: "no-referrer" })
+    const request: RequestInit = { signal, credentials: "omit", referrerPolicy: "no-referrer" }
+    const response = await fetch(file.url, request)
     if (!response.ok) throw new Error(`${name} model download failed (HTTP ${response.status})`)
-    const bytes = await readVerified(response, file, signal, onProgress)
+    const resume = resumeDownloads ? async (offset: number) => {
+      const partial = await fetch(file.url, { ...request, headers: { Range: `bytes=${offset}-` } })
+      if (partial.status !== 206 || partial.headers.get("Content-Range") !== `bytes ${offset}-${file.size - 1}/${file.size}`) {
+        await partial.body?.cancel().catch(() => {})
+        throw new Error(`Invalid range response for ${name} model (HTTP ${partial.status})`)
+      }
+      return partial
+    } : undefined
+    const bytes = await readVerified(response, file, signal, onProgress, resume)
     try {
       await cache?.put(file.url, new Response(bytes, { headers: { "Content-Length": String(file.size) } }))
     } catch {

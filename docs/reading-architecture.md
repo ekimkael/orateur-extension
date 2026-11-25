@@ -100,6 +100,8 @@ The Pocket playback queue handles progress, pause, resume, seek and stop.
 The SDK, its workers, WebAssembly and license notices are packaged with the
 extension. Only verified model data is fetched from the configured source.
 Cached assets support offline playback and private-window cache-only reading.
+Interrupted downloads can resume from the last received byte. Only a complete
+file with the pinned SHA-256 can be cached or used.
 Unsupported languages use the system voice. Phonon playback and downloads
 are excluded from usage analytics.
 
