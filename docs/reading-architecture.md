@@ -92,7 +92,7 @@ separately named candidate under `.output/kale-release-candidate`. Run
 assets. `ORATEUR_KALE_GPU_FIXTURE` optionally supplies the FP32 graph for a
 direct WebGPU check on a capable browser. The fixture server stays on loopback.
 
-## Phonon candidate
+## Phonon
 
 Phonon 40M Multilingual is an opt-in CPU engine for English and French. Both
 languages use the same q8 checkpoint and select a language-specific voice.
@@ -100,8 +100,8 @@ The Pocket playback queue handles progress, pause, resume, seek and stop.
 The SDK, its workers, WebAssembly and license notices are packaged with the
 extension. Only verified model data is fetched from the configured source.
 Cached assets support offline playback and private-window cache-only reading.
-Unsupported languages use the system voice. The candidate does not report
-Phonon playback or download events.
+Unsupported languages use the system voice. Phonon playback and downloads
+are excluded from usage analytics.
 
 Candidate builds load a model source manifest file from `ORATEUR_PHONON_MANIFEST`.
 Store builds read `phonon-release-manifest.json` and keep the

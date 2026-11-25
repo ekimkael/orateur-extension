@@ -38,13 +38,17 @@ engine retained for older profiles without a saved engine.
 - [Kale TTS Tiny](https://huggingface.co/KaleComputer/kale-tts-1-tiny) offers ten
   English voices and downloads about 90 MB for the first reading. Optional
   WebGPU acceleration adds a 183 MB model and keeps the CPU graph for fallback.
+- [Phonon 40M Multilingual](https://huggingface.co/gradium/phonon-40m-multilingual)
+  synthesizes English and French locally. It downloads about 75 MB of
+  shared model files and one small voice file for each language.
+  [Model and voice attribution](https://orateur.digitalekim.net/n0c-storage/orateur-phonon-40m-1537ce4/ATTRIBUTION.txt).
 - [Supertonic](https://huggingface.co/Supertone/supertonic-3) runs locally on
   ONNX Runtime Web with ten voices. Its first reading or explicit download
   fetches about 400 MB.
 - System voices use the browser's `speechSynthesis`. Availability depends on
   the browser and operating system, and some voices use an online service.
 
-The two local engines work offline with their cached files. Unsupported
+The local engines work offline with their cached files. Unsupported
 languages and private windows without cached models use a system voice for
 the reading. Verbalis prepares spoken text for every engine in its supported languages.
 Personal pronunciation rules apply with Supertonic and system voices.

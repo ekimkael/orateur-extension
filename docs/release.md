@@ -64,7 +64,10 @@ in both store packages. Generate it with
 using the exact weights, tokenizer, configuration and voices served at that URL.
 The host must serve the files without credentials. Confirm distribution rights
 and provide attribution under the model's license before making the files
-available. See [the model card](https://huggingface.co/gradium/phonon-40m-multilingual#license).
+available. The current distribution relies on the model's noncommercial
+license. Before Orateur moves to commercial use, obtain commercial terms from
+Gradium or replace the model. See
+[the model card](https://huggingface.co/gradium/phonon-40m-multilingual#license).
 
 Verify first playback in English and French with the production URL in both
 browsers, then verify playback from the cache with model requests blocked.
