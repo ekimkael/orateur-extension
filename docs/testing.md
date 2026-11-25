@@ -97,6 +97,7 @@ an E2E test.
 | Lifecycle | Existing tab, navigation, closure, multiple tabs, updates | Browser |
 | Supertonic | Fresh-install default, download, cancellation, network failure, cache, offline playback | Node + browser + dedicated check |
 | Pocket TTS | Separate voice and cache, French and English synthesis, fallback, pronunciation isolation | Node + browser + listening |
+| Kale TTS Tiny | English article and selection playback, verified cache, WebGPU and CPU fallback | Node + browser + listening |
 | Privacy | Enabled by default, stops after opt-out, native Firefox permission required | Node + network observation |
 | Web application | Correct text, title, language and URL handoff | Node + browser |
 | Built-in PDF viewer | No injected reader; selected-text handoff when exposed by the browser | Manual |
@@ -188,12 +189,45 @@ tests, which do not download models for each PR.
 For Pocket, listen to French and English with the matching models, then
 repeat with a populated cache and the network offline. Check a mid-reading
 seek, pause/resume, stop during synthesis, and switching between the local
-engines. Check that a date and an amount are normalized on all three engines.
-Pocket leaves personal pronunciation rules inactive. The other two engines apply them.
+engines. Check that a date and an amount are normalized on each engine.
+Personal pronunciation rules apply to Supertonic and system voices.
+
+For Kale, listen to an English article and a selection with both US and UK
+voices. Populate the INT8 cache and repeat offline. Enable WebGPU on a supported
+device, prepare the FP32 graph, and repeat with WebGPU unavailable to exercise
+the cached CPU fallback. The [Kale test setup](reading-architecture.md#kale-tts-tiny)
+can run on verified fixtures without downloading both models for every test.
 
 For lifecycle changes, also check installation into an already-open tab, updates
 during playback and MV3 service-worker wakeup. Attaching a debugger can affect
 the worker's sleep behavior.
+
+## Phonon candidate fixtures
+
+Use files obtained through an authorized account from a pinned
+[Phonon 40M Multilingual revision](https://huggingface.co/gradium/phonon-40m-multilingual/tree/1537ce46c64f42903e0d608b132ccb073dac46d2).
+Keep them outside the checkout. The fixture directory contains
+`model.q8.gguf`, `config.json`, `tokenizer.json` and the chosen Gradium
+embeddings saved as `en.safetensors` and `fr.safetensors`. For example, use [Zoey](https://huggingface.co/gradium/phonon-voices/blob/0ee17205f254b5abc43b266c8a0f215565c352f7/voices/NbpkqMVS3CJeq2j8.safetensors)
+and [Noémie](https://huggingface.co/gradium/phonon-voices/blob/0ee17205f254b5abc43b266c8a0f215565c352f7/voices/FXxJ9mANRq6BCTX5.safetensors).
+Generate the manifest from these trusted copies. Use the same bytes when
+serving the files.
+
+```sh
+export ORATEUR_PHONON_FIXTURES=/path/to/phonon-fixtures
+export ORATEUR_PHONON_MANIFEST=/path/to/phonon-manifest.json
+node scripts/phonon-manifest.mjs "$ORATEUR_PHONON_FIXTURES" http://127.0.0.1:18768/ > "$ORATEUR_PHONON_MANIFEST"
+npm run zip && npm run zip:firefox
+npm run test:packages -- .output/phonon-candidate/*-chrome.zip .output/phonon-candidate/*-firefox.zip
+ORATEUR_TEST_ARCHIVE_DIR=.output/phonon-candidate npm run test:e2e
+ORATEUR_TEST_ARCHIVE_DIR=.output/phonon-candidate npm run test:e2e:firefox
+```
+
+Run the browser suites sequentially because the Phonon scenario binds the
+fixture port from the manifest. Use an unpacked candidate and serve the same
+directory on that port for manual listening. Check article and selection
+playback in both languages, first sound with and without a cache, pause and
+seek, and an offline restart after both voices are cached.
 
 ## Release gate
 

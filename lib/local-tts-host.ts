@@ -10,8 +10,8 @@ export interface LocalTtsHost<Request> {
   dispose?(): void
 }
 
-/** Pocket receives speech-ready paragraphs and keeps one model per reading. */
-export interface PocketSpeakRequest {
+/** Pocket and Kale receive speech-ready paragraphs in one model language. */
+export interface ChunkedSpeakRequest {
   paragraphs: readonly TtsPreparedBlock<string>[]
   lang: string
   voice: string
@@ -19,6 +19,8 @@ export interface PocketSpeakRequest {
   startBlock?: number
   /** Read verified cached model files and fail when any are missing. */
   cacheOnly?: boolean
+  /** Try Kale's GPU graph before the CPU fallback. */
+  webGpu?: boolean
   /** Refresh DOM text before synthesis; a removed paragraph resolves to null. */
   prepareParagraph?: (paragraph: number, prefetch?: boolean) => Promise<TtsPreparedBlock<string> | null>
 }

@@ -185,7 +185,7 @@ function multiEngineServer() {
       dispose: () => { order.push(`${engine}:dispose`) },
     }
   }
-  const tts = createTtsServer(factory("supertonic"), factory("pocket"))
+  const tts = createTtsServer(factory("supertonic"), factory("pocket"), factory("kale"))
   const open = (id: number) => {
     const end = port(id)
     tts.connect(end)
@@ -278,4 +278,25 @@ test("Pocket receives no pronunciation rules and only its current port may contr
   next.send({ type: messages.TTS_CONTROL, action: "pause" })
   assert.equal(h.order.at(-1), "pocket:pause")
   assert.equal(h.order.includes("pocket:stop"), false)
+})
+
+test("Kale accepts English and a Tiny voice before taking the TTS port", () => {
+  const h = multiEngineServer()
+  h.open(12).send(pocketSpeak())
+  const next = h.open(13)
+  const kale = { ...pocketSpeak(), engine: "kale", voice: "d03" }
+  next.send({ ...kale, lang: "fr" })
+  next.send({ ...kale, voice: "alba" })
+  next.send({ ...kale, text: undefined, paragraphs: [{ text: "Un.", lang: "fr" }] })
+  assert.equal(next.posted.filter((message) => message.state.phase === "error").length, 3)
+  assert.deepEqual(h.order, ["pocket:speak"])
+
+  next.send(kale)
+  assert.deepEqual(h.order, ["pocket:speak", "pocket:stop", "pocket:dispose", "kale:speak"])
+  assert.equal(h.hosts[1]!.requests[0].voice, "d03")
+  assert.equal(h.hosts[1]!.requests[0].lang, "en")
+
+  const disabled = server().open(14)
+  disabled.send(kale)
+  assert.equal(disabled.posted[0].state.phase, "error")
 })

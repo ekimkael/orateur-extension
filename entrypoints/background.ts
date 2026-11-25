@@ -51,10 +51,14 @@ import { TELEMETRY_TRACK, track, handleTelemetryTrack, type TelemetryTrackMessag
 // (entrypoints/offscreen/main.ts) — jamais ici, où il alourdirait le service
 // worker pour rien.
 import { createTtsHost } from "../lib/tts-host"
-import { createPocketTtsHost } from "../lib/pocket-tts-host"
+import { createKaleTtsHost, createPhononTtsHost, createPocketTtsHost } from "../lib/pocket-tts-host"
 import { createTtsServer } from "../lib/tts-port"
 import { isPocketVoice, toPocketLanguage } from "../lib/pocket/catalog"
+import { isPhononLanguage, phononManifest } from "../lib/phonon/config"
+import { isPhononModelCached } from "../lib/phonon/model-cache"
 import { isPocketModelCached } from "../lib/pocket/model-cache"
+import { isKaleVoice, KALE_VOICES } from "../lib/kale/catalog"
+import { isKaleModelCached } from "../lib/kale/model-cache"
 import { seedEngine } from "../lib/reader-prefs"
 // Même garde `import.meta.env.FIREFOX` : côté Chrome, c'est le document
 // offscreen qui appelle loadModelFiles(), jamais ce fichier.
@@ -124,7 +128,9 @@ async function ensureOffscreen(): Promise<boolean> {
 
 /** L'hôte Firefox — une seule instance, gardée en mémoire par la page de fond persistante. */
 let firefoxServer: ReturnType<typeof createTtsServer> | null = null
-const ensureFirefoxServer = () => (firefoxServer ??= createTtsServer(createTtsHost, createPocketTtsHost))
+const ensureFirefoxServer = () => (firefoxServer ??= createTtsServer(
+  createTtsHost, createPocketTtsHost, createKaleTtsHost, phononManifest ? createPhononTtsHost : undefined,
+))
 
 /**
  * Téléchargement explicite du modèle depuis la page d'options (jalon 1d).
@@ -294,6 +300,15 @@ export default defineBackground({
     },
     // Content scripts share the page's OPFS; only extension contexts can inspect this cache.
     [MODEL_CACHE_QUERY]: (message) => {
+      if (message.engine === "kale") {
+        const voice = message.voice ?? KALE_VOICES[0].id
+        if (!isKaleVoice(voice) || (message.lang !== undefined && message.lang !== "en")) return false
+        return isKaleModelCached(voice)
+      }
+      if (message.engine === "phonon") {
+        if (message.lang !== undefined && !isPhononLanguage(message.lang)) return false
+        return isPhononModelCached(message.lang).catch(() => false)
+      }
       if (message.engine !== "pocket") return isModelCached().catch(() => false)
       const lang = typeof message.lang === "string" ? toPocketLanguage(message.lang) : null
       if ((message.lang !== undefined && !lang) ||

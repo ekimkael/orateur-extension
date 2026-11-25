@@ -1,0 +1,25 @@
+{
+  "baseUrl": "https://orateur.digitalekim.net/n0c-storage/orateur-phonon-40m-1537ce4/",
+  "files": {
+    "weights": {
+      "size": 74553568,
+      "sha256": "96fa067813244e0c6c5997b98ec2596b65ec8574b14916b48e97db056ff97e27"
+    },
+    "tokenizer": {
+      "size": 277749,
+      "sha256": "a5e8c6060bf927ed367314f21355148fdf4acff6fadb94e49c86bc7182449433"
+    },
+    "config": {
+      "size": 4674,
+      "sha256": "e312ab694d5ec1f79ccea520a2eeec989969ce07e9b4189ae7e9ad8e035ef82e"
+    },
+    "en": {
+      "size": 256136,
+      "sha256": "97c7f8c253413574406ab80dd23f49c3ebb2517163b00a9bf86b9c4cf43e7e23"
+    },
+    "fr": {
+      "size": 256136,
+      "sha256": "9f575447f6908727214c2a855e0e33a7c316e9360a0d8b66c6ccaa8f6e15dade"
+    }
+  }
+}

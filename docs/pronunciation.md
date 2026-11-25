@@ -31,7 +31,7 @@ For French text, Orateur adapts a few forms before Verbalis. `6H45` uses the sam
 
 Midnight uses “minuit” for clock times, including “à minuit trente” for `à 00H30` and “vers minuit quarante-cinq” for `vers 00:45`. Duration contexts and timecodes retain their usual normalization.
 
-Grouped international phone numbers keep their written groups. The country code and groups longer than two digits are read digit by digit. A phone label disambiguates runs of three-digit groups from signed quantities. Ticket numbers introduced by `Ticket #` use “numéro” followed by individual digits, and `EN_ATTENTE` becomes “en attente” after a status label. Numeric quantities expand `mAh` and `Mb/s`, and the division sign `÷` reads “divisé par”. Personal replacements bypass these adjustments.
+Grouped international phone numbers keep their written groups. The country code and groups longer than two digits are read digit by digit. A phone label disambiguates runs of three-digit groups from signed quantities. Ticket numbers introduced by `Ticket #` use “numéro” followed by individual digits, and `EN_ATTENTE` becomes “en attente” after a status label. Numeric quantities expand `mAh` and `Mb/s`, and the division sign `÷` reads “divisé par”. French text expands `FCFA` to “franc CFA” or “francs CFA” according to the amount. Personal replacements bypass these adjustments.
 
 In French, standalone Greek letters `μ`, `Ω` and `Δ` read “mu”, “oméga” and “delta”. The extra readings leave unit and formula tokens such as `10 Ω`, `μg` and `ΔT` to Verbalis.
 

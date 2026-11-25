@@ -1,3 +1,4 @@
+import { PHONON_NAME, phononManifest } from "../lib/phonon/config"
 import { useTranslation } from "../hooks/useTranslation"
 import { useModelDownload } from "../hooks/useModelDownload"
 import type { Locale } from "../lib/i18n"
@@ -100,6 +101,24 @@ export function EngineSelect({ value, onChange, modelCached, onModelDownloaded, 
           </span>
           <span className="engine-desc">{t("engineNaturalAIDesc")}</span>
         </label>
+        <label className="engine-card">
+          <input type="radio" name="engine" value="kale" checked={value === "kale"} onChange={() => onChange("kale")} />
+          <span className="engine-head">
+            <span className="engine-title">{t("engineKale")}</span>
+            <span className="radio" aria-hidden="true" />
+          </span>
+          <span className="engine-desc">{t("engineKaleDesc")}</span>
+        </label>
+        {phononManifest && (
+          <label className="engine-card">
+            <input type="radio" name="engine" value="phonon" checked={value === "phonon"} onChange={() => onChange("phonon")} />
+            <span className="engine-head">
+              <span className="engine-title">{PHONON_NAME}</span>
+              <span className="radio" aria-hidden="true" />
+            </span>
+            <span className="engine-desc">{t("enginePocketDesc")}</span>
+          </label>
+        )}
       </div>
 
       {value === "pocket" && (

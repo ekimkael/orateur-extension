@@ -5,7 +5,8 @@
  * tab and storage events. Firefox runs the host in its background page.
  */
 import { createTtsHost } from "../../lib/tts-host"
-import { createPocketTtsHost } from "../../lib/pocket-tts-host"
+import { phononManifest } from "../../lib/phonon/config"
+import { createKaleTtsHost, createPhononTtsHost, createPocketTtsHost } from "../../lib/pocket-tts-host"
 import { createTtsServer } from "../../lib/tts-port"
 import { loadModelFiles } from "../../lib/supertonic/model-cache"
 import {
@@ -19,6 +20,7 @@ import {
   type ModelProgressState,
   type TtsTabRemovedMessage,
   type TtsTokenChangedMessage,
+  type TtsState,
 } from "../../lib/tts-messages"
 
 /**
@@ -96,15 +98,18 @@ async function runModelDownload() {
   }
 }
 
+function keepOpen(forward: (state: TtsState) => void) {
+  return (state: TtsState) => {
+    scheduleIdleClose()
+    forward(state)
+  }
+}
+
 const server = createTtsServer(
-  (forward) => createTtsHost((state) => {
-    scheduleIdleClose()
-    forward(state)
-  }),
-  (forward) => createPocketTtsHost((state) => {
-    scheduleIdleClose()
-    forward(state)
-  }),
+  (forward) => createTtsHost(keepOpen(forward)),
+  (forward) => createPocketTtsHost(keepOpen(forward)),
+  (forward) => createKaleTtsHost(keepOpen(forward)),
+  phononManifest ? (forward) => createPhononTtsHost(keepOpen(forward)) : undefined,
 )
 browser.runtime.onConnect.addListener(server.connect)
 
