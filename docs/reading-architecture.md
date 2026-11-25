@@ -18,6 +18,7 @@ it is generated with archify from [architecture.json](architecture.json).
 | TTS host server | `lib/tts-port.ts` | The host's end of the ports: which tab owns the host, its commands, its events and its paragraph requests. |
 | Supertonic host | `lib/tts-host.ts` | Pronunciation, synthesis cache, scheduling and dual-`<audio>` playback. |
 | Pocket host | `lib/pocket-tts-host.ts` | Bounded units that start at 80 characters after each start or seek and grow at most 1.75x per unit up to 180 (faster first sound, no gap at RTF ~0.6), 0.6 s of silence after a sentence and 1 s after a paragraph, none after the last unit (Pocket barely trails a unit), three units of lookahead (live paragraphs are prefetched passively, then promoted when playback reaches them) and worker synthesis. The Pocket cache is separate and the host receives no pronunciation rules. |
+| Kale Tiny host | `lib/pocket-tts-host.ts`, `lib/kale/`, `entrypoints/kale-worker.ts` | Shares the bounded playback queue, caches verified models and runs English synthesis in a worker. |
 
 The session is tested with `node --test` against fake views, a fake page and a
 fake `speechSynthesis`; the players and the port server are tested the same
@@ -65,11 +66,62 @@ engine preference. Language and private-window fallbacks affect only the
 effective engine for one reading. That engine determines whether to load and
 apply personal pronunciation rules. Verbalis prepares the text regardless of engine.
 
+## Kale TTS Tiny
+
+Choose **Kale TTS Tiny** in **Engine and voices** to read English. Other
+languages use the system voice for that reading. The first read fetches and
+verifies the pinned model, tokenizer, dictionaries and selected voice. The
+files are saved in the extension's Cache Storage and can be cleared under
+**AI storage**. Private windows use cached files only.
+
+The CPU graph uses INT8 with ONNX Runtime Web 1.26. **Use WebGPU when available**
+allows the worker to download the 183 MB FP32 graph once a graphics adapter is
+available. The worker keeps an INT8 copy on disk and uses a separate ONNX
+Runtime Web 1.31.1 instance for the GPU graph. Failure or unresponsiveness on
+WebGPU retires that worker and retries the same chunk on the CPU. Kale readings
+are excluded from usage analytics.
+
+The build packages the code and both runtimes. Models are downloaded on demand.
+The vendored Kale frontend comes from Space revision
+`3bab6511db89e4977504224861e1b5636debb6a3`. Its loader accepts Orateur's verified
+asset reader and explicit backend. The package includes the third-party notices.
+
+`WXT_KALE_TEST=1 npm run zip` and `WXT_KALE_TEST=1 npm run zip:firefox` produce a
+separately named candidate under `.output/kale-release-candidate`. Run
+`tests/e2e/kale.test.mjs` with `ORATEUR_KALE_FIXTURES` pointing to verified Kale
+assets. `ORATEUR_KALE_GPU_FIXTURE` optionally supplies the FP32 graph for a
+direct WebGPU check on a capable browser. The fixture server stays on loopback.
+
+## Phonon
+
+Phonon 40M Multilingual is an opt-in CPU engine for English and French. Both
+languages use the same q8 checkpoint and select a language-specific voice.
+The Pocket playback queue handles progress, pause, resume, seek and stop.
+The SDK, its workers, WebAssembly and license notices are packaged with the
+extension. Only verified model data is fetched from the configured source.
+Cached assets support offline playback and private-window cache-only reading.
+Interrupted downloads can resume from the last received byte. Only a complete
+file with the pinned SHA-256 can be cached or used.
+Unsupported languages use the system voice. Phonon playback and downloads
+are excluded from usage analytics.
+
+Candidate builds load a model source manifest file from `ORATEUR_PHONON_MANIFEST`.
+Store builds read `phonon-release-manifest.json` and keep the
+standard package paths and Firefox extension ID. See
+[Phonon candidate fixtures](testing.md#phonon-candidate-fixtures) and
+[release configuration](release.md#phonon-model-hosting).
+
+Gradium licenses the 40M model files under CC BY-NC 4.0. A deployment needs a
+source and attribution for model files that Orateur is authorized to distribute.
+The browser uses that source without a Hugging Face account or credentials.
+[Model card](https://huggingface.co/gradium/phonon-40m-multilingual#license) ·
+[Browser SDK](https://github.com/gradium-ai/xn-ptts/blob/v0.7.1/ptts-wasm/js/README.md#the-model)
+
 ## Invariants
 
 - **One owner.** The last port to send `TTS_SPEAK` owns the host. Commands from
   any other port are ignored, and the previous owner's unanswered paragraph
-  requests fail. Switching between Pocket and Supertonic stops and retires
+  requests fail. Switching between local engines stops and retires
   the previous host before it can emit events for the new owner.
 - **Closing the port stops the reading.** The player's `dispose()` closes it, so
   a folded pill releases the host. If the host closes it first (Chrome closes an

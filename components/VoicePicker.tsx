@@ -3,18 +3,21 @@ import { useTranslation } from "../hooks/useTranslation"
 import { VoicePreviewButton } from "./VoicePreviewButton"
 import type { ReaderEngine } from "../lib/reader-prefs"
 import { isPocketVoice, type PocketVoice } from "../lib/pocket/catalog.ts"
+import { isKaleVoice, KALE_VOICES, type KaleVoice } from "../lib/kale/catalog.ts"
 import type { SupertonicVoice } from "../lib/supertonic/types.ts"
 import { voiceOptions } from "../lib/voice-options.ts"
 
 interface VoicePickerProps {
-  engine: ReaderEngine
+  engine: Exclude<ReaderEngine, "phonon">
   voiceURI: string | null
   supertonicVoice: SupertonicVoice
   pocketVoice: PocketVoice
+  kaleVoice?: KaleVoice
   speed: number
   onChangeSystemVoice: (voiceURI: string | null) => void
   onChangeSupertonicVoice: (voice: SupertonicVoice) => void
   onChangePocketVoice: (voice: PocketVoice) => void
+  onChangeKaleVoice: (voice: KaleVoice) => void
 }
 
 /** Selects a voice from the active engine's catalog. */
@@ -23,10 +26,12 @@ export function VoicePicker({
   voiceURI,
   supertonicVoice,
   pocketVoice,
+  kaleVoice,
   speed,
   onChangeSystemVoice,
   onChangeSupertonicVoice,
   onChangePocketVoice,
+  onChangeKaleVoice,
 }: VoicePickerProps) {
   const t = useTranslation()
   const [systemVoices, setSystemVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -41,12 +46,22 @@ export function VoicePicker({
     return () => speechSynthesis.removeEventListener("voiceschanged", refresh)
   }, [])
 
-  const localOptions = (local: "pocket" | "supertonic") => voiceOptions(local).map((option) => (
+  const localOptions = (local: Exclude<VoicePickerProps["engine"], "system">) => voiceOptions(local).map((option) => (
     <option key={option.id} value={option.id}>{"key" in option ? t(option.key) : option.text}</option>
   ))
 
   const select =
-    engine === "pocket" ? (
+    engine === "kale" ? (
+      <select
+        aria-labelledby="voice-picker-label"
+        value={kaleVoice ?? KALE_VOICES[0].id}
+        onChange={(e) => {
+          if (isKaleVoice(e.target.value)) onChangeKaleVoice(e.target.value)
+        }}
+      >
+        {localOptions("kale")}
+      </select>
+    ) : engine === "pocket" ? (
       <select
         aria-labelledby="voice-picker-label"
         value={pocketVoice}
@@ -88,7 +103,7 @@ export function VoicePicker({
       </span>
       <div className="voice-row">
         {select}
-        {engine !== "pocket" && <VoicePreviewButton engine={engine} voiceURI={voiceURI} supertonicVoice={supertonicVoice} speed={speed} />}
+        {(engine === "system" || engine === "supertonic") && <VoicePreviewButton engine={engine} voiceURI={voiceURI} supertonicVoice={supertonicVoice} speed={speed} />}
       </div>
     </div>
   )

@@ -1,9 +1,11 @@
 import { resolveDocLang } from "./detect-lang.ts"
 import type { Player, PlayerOptions } from "./player.ts"
 import { toPocketLanguage, type PocketLanguage, type PocketVoice } from "./pocket/catalog.ts"
+import { KALE_VOICES, type KaleVoice } from "./kale/catalog.ts"
 import { NOTIFY, type NotifyMessage } from "./reader-messages.ts"
 import type { ReaderPreferences } from "./reader-prefs.ts"
-import { createPocketPlayer, createSupertonicPlayer } from "./local-player.ts"
+import { PHONON_NAME, phononManifest, type PhononLanguage } from "./phonon/config.ts"
+import { createKalePlayer, createPhononPlayer, createPocketPlayer, createSupertonicPlayer } from "./local-player.ts"
 import type { SupportedLang } from "./supertonic-lang.ts"
 import { createSystemPlayer } from "./system-player.ts"
 import { MODEL_CACHE_QUERY, type ModelCacheQueryMessage } from "./tts-messages.ts"
@@ -13,32 +15,49 @@ export type PlayerSelection =
   | { engine: "system"; lang?: string }
   | { engine: "supertonic"; lang: SupportedLang }
   | { engine: "pocket"; lang: PocketLanguage; voice: PocketVoice; cacheOnly: boolean }
+  | { engine: "kale"; lang: "en"; voice: KaleVoice; cacheOnly: boolean; webGpu: boolean }
+  | { engine: "phonon"; lang: PhononLanguage; voice: "auto"; cacheOnly: boolean }
 
 /** Resolve language and private-window availability before loading engine-specific settings. */
 export async function selectPlayer(
-  { engine, pocketVoice }: ReaderPreferences, declared: string | undefined, text: string,
+  { engine, pocketVoice, kaleVoice, kaleWebGpu = false }: ReaderPreferences, declared: string | undefined, text: string,
 ): Promise<PlayerSelection> {
   const system = { engine: "system", lang: declared } as const
   if (engine === "system") return system
 
   const lang = resolveDocLang(declared, text)
-  const pocketLang = lang && toPocketLanguage(lang)
-  const supported = engine === "pocket" ? pocketLang : lang
   const cacheOnly = browser.extension.inIncognitoContext
+  if (engine === "kale") {
+    const voice = kaleVoice ?? KALE_VOICES[0].id
+    const cached = !cacheOnly || (lang === "en" && await browser.runtime.sendMessage({
+      type: MODEL_CACHE_QUERY, engine, lang, voice,
+    } satisfies ModelCacheQueryMessage).catch(() => false))
+    if (lang === "en" && cached) return { engine, lang, voice, cacheOnly, webGpu: kaleWebGpu }
+    void browser.runtime.sendMessage({
+      type: NOTIFY, message: browser.i18n.getMessage(lang === "en" ? "noticeKalePrivateWindow" : "noticeKaleLangUnsupported"),
+    } satisfies NotifyMessage).catch(() => {})
+    return system
+  }
+  const pocketLang = lang && toPocketLanguage(lang)
+  if (engine === "phonon" && !phononManifest) return system
+  const supported = engine === "supertonic" ? lang : pocketLang
   const cached = !cacheOnly || (supported &&
     await browser.runtime.sendMessage({
       type: MODEL_CACHE_QUERY, engine, lang: supported, voice: engine === "pocket" ? pocketVoice : undefined,
     } satisfies ModelCacheQueryMessage).catch(() => false))
   if (cached) {
+    if (engine === "phonon" && pocketLang) return { engine, lang: pocketLang, voice: "auto", cacheOnly }
     if (engine === "pocket" && pocketLang) return { engine, lang: pocketLang, voice: pocketVoice, cacheOnly }
     if (engine === "supertonic" && lang) return { engine, lang }
   }
 
-  const key = engine === "pocket"
+  const key = engine === "phonon"
+    ? supported ? "noticeLocalPrivateWindow" : "noticeLocalLangUnsupported"
+    : engine === "pocket"
     ? supported ? "noticePocketPrivateWindow" : "noticePocketLangUnsupported"
     : supported ? "noticeSupertonicPrivateWindow" : "noticeSupertonicLangUnsupported"
   void browser.runtime.sendMessage({
-    type: NOTIFY, message: browser.i18n.getMessage(key),
+    type: NOTIFY, message: browser.i18n.getMessage(key, engine === "phonon" ? PHONON_NAME : undefined),
   } satisfies NotifyMessage).catch(() => {})
   return system
 }
@@ -48,8 +67,10 @@ export function createPlayer(selection: PlayerSelection, options: PlayerOptions,
   switch (selection.engine) {
     case "system": return createSystemPlayer({ ...options, lang: selection.lang })
     case "supertonic": return createSupertonicPlayer({ ...options, lang: selection.lang, token })
+    case "phonon": return createPhononPlayer({ ...options, ...selection, token })
     case "pocket": return createPocketPlayer({
-      ...options, lang: selection.lang, token, voice: selection.voice, cacheOnly: selection.cacheOnly,
+      ...options, ...selection, token,
     })
+    case "kale": return createKalePlayer({ ...options, ...selection, token })
   }
 }

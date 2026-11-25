@@ -3,9 +3,9 @@ import test from "node:test"
 import { createPocketTtsHost } from "./pocket-tts-host.ts"
 import type { TtsState } from "./tts-messages.ts"
 import { splitBlocks } from "./reading-language.ts"
-import type { PocketSpeakRequest } from "./local-tts-host.ts"
+import type { ChunkedSpeakRequest } from "./local-tts-host.ts"
 
-function speak(host: ReturnType<typeof createPocketTtsHost>, { text, ...request }: Omit<PocketSpeakRequest, "paragraphs"> & { text: string }) {
+function speak(host: ReturnType<typeof createPocketTtsHost>, { text, ...request }: Omit<ChunkedSpeakRequest, "paragraphs"> & { text: string }) {
   host.speak({ ...request, paragraphs: splitBlocks(text).map((text) => ({ text, lang: request.lang })) })
 }
 

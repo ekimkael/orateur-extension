@@ -1,11 +1,6 @@
 import { DEFAULT_POCKET_VOICE, POCKET_LANGUAGES, type PocketLanguage, type PocketVoice } from "./catalog.ts"
 
-/** Immutable download metadata from the Hugging Face repositories. */
-export interface PocketFile {
-  url: string
-  size: number
-  sha256: string
-}
+import { createModelFileCache } from "../model-file-cache.ts"
 
 const CACHE = "orateur-pocket-tts-v1"
 const MODELS = "https://huggingface.co/idle-intelligence/pocket-tts-gguf/resolve/dab28d3740c448b4932d4414b4e473ee16b14331"
@@ -56,126 +51,22 @@ export function pocketModelFiles(lang: PocketLanguage, voice: PocketVoice) {
   }
 }
 
-async function openCache(): Promise<Cache | undefined> {
-  try {
-    return await globalThis.caches?.open(CACHE)
-  } catch {
-    // CacheStorage can be unavailable in private browsing.
-    return undefined
-  }
-}
+const cache = createModelFileCache(CACHE, "Pocket")
 
 /** Check if a specific model and voice are present without loading model bytes. */
 export async function isPocketModelCached(lang?: PocketLanguage, voice = DEFAULT_POCKET_VOICE): Promise<boolean> {
-  const cache = await openCache()
-  if (!cache) return false
-  try {
-    for (const language of lang ? [lang] : POCKET_LANGUAGES) {
-      const { tokenizer, weights, voice: voiceFile } = pocketModelFiles(language, voice)
-      const present = await Promise.all([tokenizer, weights, voiceFile].map(async (file) => (
-        (await cache.match(file.url))?.headers.get("Content-Length") === String(file.size)
-      )))
-      if (present.every(Boolean)) return true
-    }
-  } catch {
-    return false
+  for (const language of lang ? [lang] : POCKET_LANGUAGES) {
+    const { tokenizer, weights, voice: voiceFile } = pocketModelFiles(language, voice)
+    if (await cache.has([tokenizer, weights, voiceFile])) return true
   }
   return false
 }
 
 /** Report the bytes cached by Pocket independently of other engines. */
-export async function getPocketModelCacheSize(): Promise<number | null> {
-  const cache = await openCache()
-  if (!cache) return null
-  try {
-    let size = 0
-    for (const request of await cache.keys()) {
-      const bytes = Number((await cache.match(request))?.headers.get("Content-Length"))
-      if (Number.isSafeInteger(bytes) && bytes > 0) size += bytes
-    }
-    return size
-  } catch {
-    return null
-  }
-}
+export const getPocketModelCacheSize = cache.size
 
 /** Remove Pocket models and voice states from persistent storage. */
-export async function clearPocketModelCache(): Promise<void> {
-  await caches.delete(CACHE)
-}
-
-async function verified(bytes: ArrayBuffer, file: PocketFile) {
-  if (bytes.byteLength !== file.size) return false
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))
-  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("") === file.sha256
-}
-
-async function readVerified(
-  response: Response,
-  file: PocketFile,
-  signal: AbortSignal,
-  onProgress?: (loaded: number) => void,
-): Promise<ArrayBuffer> {
-  if (!response.body) throw new Error("Pocket model has no data")
-  const bytes = new Uint8Array(new ArrayBuffer(file.size))
-  const reader = response.body.getReader()
-  let offset = 0
-  let ended = false
-  try {
-    onProgress?.(0)
-    for (;;) {
-      const { done, value } = await reader.read()
-      signal.throwIfAborted()
-      if (done) {
-        ended = true
-        break
-      }
-      if (offset + value.byteLength > bytes.byteLength) throw new Error("Pocket model exceeds its published size")
-      bytes.set(value, offset)
-      offset += value.byteLength
-      onProgress?.(offset)
-    }
-  } finally {
-    if (!ended) await reader.cancel().catch(() => {})
-    reader.releaseLock()
-  }
-  if (offset !== file.size || !await verified(bytes.buffer, file)) throw new Error("Pocket model integrity check failed")
-  signal.throwIfAborted()
-  return bytes.buffer
-}
+export const clearPocketModelCache = cache.clear
 
 /** Read a bounded file, verify its digest, and cache only complete downloads. */
-export async function loadPocketFile(
-  file: PocketFile,
-  signal: AbortSignal,
-  onProgress: (loaded: number) => void,
-  cacheOnly = false,
-): Promise<ArrayBuffer> {
-  const cache = await openCache()
-  signal.throwIfAborted()
-  try {
-    const cached = await cache?.match(file.url)
-    if (cached) {
-      if (cached.headers.get("Content-Length") === String(file.size)) {
-        const bytes = await readVerified(cached, file, signal).catch(() => null)
-        if (bytes) return bytes
-      }
-      signal.throwIfAborted()
-      await cache?.delete(file.url)
-    }
-  } catch {
-    // A cache failure is recoverable while the model is reachable.
-  }
-  signal.throwIfAborted()
-  if (cacheOnly) throw new Error("Verified Pocket model is unavailable offline")
-  const response = await fetch(file.url, { signal, credentials: "omit", referrerPolicy: "no-referrer" })
-  if (!response.ok) throw new Error(`Pocket model download failed (HTTP ${response.status})`)
-  const bytes = await readVerified(response, file, signal, onProgress)
-  try {
-    await cache?.put(file.url, new Response(bytes, { headers: { "Content-Length": String(file.size) } }))
-  } catch {
-    // Cache quota must not prevent an otherwise valid reading.
-  }
-  signal.throwIfAborted()
-  return bytes
-}
+export const loadPocketFile = cache.load

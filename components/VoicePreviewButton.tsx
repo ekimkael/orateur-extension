@@ -5,7 +5,7 @@ import { prepareSpeech } from "../lib/prepare-speech.ts"
 import type { SupertonicVoice } from "../lib/supertonic/types.ts"
 
 interface VoicePreviewButtonProps {
-  engine: Exclude<ReaderEngine, "pocket">
+  engine: Extract<ReaderEngine, "supertonic" | "system">
   voiceURI: string | null
   supertonicVoice: SupertonicVoice
   /** Vitesse réglée : l'extrait se joue à ce rythme, pas à un rythme neutre. */

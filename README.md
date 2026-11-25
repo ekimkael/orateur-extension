@@ -30,18 +30,25 @@ using [WXT](https://wxt.dev). Edge uses the Chrome package.
   positions, hidden sites, model downloads and personal pronunciation rules.
 
 Choose an engine in the reading pill or settings. New installations default to
-**Pocket TTS**. Updates preserve saved engines and voices, with the system
+**Supertonic**. Updates preserve saved engines and voices, with the system
 engine retained for older profiles without a saved engine.
 
 - [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) runs locally in French
   and English. The first reading downloads about 140 MB for that language.
+- [Kale TTS Tiny](https://huggingface.co/KaleComputer/kale-tts-1-tiny) offers ten
+  English voices and downloads about 90 MB for the first reading. Optional
+  WebGPU acceleration adds a 183 MB model and keeps the CPU graph for fallback.
+- [Phonon 40M Multilingual](https://huggingface.co/gradium/phonon-40m-multilingual)
+  synthesizes English and French locally. It downloads about 75 MB of
+  shared model files and one small voice file for each language.
+  [Model and voice attribution](https://orateur.digitalekim.net/n0c-storage/orateur-phonon-40m-1537ce4/ATTRIBUTION.txt).
 - [Supertonic](https://huggingface.co/Supertone/supertonic-3) runs locally on
   ONNX Runtime Web with ten voices. Its first reading or explicit download
   fetches about 400 MB.
 - System voices use the browser's `speechSynthesis`. Availability depends on
   the browser and operating system, and some voices use an online service.
 
-The two local engines work offline with their cached files. Unsupported
+The local engines work offline with their cached files. Unsupported
 languages and private windows without cached models use a system voice for
 the reading. Verbalis prepares spoken text for every engine in its supported languages.
 Personal pronunciation rules apply with Supertonic and system voices.
@@ -69,11 +76,11 @@ extension page.
 
 The reader pill is a view over a reading session (`lib/reading-session.ts`),
 which drives one `Player` per reading. System speech runs in the page
-(`lib/system-player.ts`). Supertonic and Pocket share the port adapter
+(`lib/system-player.ts`). Supertonic, Pocket and Kale share the port adapter
 (`lib/local-player.ts`) and audio ownership server (`lib/tts-port.ts`).
 They synthesize in the Chrome offscreen document or Firefox background page,
 with separate runtimes and model caches. Preferences and reading progress
-live in `storage.local`. Supertonic uses OPFS and Pocket uses Cache Storage,
+live in `storage.local`. Supertonic uses OPFS; Pocket and Kale use Cache Storage,
 both on the extension origin.
 
 See [docs/reading-architecture.md](docs/reading-architecture.md) for the
@@ -121,7 +128,7 @@ npm run test:e2e:firefox
 
 See [the testing guide](docs/testing.md) for diagnostics, feature
 coverage and required manual audio checks. Automated playback checks do not
-replace listening to actual system, Supertonic and Pocket output.
+replace listening to actual system, Supertonic, Pocket and Kale output.
 
 ### Reader design model
 
@@ -160,10 +167,10 @@ Add-on**, and select `.output/firefox-mv2/manifest.json`. Temporary Firefox
 installation ends when the browser restarts.
 
 The Chrome ZIP is also submitted to Edge Add-ons. `public/ort/` is generated
-and ignored by Git: `copyOrtAssets()` copies three ONNX Runtime files from
-`node_modules` when [wxt.config.ts](wxt.config.ts) loads, including during
-`wxt prepare`. These runtime files are bundled; the Supertonic model weights
-are downloaded only on request.
+and ignored by Git. `copyOrtAssets()` copies ONNX Runtime files from
+`node_modules` to `public/ort/` and `public/ort-kale/` when
+[wxt.config.ts](wxt.config.ts) loads, including during `wxt prepare`. The runtimes
+are bundled and model weights are downloaded on demand.
 
 ## Git Flow and releasing
 

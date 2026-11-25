@@ -65,14 +65,16 @@ function prepareFrenchForms(text: string, normalize: (text: string) => string): 
     .replace(/(?<![\p{L}\p{N}_.:/@#?&=%+-])(ticket[\t\p{Zs}]+)#(\d+)(?![\p{L}\p{N}_/@#?&=%+-]|\.[\p{L}\p{N}])/giu,
       (_, label: string, digits: string) => `${label}numéro ${readDigits(digits)}`)
     .replace(/(?<![\p{L}\p{N}_.:/@#?&=%+-])((?:statut|état)[\t\p{Zs}]*:[\t\p{Zs}]*)EN_ATTENTE(?![\p{L}\p{N}_/@#?&=%+-]|\.[\p{L}\p{N}])/giu, "$1en attente")
-    .replace(/(?<![\p{L}\p{N}_.:/@#?&=%+-])([+-]?\d+(?:[ \u00a0\u202f]\d{3})*(?:[,.]\d+)?)[\t\p{Zs}]*(mAh|Mb\/s)(?![\p{L}\p{N}_/@#?&=%+-]|\.[\p{L}\p{N}])/gu,
+    .replace(/(?<![\p{L}\p{N}_.:/@#?&=%+-])([+-]?\d+(?:[ \u00a0\u202f]\d{3})*(?:[,.]\d+)?)[\t\p{Zs}]*(mAh|Mb\/s|FCFA)(?![\p{L}\p{N}_/@#?&=%+-]|\.[\p{L}\p{N}])/gu,
       (_, amount: string, unit: string) => {
         const plural = Math.abs(Number(amount.replace(/\s/g, "").replace(",", "."))) >= 2
+        if (unit === "FCFA") return `${amount} ${plural ? "francs" : "franc"} CFA`
         const words = unit === "mAh"
           ? (plural ? "milliampères-heures" : "milliampère-heure")
           : (plural ? "mégabits par seconde" : "mégabit par seconde")
         return `${amount} ${words}`
       })
+    .replace(/(?<![\p{L}\p{N}_.:/@#?&=%+-])FCFA(?![\p{L}\p{N}_/@#?&=%+-]|\.[\p{L}\p{N}])/gu, "franc CFA")
     // Name standalone letters and leave omega after a quantity available as a unit.
     .replace(standaloneGreekLetter, (symbol) => symbol === "Ω" ? "oméga" : greekLetterNames[symbol]!)
 }

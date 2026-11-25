@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-25
+
+### Added
+
+- Phonon 40M Multilingual reads English and French on your device. The first reading downloads about 75 MB of shared model files and a small voice file for each language. Cached voices work offline.
+- Kale TTS Tiny adds ten English voices with optional WebGPU acceleration. The CPU model remains available when WebGPU cannot start.
+
+### Fixed
+
+- French amounts marked FCFA are read as francs CFA.
+
 ## [0.12.0] - 2026-11-21
 
 ### Changed

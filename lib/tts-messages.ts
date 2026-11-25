@@ -52,7 +52,7 @@ export const TTS_SET_SPEED = "orateur:tts:set-speed"
 export const TTS_SEEK = "orateur:tts:seek"
 
 /** Local engines served by the extension's shared TTS port. */
-export type LocalTtsEngine = "supertonic" | "pocket"
+export type LocalTtsEngine = "supertonic" | "pocket" | "kale" | "phonon"
 
 interface TtsSpeakBase {
   type: typeof TTS_SPEAK
@@ -77,18 +77,20 @@ export interface SupertonicSpeakMessage extends TtsSpeakBase {
   personalRules?: PronunciationRule[]
 }
 
-/** Pocket receives extracted text without Orateur pronunciation rules. */
-export interface PocketSpeakMessage extends TtsSpeakBase {
-  engine: "pocket"
+/** Chunked local engines receive prepared text in one model language. */
+export interface ChunkedSpeakMessage extends TtsSpeakBase {
+  engine: "pocket" | "kale" | "phonon"
   lang: string
   voice: string
   /** Private windows can use verified cached files without starting downloads. */
   cacheOnly?: boolean
+  /** Kale may select WebGPU when the user opted in. */
+  webGpu?: boolean
   personalRules?: never
 }
 
 /** The engine discriminator keeps each model's voice and language independent. */
-export type TtsSpeakMessage = SupertonicSpeakMessage | PocketSpeakMessage
+export type TtsSpeakMessage = SupertonicSpeakMessage | ChunkedSpeakMessage
 
 /** Host to tab: re-read paragraph `block` from the live page. */
 export interface TtsPrepareBlockMessage {

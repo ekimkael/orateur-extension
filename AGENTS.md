@@ -24,7 +24,7 @@ Read the docs at these exact versions before changing code that uses them.
 | React | 19.2 | https://react.dev |
 | TypeScript | 5.9 | https://www.typescriptlang.org/docs/ |
 | @mozilla/readability | 0.6.0 | https://github.com/mozilla/readability/tree/0.6.0 |
-| onnxruntime-web | 1.26 | https://onnxruntime.ai/docs/ |
+| onnxruntime-web | 1.26 for Supertonic and Kale CPU, 1.31.1 for Kale WebGPU | https://onnxruntime.ai/docs/ |
 | Puppeteer (browser tests) | 25.14.0 | https://pptr.dev |
 | web-ext | 10.8 | https://extensionworkshop.com/documentation/develop/web-ext-command-reference/ |
 | jsdom (Node tests) | 29.1 | https://github.com/jsdom/jsdom |

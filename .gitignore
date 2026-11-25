@@ -27,6 +27,7 @@ scratchpad
 
 # Runtime onnxruntime-web recopié dans public/ au build par copyOrtAssets
 /public/ort/
+/public/ort-kale/
 
 # Outillage local : config d'agent et notes de travail
 .claude
